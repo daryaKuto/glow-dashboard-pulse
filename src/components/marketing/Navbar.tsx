@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,56 +14,53 @@ import { useAuth } from '@/providers/AuthProvider';
 const Navbar = () => {
   const { user } = useAuth();
   
-  // NavLinks component for both desktop and mobile
-  const NavLinks = () => (
-    <>
-      <Link 
-        to="/"
-        className="text-white hover:text-brand-lavender transition-colors px-4 py-2 rounded-md"
-      >
-        Home
-      </Link>
-      
-      <Link 
-        to="/products"
-        className="text-white hover:text-brand-lavender transition-colors px-4 py-2 rounded-md"
-      >
-        Products
-      </Link>
-      
-      {user ? (
-        <Link 
-          to="/dashboard"
-          className="text-white hover:text-brand-lavender transition-colors px-4 py-2 rounded-md"
-        >
-          Dashboard
-        </Link>
-      ) : (
-        <>
-          <Link 
-            to="/login"
-            className="text-white hover:text-brand-lavender transition-colors px-4 py-2 rounded-md"
-          >
-            Login
-          </Link>
-          
-          <Link 
-            to="/signup"
-            className="bg-brand-lavender hover:bg-brand-lavender/80 text-white px-4 py-2 rounded-md"
-          >
-            Sign Up
-          </Link>
-        </>
-      )}
-      
-      <Link 
-        to="/affiliate/apply"
-        className="bg-brand-lavender hover:bg-brand-lavender/80 text-white px-4 py-2 rounded-md"
-      >
-        Apply as Affiliate
-      </Link>
-    </>
-  );
+  // NavLinks component with properly wrapped SheetClose for mobile
+  const NavLinks = ({ isMobile = false }) => {
+    const links = [
+      { to: "/", label: "Home" },
+      { to: "/products", label: "Products" },
+    ];
+    
+    const authLinks = user ? [
+      { to: "/dashboard", label: "Dashboard" }
+    ] : [
+      { to: "/login", label: "Login" },
+      { to: "/signup", label: "Sign Up", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" }
+    ];
+    
+    const affiliateLink = { 
+      to: "/affiliate/apply", 
+      label: "Apply as Affiliate", 
+      className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" 
+    };
+    
+    const allLinks = [...links, ...authLinks, affiliateLink];
+    
+    return (
+      <>
+        {allLinks.map((link, index) => (
+          isMobile ? (
+            <SheetClose key={index} asChild>
+              <Link 
+                to={link.to}
+                className={`text-white hover:text-brand-lavender transition-colors px-4 py-2 rounded-md ${link.className || ''}`}
+              >
+                {link.label}
+              </Link>
+            </SheetClose>
+          ) : (
+            <Link 
+              key={index}
+              to={link.to}
+              className={`text-white hover:text-brand-lavender transition-colors px-4 py-2 rounded-md ${link.className || ''}`}
+            >
+              {link.label}
+            </Link>
+          )
+        ))}
+      </>
+    );
+  };
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-brand-surface border-b border-brand-lavender/10">
@@ -78,7 +75,7 @@ const Navbar = () => {
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-4">
-            <NavLinks />
+            <NavLinks isMobile={false} />
           </div>
 
           {/* Mobile Navigation */}
@@ -91,7 +88,7 @@ const Navbar = () => {
             <SheetContent side="right" className="w-[300px] bg-brand-surface">
               <div className="flex flex-col space-y-6 mt-12">
                 <div className="flex flex-col space-y-4">
-                  <NavLinks />
+                  <NavLinks isMobile={true} />
                 </div>
               </div>
             </SheetContent>

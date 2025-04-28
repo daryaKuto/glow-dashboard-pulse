@@ -1,6 +1,6 @@
-
 import { create } from 'zustand';
 import { API } from '@/lib/api';
+import { createMockWebSocket } from '@/mocks/mockSocket';
 
 export interface StatsState {
   activeTargets: number;
@@ -17,6 +17,7 @@ interface StatsActions {
   fetchStats: (token: string) => Promise<void>;
   updateHit: (targetId: string, score: number) => void;
   setWsConnected: (connected: boolean) => void;
+  initializeWebSocket: (userId: string) => WebSocket;
 }
 
 const initialState: StatsState = {
@@ -43,20 +44,19 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
   fetchStats: async (token: string) => {
     try {
       set({ isLoading: true, error: null });
-      // For now using mock data, will replace with actual API call later
-      // const stats = await API.getStats(token);
       
-      // Mock response
-      const stats = {
-        activeTargets: 5,
-        roomsCreated: 3,
-        lastSessionScore: 84,
-        pendingInvites: 2,
-        hitTrend: get().hitTrend,
-      };
+      const stats = await API.getStats(token);
+      const hits = await API.getHitStats(token);
       
       set({ 
-        ...stats, 
+        activeTargets: stats.targets.online,
+        roomsCreated: stats.rooms.count,
+        lastSessionScore: stats.sessions.latest.score,
+        pendingInvites: stats.invites.length,
+        hitTrend: hits.map((hit: any) => ({
+          date: hit.date,
+          hits: hit.hits
+        })),
         isLoading: false 
       });
     } catch (error) {
@@ -85,4 +85,26 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
   },
   
   setWsConnected: (connected: boolean) => set({ wsConnected: connected }),
+  
+  initializeWebSocket: (userId: string) => {
+    const socket = useMocks ? 
+      createMockWebSocket(userId) : 
+      new WebSocket(`wss://api.fungun.dev/hits/${userId}`);
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'hit') {
+          get().updateHit(data.targetId, data.score);
+        }
+      } catch (error) {
+        console.error('WebSocket message parse error:', error);
+      }
+    };
+
+    socket.onopen = () => set({ wsConnected: true });
+    socket.onclose = () => set({ wsConnected: false });
+
+    return socket;
+  }
 }));

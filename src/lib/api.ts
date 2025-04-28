@@ -1,8 +1,8 @@
-
 // API helper functions
 import { toast } from "@/components/ui/sonner";
 
-const API_BASE_URL = "https://api.fungun.dev";
+const useMocks = import.meta.env.VITE_USE_MOCK === 'true';
+const API_BASE_URL = useMocks ? 'https://api.fungun.dev' : 'https://api.fungun.dev';
 
 // Fetcher function for API calls
 export const fetcher = async (endpoint: string, options = {}) => {
@@ -46,15 +46,30 @@ export const connectWebSocket = (token: string) => {
 
 // API endpoints
 export const API = {
-  getStats: (token: string) => fetcher("/stats", {
+  getStats: async (token: string) => {
+    const [targets, rooms, scenarios, sessions, invites] = await Promise.all([
+      fetcher("/stats/targets", { headers: { Authorization: `Bearer ${token}` } }),
+      fetcher("/stats/rooms", { headers: { Authorization: `Bearer ${token}` } }),
+      fetcher("/stats/scenarios", { headers: { Authorization: `Bearer ${token}` } }),
+      fetcher("/sessions/latest", { headers: { Authorization: `Bearer ${token}` } }),
+      fetcher("/invites/pending", { headers: { Authorization: `Bearer ${token}` } })
+    ]);
+
+    return { targets, rooms, scenarios, sessions, invites };
+  },
+
+  getHitStats: (token: string) => fetcher("/stats/hits", {
     headers: { Authorization: `Bearer ${token}` }
   }),
+
   getTargets: (token: string) => fetcher("/targets", {
     headers: { Authorization: `Bearer ${token}` }
   }),
+
   getRooms: (token: string) => fetcher("/rooms", {
     headers: { Authorization: `Bearer ${token}` }
   }),
+
   getInvites: (token: string) => fetcher("/invites", {
     headers: { Authorization: `Bearer ${token}` }
   }),

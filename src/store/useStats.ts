@@ -1,7 +1,6 @@
-
 import { create } from 'zustand';
 import { API } from '@/lib/api';
-import { createSessionWebSocket } from '@/mocks/mockSocket';
+import { MockWebSocket } from '@/lib/api';
 
 export interface StatsState {
   activeTargets: number;
@@ -18,7 +17,7 @@ interface StatsActions {
   fetchStats: (token: string) => Promise<void>;
   updateHit: (targetId: string, score: number) => void;
   setWsConnected: (connected: boolean) => void;
-  initializeWebSocket: (userId: string) => WebSocket;
+  initializeWebSocket: (userId: string) => MockWebSocket;
 }
 
 const initialState: StatsState = {
@@ -88,24 +87,50 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
   setWsConnected: (connected: boolean) => set({ wsConnected: connected }),
   
   initializeWebSocket: (userId: string) => {
-    const useMock = import.meta.env.VITE_USE_MOCK === 'true';
-    const socket = useMock ? 
-      createSessionWebSocket(userId) : 
-      new WebSocket(`wss://api.fungun.dev/hits/${userId}`);
-
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'hit') {
-          get().updateHit(data.targetId, data.score);
-        }
-      } catch (error) {
-        console.error('WebSocket message parse error:', error);
+    // Import directly from mockBackend to support full migration away from MSW
+    const { mockBackend } = require('@/lib/mockBackend');
+    
+    // Create a mock WebSocket
+    const socket: MockWebSocket = {
+      onopen: null,
+      onclose: null,
+      onmessage: null,
+      onerror: null,
+      
+      send: (data: string) => {
+        console.log('WebSocket message sent:', data);
+      },
+      
+      close: () => {
+        mockBackend.off('hit', handleHit);
+        if (socket.onclose) socket.onclose({} as any);
+        set({ wsConnected: false });
       }
     };
 
-    socket.onopen = () => set({ wsConnected: true });
-    socket.onclose = () => set({ wsConnected: false });
+    // Set up event handlers
+    const handleHit = (event: { targetId: number, score: number }) => {
+      if (socket.onmessage) {
+        socket.onmessage({
+          data: JSON.stringify({
+            type: 'hit',
+            targetId: event.targetId,
+            score: event.score
+          })
+        } as any);
+        
+        get().updateHit(event.targetId.toString(), event.score);
+      }
+    };
+    
+    // Register event handlers
+    mockBackend.on('hit', handleHit);
+    
+    // Trigger initial connection
+    setTimeout(() => {
+      set({ wsConnected: true });
+      if (socket.onopen) socket.onopen({} as any);
+    }, 100);
 
     return socket;
   }

@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Target, Users, Calendar, Bell } from 'lucide-react';
 import { useStats } from '@/store/useStats';
-import { connectWebSocket } from '@/lib/api';
+import { connectWebSocket, MockWebSocket } from '@/lib/api';
 import { toast } from '@/components/ui/sonner';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
@@ -19,7 +19,7 @@ const Dashboard: React.FC = () => {
     activeTargets, roomsCreated, lastSessionScore, pendingInvites, hitTrend,
     isLoading, fetchStats, updateHit, setWsConnected 
   } = useStats();
-  const [socket, setSocket] = useState<WebSocket | null>(null);
+  const [socket, setSocket] = useState<MockWebSocket | null>(null);
 
   // Extract token from URL params
   const token = new URLSearchParams(location.search).get('token') || 'dummy_token';

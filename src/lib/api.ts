@@ -4,6 +4,16 @@ import { mockBackend } from './mockBackend';
 // Environment check for using mock or real API
 const useMocks = true; // We're fully switching to mocks as per requirements
 
+// Define a type for our mock WebSocket that matches what we're returning
+export interface MockWebSocket {
+  onopen: ((this: WebSocket, ev: Event) => any) | null;
+  onmessage: ((this: WebSocket, ev: MessageEvent) => any) | null;
+  onclose: ((this: WebSocket, ev: CloseEvent) => any) | null;
+  onerror: ((this: WebSocket, ev: Event) => any) | null;
+  send: (data: string) => void;
+  close: () => void;
+}
+
 // Unified API interface that works with both real and mock backends
 export const fetcher = async (endpoint: string, options = {}) => {
   if (useMocks) {
@@ -120,13 +130,13 @@ export const fetcher = async (endpoint: string, options = {}) => {
 };
 
 // WebSocket connection helper now uses our mock events
-export const connectWebSocket = (token: string) => {
+export const connectWebSocket = (token: string): MockWebSocket => {
   // Create a fake WebSocket-like object backed by our mock events
-  const fakeSocket = {
-    onopen: null as any,
-    onmessage: null as any,
-    onclose: null as any,
-    onerror: null as any,
+  const fakeSocket: MockWebSocket = {
+    onopen: null,
+    onmessage: null,
+    onclose: null,
+    onerror: null,
     
     send: (data: string) => {
       console.log('Mock WebSocket message sent:', data);
@@ -140,7 +150,7 @@ export const connectWebSocket = (token: string) => {
   };
   
   // Set up event handlers
-  const handleHit = (event: { targetId: number, score: number }) => {
+  const handleHit = (event: { targetId: number; score: number }) => {
     if (fakeSocket.onmessage) {
       fakeSocket.onmessage({
         data: JSON.stringify({

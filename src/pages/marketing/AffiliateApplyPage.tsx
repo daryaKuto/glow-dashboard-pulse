@@ -1,7 +1,7 @@
 
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AffiliateForm } from "@/components/marketing/AffiliateForm";
+import AffiliateForm from "@/components/marketing/AffiliateForm";
 import Navbar from "@/components/marketing/Navbar";
 import Footer from "@/components/marketing/Footer";
 

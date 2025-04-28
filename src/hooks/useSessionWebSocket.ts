@@ -33,6 +33,7 @@ export const useSessionWebSocket = (sessionId: string | null) => {
       },
       
       close: () => {
+        const handleScoreUpdate = () => {};
         staticDb.off('score_update', handleScoreUpdate);
         if (socket.onclose) socket.onclose({} as any);
         setConnected(false);
@@ -53,17 +54,20 @@ export const useSessionWebSocket = (sessionId: string | null) => {
       }
     };
     
-    // Register for score update events
-    staticDb.on('score_update', handleScoreUpdate);
-    
-    // Set socket refs and trigger connection
-    socketRef.current = socket;
-    
-    // Trigger connected state
-    setTimeout(() => {
-      setConnected(true);
-      if (socket.onopen) socket.onopen({} as any);
-    }, 100);
+    // Initialize database if needed
+    staticDb.ensureInitialized().then(() => {
+      // Register for score update events
+      staticDb.on('score_update', handleScoreUpdate);
+      
+      // Set socket refs and trigger connection
+      socketRef.current = socket;
+      
+      // Trigger connected state
+      setTimeout(() => {
+        setConnected(true);
+        if (socket.onopen) socket.onopen({} as any);
+      }, 100);
+    });
 
     socket.onopen = () => {
       setConnected(true);

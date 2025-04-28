@@ -48,6 +48,7 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
       
+      await staticDb.ensureInitialized();
       const stats = await API.getStats(token);
       const trend = await API.getTrend7d();
       
@@ -55,7 +56,7 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
         activeTargets: stats.targets.online,
         roomsCreated: stats.rooms.count,
         lastSessionScore: stats.sessions.latest.score,
-        pendingInvites: stats.invites.length,
+        pendingInvites: stats.invites?.length || 0,
         hitTrend: trend.map(hit => ({
           date: hit.day,
           hits: hit.hits
@@ -64,7 +65,7 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
       });
 
       // Subscribe to hit events to update trend
-      staticDb.on('hit', () => {
+      const handleHitUpdate = () => {
         const updatedTrend = staticDb.getHits7d();
         set({
           hitTrend: updatedTrend.map(hit => ({
@@ -72,7 +73,12 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
             hits: hit.hits
           }))
         });
-      });
+      };
+      
+      // Remove any existing listeners to prevent duplicates
+      staticDb.off('hit', handleHitUpdate);
+      // Add new listener
+      staticDb.on('hit', handleHitUpdate);
     } catch (error) {
       set({ 
         error: error instanceof Error ? error : new Error('Unknown error'), 
@@ -113,6 +119,7 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
       },
       
       close: () => {
+        const handleHit = (event: { targetId: number, score: number }) => {};
         staticDb.off('hit', handleHit);
         if (socket.onclose) socket.onclose({} as any);
         set({ wsConnected: false });

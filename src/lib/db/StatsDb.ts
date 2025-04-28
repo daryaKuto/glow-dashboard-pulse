@@ -6,19 +6,19 @@ export class StatsDb extends BaseDb {
   getStats() {
     return {
       targets: {
-        online: this.db.targets.filter(t => t.status === 'online').length
+        online: this.db?.targets?.filter(t => t.status === 'online')?.length || 0
       },
       rooms: {
-        count: this.db.rooms.length
+        count: this.db?.rooms?.length || 0
       },
       sessions: {
-        latest: this.db.sessions[this.db.sessions.length - 1] || { score: 0 }
+        latest: this.db?.sessions?.[this.db.sessions.length - 1] || { score: 0 }
       }
     };
   }
   
   getHitStats() {
-    return [...this.db.hitStats];
+    return [...(this.db?.hitStats || [])];
   }
   
   getHits7d(): ChartLeaderboardEntry[] {
@@ -52,18 +52,22 @@ export class StatsDb extends BaseDb {
   
   simulateHits() {
     const fire = () => {
-      const onlineTargets = this.db.targets.filter(t => t.status === 'online');
-      if (onlineTargets.length) {
-        const target = onlineTargets[Math.floor(Math.random() * onlineTargets.length)];
-        this.recordHit(target.id);
-        this.emitter.emit('hit', { 
-          targetId: target.id,
-          score: Math.floor(Math.random() * 10) + 1
-        });
+      // Check if db is initialized and has targets property
+      if (this.db?.targets && this.db.targets.length > 0) {
+        const onlineTargets = this.db.targets.filter(t => t.status === 'online');
+        if (onlineTargets.length) {
+          const target = onlineTargets[Math.floor(Math.random() * onlineTargets.length)];
+          this.recordHit(target.id);
+          this.emit('hit', { 
+            targetId: target.id,
+            score: Math.floor(Math.random() * 10) + 1
+          });
+        }
       }
       setTimeout(fire, Math.floor(Math.random() * 9000) + 3000);
     };
     
-    fire();
+    // Add a small delay to ensure db is initialized
+    setTimeout(fire, 1000);
   }
 }

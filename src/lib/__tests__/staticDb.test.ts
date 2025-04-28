@@ -1,10 +1,39 @@
-
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { staticDb } from '../staticDb';
+
+// Mock localStorage
+const localStorageMock = (() => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: vi.fn((key: string) => store[key] || null),
+    setItem: vi.fn((key: string, value: string) => {
+      store[key] = value.toString();
+    }),
+    removeItem: vi.fn((key: string) => {
+      delete store[key];
+    }),
+    clear: vi.fn(() => {
+      store = {};
+    }),
+  };
+})();
+
+// Setup mock
+Object.defineProperty(window, 'localStorage', { value: localStorageMock });
 
 describe('StaticDb', () => {
   beforeEach(() => {
-    localStorage.clear();
+    localStorageMock.clear();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should initialize with test user', async () => {
+    await staticDb.ensureInitialized();
+    const db = staticDb._getDbForTesting();
+    expect(db.users[0].email).toBe('test_user@example.com');
   });
 
   describe('getHits7d', () => {

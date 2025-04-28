@@ -9,10 +9,10 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { 
-  edit, 
-  trash, 
-  circle, 
-  circle-check
+  Edit, 
+  Trash, 
+  Circle, 
+  CheckCircle 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Target } from '@/store/useTargets';
@@ -47,9 +47,9 @@ const TargetCard: React.FC<TargetCardProps> = ({
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-lg font-semibold text-white flex items-center gap-2">
           {target.status === 'online' ? (
-            <circle-check size={16} className="text-green-400" />
+            <CheckCircle size={16} className="text-green-400" />
           ) : (
-            <circle size={16} className="text-gray-400" />
+            <Circle size={16} className="text-gray-400" />
           )}
           {target.name}
         </CardTitle>
@@ -89,7 +89,7 @@ const TargetCard: React.FC<TargetCardProps> = ({
           className="text-brand-lavender hover:text-white hover:bg-brand-lavender/20"
           onClick={handleRename}
         >
-          <edit className="h-4 w-4 mr-1" />
+          <Edit className="h-4 w-4 mr-1" />
           Rename
         </Button>
         <Button 

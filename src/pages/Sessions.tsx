@@ -1,4 +1,3 @@
-
 import React, { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useSessions, Session } from '@/store/useSessions';
@@ -13,9 +12,9 @@ import {
 } from "@/components/ui/dialog";
 import { 
   Calendar as CalendarIcon, 
-  plus,
-  circle-check,
-  circle
+  Plus,
+  CheckCircle,
+  Circle
 } from 'lucide-react';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
@@ -99,7 +98,7 @@ const CreateSessionDialog: React.FC<{
     <Dialog>
       <DialogTrigger asChild>
         <Button className="bg-brand-lavender hover:bg-brand-lavender/80">
-          <plus className="h-4 w-4 mr-2" />
+          <Plus className="h-4 w-4 mr-2" />
           New Session
         </Button>
       </DialogTrigger>
@@ -130,9 +129,9 @@ const CreateSessionDialog: React.FC<{
                     <span className="text-xs text-brand-fg-secondary capitalize">{scenario.difficulty}</span>
                   </div>
                   {selectedScenario === scenario.id ? (
-                    <circle-check size={16} className="text-brand-lavender" />
+                    <CheckCircle size={16} className="text-brand-lavender" />
                   ) : (
-                    <circle size={16} className="text-gray-600" />
+                    <Circle size={16} className="text-gray-600" />
                   )}
                 </div>
               ))}
@@ -192,12 +191,12 @@ const ActiveSession: React.FC<{
           }`}>
             {connected ? (
               <>
-                <circle-check size={12} />
+                <CheckCircle size={12} />
                 <span>Connected</span>
               </>
             ) : (
               <>
-                <circle size={12} />
+                <Circle size={12} />
                 <span>Disconnected</span>
               </>
             )}
@@ -239,7 +238,6 @@ const Sessions: React.FC = () => {
     setActiveSession
   } = useSessions();
 
-  // Extract token from URL params
   const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
 
   useEffect(() => {

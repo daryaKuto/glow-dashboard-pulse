@@ -123,7 +123,7 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
     updatedLayout[targetIndex] = { ...updatedLayout[targetIndex], x: newX, y: newY };
     
     // Add to undo stack
-    const undoAction = {
+    const undoAction: UndoAction = {
       type: 'move',
       previous: { id, position: oldPosition },
       current: { id, position: { x: newX, y: newY } }
@@ -163,7 +163,7 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
     };
     
     // Add to undo stack
-    const undoAction = {
+    const undoAction: UndoAction = {
       type: 'group',
       previous: null,
       current: newGroup
@@ -206,7 +206,7 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
     const oldName = groups[groupIndex].name;
     
     // Add to undo stack
-    const undoAction = {
+    const undoAction: UndoAction = {
       type: 'rename',
       previous: { id: groupId, name: oldName },
       current: { id: groupId, name }
@@ -248,7 +248,7 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
     if (!group) return;
     
     // Add to undo stack
-    const undoAction = {
+    const undoAction: UndoAction = {
       type: 'ungroup',
       previous: group,
       current: null

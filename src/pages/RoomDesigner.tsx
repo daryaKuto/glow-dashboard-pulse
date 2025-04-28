@@ -70,8 +70,8 @@ const RoomDesigner: React.FC = () => {
   }, [token]);
 
   const handleSave = async () => {
-    const success = await saveLayout(token);
-    if (success) {
+    const result = await saveLayout(token);
+    if (result) {
       toast.success('Room layout saved');
     }
   };

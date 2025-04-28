@@ -9,8 +9,6 @@ import {
   KeyboardSensor, 
   DragEndEvent, 
   DragStartEvent,
-  DragOverEvent,
-  useDraggable,
   useDroppable
 } from '@dnd-kit/core';
 import { restrictToParentElement } from '@dnd-kit/modifiers';
@@ -18,7 +16,6 @@ import { useRoomDesigner } from '@/store/useRoomDesigner';
 import { useLocation } from 'react-router-dom';
 import TargetIcon from './TargetIcon';
 import GroupBox from './GroupBox';
-import { Target } from '@/store/useTargets';
 
 const RoomCanvas: React.FC = () => {
   const location = useLocation();
@@ -83,7 +80,11 @@ const RoomCanvas: React.FC = () => {
     const { active } = event;
     
     // Clear selections on drag unless multi-select key is pressed
-    if (!event.shiftKey) {
+    // DragStartEvent doesn't have shiftKey directly, check if it exists in original event
+    const originalEvent = event.active.data.current?.originalEvent as MouseEvent | TouchEvent | KeyboardEvent | undefined;
+    const isShiftPressed = originalEvent && 'shiftKey' in originalEvent ? originalEvent.shiftKey : false;
+    
+    if (!isShiftPressed) {
       selectTargets([]);
       selectGroup(null);
     }

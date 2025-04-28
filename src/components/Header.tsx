@@ -1,5 +1,7 @@
 
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/providers/AuthProvider';
 import { useStats } from '@/store/useStats';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -10,9 +12,33 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { toast } from '@/components/ui/sonner';
+import { UserRound, Settings, LogOut } from 'lucide-react';
 
 const Header: React.FC = () => {
   const { wsConnected } = useStats();
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      toast.success('Logged out successfully');
+      navigate('/login');
+    } catch (error) {
+      toast.error('Failed to log out');
+      console.error('Logout error:', error);
+    }
+  };
+
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(word => word[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
 
   return (
     <header className="sticky top-0 z-10 bg-brand-indigo border-b border-brand-surface py-3 px-4">
@@ -37,21 +63,41 @@ const Header: React.FC = () => {
             <DropdownMenuTrigger asChild>
               <button className="outline-none">
                 <Avatar>
-                  <AvatarImage src="https://github.com/shadcn.png" />
-                  <AvatarFallback className="bg-brand-lavender">JD</AvatarFallback>
+                  <AvatarImage src={user?.avatar_url} />
+                  <AvatarFallback className="bg-brand-lavender">
+                    {user?.name ? getInitials(user.name) : 'U'}
+                  </AvatarFallback>
                 </Avatar>
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="bg-brand-surface text-white border-brand-lavender/30">
-              <DropdownMenuLabel>My Account</DropdownMenuLabel>
+            <DropdownMenuContent className="bg-brand-surface text-white border-brand-lavender/30 w-56">
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">{user?.name || 'User'}</p>
+                  <p className="text-xs leading-none text-brand-fg-secondary">{user?.email}</p>
+                </div>
+              </DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-brand-lavender/20" />
-              <DropdownMenuItem className="hover:bg-brand-lavender/20 cursor-pointer">
+              <DropdownMenuItem 
+                className="hover:bg-brand-lavender/20 cursor-pointer gap-2"
+                onClick={() => navigate('/profile')}
+              >
+                <UserRound className="size-4" />
                 Profile
               </DropdownMenuItem>
-              <DropdownMenuItem className="hover:bg-brand-lavender/20 cursor-pointer">
+              <DropdownMenuItem 
+                className="hover:bg-brand-lavender/20 cursor-pointer gap-2"
+                onClick={() => navigate('/settings')}
+              >
+                <Settings className="size-4" />
                 Settings
               </DropdownMenuItem>
-              <DropdownMenuItem className="hover:bg-brand-error/20 text-brand-error cursor-pointer">
+              <DropdownMenuSeparator className="bg-brand-lavender/20" />
+              <DropdownMenuItem 
+                className="hover:bg-brand-error/20 text-brand-error cursor-pointer gap-2"
+                onClick={handleSignOut}
+              >
+                <LogOut className="size-4" />
                 Log out
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -63,3 +109,4 @@ const Header: React.FC = () => {
 };
 
 export default Header;
+

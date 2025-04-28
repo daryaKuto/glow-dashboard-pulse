@@ -10,6 +10,12 @@ class StaticDb {
   constructor() {
     const saved = localStorage.getItem('mockDb');
     this.db = saved ? JSON.parse(saved) : structuredClone(seed);
+    
+    // Ensure leaderboards is initialized
+    if (!this.db.leaderboards) {
+      this.db.leaderboards = [];
+    }
+    
     if (!saved) localStorage.setItem('mockDb', JSON.stringify(this.db));
   }
   
@@ -297,6 +303,11 @@ class StaticDb {
 
   private recordHit(targetId: number) {
     const day = new Date().toISOString().slice(0, 10);
+    // Ensure leaderboards exists before accessing it
+    if (!this.db.leaderboards) {
+      this.db.leaderboards = [];
+    }
+    
     const stat = this.db.leaderboards.find(l => l.day === day) ||
       this.db.leaderboards[this.db.leaderboards.push({ day, hits: 0 }) - 1];
     stat.hits += 1;
@@ -304,6 +315,11 @@ class StaticDb {
   }
 
   getHits7d(): LeaderboardEntry[] {
+    // Ensure leaderboards exists before accessing it
+    if (!this.db.leaderboards) {
+      this.db.leaderboards = [];
+    }
+    
     const days = [...Array(7)].map((_, i) => {
       const date = new Date();
       date.setDate(date.getDate() - i);

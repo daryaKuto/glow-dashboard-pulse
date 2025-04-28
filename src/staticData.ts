@@ -1,3 +1,4 @@
+
 export const seed = {
   users: [{
     id: 'u1',

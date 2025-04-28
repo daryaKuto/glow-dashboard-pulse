@@ -48,7 +48,7 @@ const Header: React.FC = () => {
           <div className="h-8 w-8 rounded-md bg-brand-lavender flex items-center justify-center">
             <span className="text-white font-display font-bold">FG</span>
           </div>
-          <Link to="/">
+          <Link to="/" className="hover:text-brand-lavender transition-colors">
             <Button variant="ghost" size="icon" className="text-white hover:text-brand-lavender">
               <Home className="h-5 w-5" />
             </Button>
@@ -97,6 +97,14 @@ const Header: React.FC = () => {
               >
                 <Settings className="size-4" />
                 Settings
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="bg-brand-lavender/20" />
+              <DropdownMenuItem 
+                className="hover:bg-brand-lavender/20 cursor-pointer gap-2"
+                onClick={() => navigate('/')}
+              >
+                <Home className="size-4" />
+                Marketing Site
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-brand-lavender/20" />
               <DropdownMenuItem 

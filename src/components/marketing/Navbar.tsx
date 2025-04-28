@@ -25,25 +25,14 @@ const Navbar = () => {
   
   // NavLinks component with properly wrapped SheetClose for mobile
   const NavLinks = ({ isMobile = false }) => {
-    // Standard marketing links visible to everyone
+    // Standard marketing links visible to everyone regardless of auth status
     const links: NavLinkType[] = [
       { to: "/", label: "Home" },
       { to: "/products", label: "Products" },
+      { to: "/login", label: "Login" },
+      { to: "/signup", label: "Sign Up", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" },
       { to: "/affiliate/apply", label: "Apply as Affiliate", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" },
     ];
-    
-    // Add auth links if user is not logged in
-    if (!user) {
-      links.push(
-        { to: "/login", label: "Login" },
-        { to: "/signup", label: "Sign Up", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" }
-      );
-    }
-    
-    // Add dashboard link if user is logged in
-    if (user) {
-      links.push({ to: "/dashboard", label: "Dashboard", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" });
-    }
     
     return (
       <>
@@ -86,6 +75,18 @@ const Navbar = () => {
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-4">
             <NavLinks isMobile={false} />
+            
+            {/* Show Dashboard link only if logged in */}
+            {user && (
+              <div className="inline-block">
+                <Link 
+                  to="/dashboard"
+                  className="text-white bg-brand-lavender hover:bg-brand-lavender/80 transition-colors px-4 py-2 rounded-md"
+                >
+                  Dashboard
+                </Link>
+              </div>
+            )}
           </div>
 
           {/* Mobile Navigation */}
@@ -99,6 +100,18 @@ const Navbar = () => {
               <div className="flex flex-col space-y-6 mt-12">
                 <div className="flex flex-col space-y-4">
                   <NavLinks isMobile={true} />
+                  
+                  {/* Show Dashboard link only if logged in */}
+                  {user && (
+                    <SheetClose asChild>
+                      <Link 
+                        to="/dashboard"
+                        className="text-white bg-brand-lavender hover:bg-brand-lavender/80 transition-colors px-4 py-2 rounded-md"
+                      >
+                        Dashboard
+                      </Link>
+                    </SheetClose>
+                  )}
                 </div>
               </div>
             </SheetContent>

@@ -33,7 +33,7 @@ const groupTargetsByRoom = (targets: Target[], roomId?: number) => {
 const Targets: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
-  const { targets, isLoading, fetchTargets, renameTarget, locateTarget, firmwareUpdateTarget, deleteTarget } = useTargets();
+  const { targets, isLoading, fetchTargets, renameTarget, locateTarget, updateFirmware, deleteTarget } = useTargets();
   const { rooms, isLoading: roomsLoading, fetchRooms } = useRooms();
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -74,7 +74,7 @@ const Targets: React.FC = () => {
   };
   
   const handleFirmwareUpdate = (id: number) => {
-    firmwareUpdateTarget(id, token);
+    updateFirmware(id, token);
     toast.success('Firmware update initiated');
   };
   

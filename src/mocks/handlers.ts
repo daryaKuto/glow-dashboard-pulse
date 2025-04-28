@@ -29,6 +29,34 @@ let sessions = [
 let currentSession = null;
 let invites = [];
 
+// Define types for request bodies
+interface TargetUpdateBody {
+  name?: string;
+  roomId?: number | null;
+  locate?: boolean;
+}
+
+interface RoomCreateBody {
+  name: string;
+}
+
+interface RoomUpdateBody {
+  name?: string;
+}
+
+interface RoomOrderBody {
+  roomIds: number[];
+}
+
+interface SessionCreateBody {
+  scenarioId: number;
+  roomIds: number[];
+}
+
+interface InviteCreateBody {
+  sessionId: number;
+}
+
 // Handlers for mock API endpoints
 export const handlers = [
   // Stats
@@ -92,7 +120,7 @@ export const handlers = [
     const targetId = Number(id);
     
     try {
-      const body = await request.json();
+      const body = await request.json() as TargetUpdateBody;
       const targetIndex = targets.findIndex(t => t.id === targetId);
       
       if (targetIndex === -1) {
@@ -125,7 +153,7 @@ export const handlers = [
   http.post('/rooms', async ({ request }) => {
     await delay(500);
     try {
-      const body = await request.json() as { name: string };
+      const body = await request.json() as RoomCreateBody;
       const newRoom = {
         id: Math.max(...rooms.map(r => r.id), 0) + 1,
         name: body.name,
@@ -146,7 +174,7 @@ export const handlers = [
     const roomId = Number(id);
     
     try {
-      const body = await request.json() as { name?: string };
+      const body = await request.json() as RoomUpdateBody;
       const roomIndex = rooms.findIndex(r => r.id === roomId);
       
       if (roomIndex === -1) {
@@ -180,7 +208,7 @@ export const handlers = [
   http.put('/rooms/order', async ({ request }) => {
     await delay(500);
     try {
-      const body = await request.json() as { roomIds: number[] };
+      const body = await request.json() as RoomOrderBody;
       const { roomIds } = body;
       
       roomIds.forEach((roomId, index) => {
@@ -208,7 +236,7 @@ export const handlers = [
   http.post('/sessions', async ({ request }) => {
     await delay(500);
     try {
-      const body = await request.json() as { scenarioId: number, roomIds: number[] };
+      const body = await request.json() as SessionCreateBody;
       const scenario = scenarios.find(s => s.id === body.scenarioId);
       
       if (!scenario) {
@@ -273,7 +301,7 @@ export const handlers = [
   http.post('/invites', async ({ request }) => {
     await delay(500);
     try {
-      const body = await request.json() as { sessionId: number };
+      const body = await request.json() as InviteCreateBody;
       
       if (!currentSession || currentSession.id !== body.sessionId) {
         return new HttpResponse(null, { status: 404, statusText: 'No active session found' });

@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import React from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,57 +13,61 @@ import { useAuth } from '@/providers/AuthProvider';
 
 const Navbar = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  
+  const handleNavigate = (path: string, callback?: () => void) => {
+    navigate(path);
+    if (callback) callback();
+  };
   
   const NavLinks = ({ onNavLinkClick }: { onNavLinkClick?: () => void }) => (
     <>
-      <Link 
-        to="/" 
+      <Button 
+        variant="ghost" 
         className="text-white hover:text-brand-lavender transition-colors"
-        onClick={onNavLinkClick}
+        onClick={() => handleNavigate('/', onNavLinkClick)}
       >
         Home
-      </Link>
-      <Link 
-        to="/products" 
+      </Button>
+      <Button 
+        variant="ghost" 
         className="text-white hover:text-brand-lavender transition-colors"
-        onClick={onNavLinkClick}
+        onClick={() => handleNavigate('/products', onNavLinkClick)}
       >
         Products
-      </Link>
+      </Button>
       {user ? (
-        <Link 
-          to="/dashboard" 
+        <Button 
+          variant="ghost" 
           className="text-white hover:text-brand-lavender transition-colors"
-          onClick={onNavLinkClick}
+          onClick={() => handleNavigate('/dashboard', onNavLinkClick)}
         >
           Dashboard
-        </Link>
+        </Button>
       ) : (
         <>
-          <Link 
-            to="/login" 
+          <Button 
+            variant="ghost" 
             className="text-white hover:text-brand-lavender transition-colors"
-            onClick={onNavLinkClick}
+            onClick={() => handleNavigate('/login', onNavLinkClick)}
           >
             Login
-          </Link>
+          </Button>
           <Button 
-            asChild 
             variant="default"
             className="bg-brand-lavender hover:bg-brand-lavender/80"
-            onClick={onNavLinkClick}
+            onClick={() => handleNavigate('/signup', onNavLinkClick)}
           >
-            <Link to="/signup">Sign Up</Link>
+            Sign Up
           </Button>
         </>
       )}
       <Button 
-        asChild 
         variant="default"
         className="bg-brand-lavender hover:bg-brand-lavender/80"
-        onClick={onNavLinkClick}
+        onClick={() => handleNavigate('/affiliate/apply', onNavLinkClick)}
       >
-        <Link to="/affiliate/apply">Apply as Affiliate</Link>
+        Apply as Affiliate
       </Button>
     </>
   );
@@ -72,9 +76,13 @@ const Navbar = () => {
     <nav className="sticky top-0 z-50 w-full bg-brand-surface border-b border-brand-lavender/10">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
-          <Link to="/" className="text-xl font-display text-white">
+          <Button 
+            variant="ghost" 
+            className="text-xl font-display text-white p-0" 
+            onClick={() => navigate('/')}
+          >
             Fun Gun Training
-          </Link>
+          </Button>
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-8">
@@ -97,7 +105,7 @@ const Navbar = () => {
                     if (closeButton) {
                       closeButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
                     }
-                  }, 150);
+                  }, 200);
                 }} />
               </div>
             </SheetContent>

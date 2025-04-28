@@ -93,21 +93,21 @@ const Targets: React.FC = () => {
         {!isMobile && <Sidebar />}
         {isMobile && <MobileDrawer />}
         
-        <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
-          <div className="container mx-auto">
+        <main className="flex-1 px-4 py-6 md:p-8 lg:p-10 overflow-y-auto w-full">
+          <div className="max-w-7xl mx-auto">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
               <h2 className="text-2xl font-display font-bold text-white">
                 {roomId ? `Targets in ${getRoomName(roomId)}` : 'All Targets'}
               </h2>
               
-              <div className="flex w-full sm:w-auto gap-2">
+              <div className="flex flex-col sm:flex-row w-full sm:w-auto gap-3">
                 <Input
                   placeholder="Search targets..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="bg-transparent border-brand-lavender/30 text-white"
+                  className="bg-transparent border-brand-lavender/30 text-white w-full sm:w-[200px]"
                 />
-                <Button className="bg-brand-lavender hover:bg-brand-lavender/80">
+                <Button className="bg-brand-lavender hover:bg-brand-lavender/80 whitespace-nowrap">
                   <Plus className="h-4 w-4 mr-2" />
                   Add Target
                 </Button>
@@ -120,7 +120,7 @@ const Targets: React.FC = () => {
               </div>
             ) : Object.keys(groupedTargets).length === 0 ? (
               <div className="text-center py-8">
-                <div className="border-2 border-brand-lavender rounded-lg p-8 mx-auto max-w-md">
+                <div className="border-2 border-brand-lavender rounded-lg p-6 md:p-8 mx-auto max-w-md">
                   <div className="text-brand-lavender mb-4 text-xl">No targets found</div>
                   <p className="text-brand-fg-secondary mb-6">
                     {searchTerm 
@@ -143,7 +143,7 @@ const Targets: React.FC = () => {
                       <h3 className="text-xl font-display text-white">
                         {roomName || 'Unassigned Targets'}
                       </h3>
-                      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                         {targets.map(target => (
                           <TargetCard
                             key={target.id}

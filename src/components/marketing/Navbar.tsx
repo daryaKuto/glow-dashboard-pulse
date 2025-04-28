@@ -49,6 +49,7 @@ const Navbar = () => {
           </Link>
           <Button 
             asChild 
+            variant="default"
             className="bg-brand-lavender hover:bg-brand-lavender/80"
             onClick={onNavLinkClick}
           >
@@ -58,6 +59,7 @@ const Navbar = () => {
       )}
       <Button 
         asChild 
+        variant="default"
         className="bg-brand-lavender hover:bg-brand-lavender/80"
         onClick={onNavLinkClick}
       >
@@ -86,15 +88,16 @@ const Navbar = () => {
                 <Menu className="h-6 w-6" />
               </Button>
             </SheetTrigger>
-            <SheetContent className="w-[300px] bg-brand-surface">
+            <SheetContent side="right" className="w-[300px] bg-brand-surface">
               <div className="flex flex-col space-y-6 mt-6">
                 <NavLinks onNavLinkClick={() => {
                   // Add a slight delay to allow the navigation to happen before closing the sheet
                   setTimeout(() => {
-                    document.querySelector('[data-radix-collection-item]')?.dispatchEvent(
-                      new KeyboardEvent('keydown', { key: 'Escape' })
-                    );
-                  }, 100);
+                    const closeButton = document.querySelector('[data-radix-collection-item]');
+                    if (closeButton) {
+                      closeButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+                    }
+                  }, 150);
                 }} />
               </div>
             </SheetContent>

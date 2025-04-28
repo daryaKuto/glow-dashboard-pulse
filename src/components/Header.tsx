@@ -1,5 +1,6 @@
+
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/providers/AuthProvider';
 import { useStats } from '@/store/useStats';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -12,7 +13,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from '@/components/ui/sonner';
-import { UserRound, Settings, LogOut } from 'lucide-react';
+import { UserRound, Settings, LogOut, Home } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 const Header: React.FC = () => {
   const { wsConnected } = useStats();
@@ -46,6 +48,11 @@ const Header: React.FC = () => {
           <div className="h-8 w-8 rounded-md bg-brand-lavender flex items-center justify-center">
             <span className="text-white font-display font-bold">FG</span>
           </div>
+          <Link to="/">
+            <Button variant="ghost" size="icon" className="text-white hover:text-brand-lavender">
+              <Home className="h-5 w-5" />
+            </Button>
+          </Link>
           <h1 className="text-xl md:text-2xl font-display font-bold text-white hidden sm:block">
             FunGun Dashboard
           </h1>

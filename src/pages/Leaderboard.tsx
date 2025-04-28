@@ -39,8 +39,6 @@ const LeaderboardPage: React.FC = () => {
     if (user && !hasVerifiedPhone) {
       setPhoneVerifyModalOpen(true);
     }
-    
-    // Do not redirect to login anymore
   }, [user, hasVerifiedPhone, setPhoneVerifyModalOpen]);
   
   // Load friends data when user exists
@@ -88,6 +86,13 @@ const LeaderboardPage: React.FC = () => {
     }
   }, [scope, timeRange, friends, user]);
   
+  // If user tries to access friends or find tabs while logged out, redirect to global
+  useEffect(() => {
+    if (!user && (scope === 'friends' || scope === 'find')) {
+      setScope('global');
+    }
+  }, [user, scope]);
+  
   return (
     <div className="min-h-screen flex flex-col bg-brand-indigo">
       <Header />
@@ -128,10 +133,18 @@ const LeaderboardPage: React.FC = () => {
                     <TabsTrigger value="global" className="flex-1 data-[state=active]:bg-brand-lavender data-[state=active]:text-white">
                       Global
                     </TabsTrigger>
-                    <TabsTrigger value="friends" className="flex-1 data-[state=active]:bg-brand-lavender data-[state=active]:text-white">
+                    <TabsTrigger 
+                      value="friends" 
+                      disabled={!user}
+                      className="flex-1 data-[state=active]:bg-brand-lavender data-[state=active]:text-white"
+                    >
                       Friends
                     </TabsTrigger>
-                    <TabsTrigger value="find" className="flex-1 data-[state=active]:bg-brand-lavender data-[state=active]:text-white">
+                    <TabsTrigger 
+                      value="find" 
+                      disabled={!user}
+                      className="flex-1 data-[state=active]:bg-brand-lavender data-[state=active]:text-white"
+                    >
                       Find Friends
                     </TabsTrigger>
                   </TabsList>
@@ -141,47 +154,23 @@ const LeaderboardPage: React.FC = () => {
                   </TabsContent>
                   
                   <TabsContent value="friends" className="mt-0">
-                    {user ? (
-                      friends.filter(f => f.status === 'accepted').length === 0 ? (
-                        <div className="text-center py-8 text-brand-fg-secondary">
-                          <p>You haven't added any friends yet.</p>
-                          <button 
-                            onClick={() => setScope('find')}
-                            className="text-brand-lavender hover:underline mt-2"
-                          >
-                            Find friends to add
-                          </button>
-                        </div>
-                      ) : (
-                        <LeaderboardTable data={leaderboardData} />
-                      )
-                    ) : (
+                    {friends.filter(f => f.status === 'accepted').length === 0 ? (
                       <div className="text-center py-8 text-brand-fg-secondary">
-                        <p>Please sign in to view your friends leaderboard.</p>
-                        <button
-                          onClick={() => navigate('/login')}
-                          className="bg-brand-lavender text-white px-4 py-2 rounded mt-2 hover:bg-brand-lavender/80"
+                        <p>You haven't added any friends yet.</p>
+                        <button 
+                          onClick={() => setScope('find')}
+                          className="text-brand-lavender hover:underline mt-2"
                         >
-                          Sign in
+                          Find friends to add
                         </button>
                       </div>
+                    ) : (
+                      <LeaderboardTable data={leaderboardData} />
                     )}
                   </TabsContent>
                   
                   <TabsContent value="find" className="mt-0">
-                    {user ? (
-                      <FindFriendsTab />
-                    ) : (
-                      <div className="text-center py-8 text-brand-fg-secondary">
-                        <p>Please sign in to find friends.</p>
-                        <button
-                          onClick={() => navigate('/login')}
-                          className="bg-brand-lavender text-white px-4 py-2 rounded mt-2 hover:bg-brand-lavender/80"
-                        >
-                          Sign in
-                        </button>
-                      </div>
-                    )}
+                    <FindFriendsTab />
                   </TabsContent>
                 </Tabs>
               </CardContent>

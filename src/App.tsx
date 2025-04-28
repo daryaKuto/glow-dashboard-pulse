@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import Targets from "./pages/Targets";
 import Rooms from "./pages/Rooms";
 import Sessions from "./pages/Sessions";
+import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/Profile";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
@@ -31,6 +32,7 @@ const App = () => (
           <Route path="/rooms" element={<Rooms />} />
           <Route path="/sessions" element={<Sessions />} />
           <Route path="/sessions/join/:token" element={<SessionJoin />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/signup" element={<Signup />} />

@@ -28,6 +28,27 @@ let sessions = [
 
 let currentSession = null;
 let invites = [];
+let friends = [];
+
+// Generate 200 fake users for search
+const mockUsers = Array.from({ length: 200 }, (_, i) => {
+  const id = `user-${i + 1}`;
+  const firstName = ['Alex', 'Jordan', 'Taylor', 'Casey', 'Morgan', 'Riley', 'Jamie', 'Quinn', 'Avery', 'Cameron'][Math.floor(Math.random() * 10)];
+  const lastName = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Miller', 'Davis', 'Garcia', 'Rodriguez', 'Wilson'][Math.floor(Math.random() * 10)];
+  const name = `${firstName} ${lastName}`;
+  const email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}${Math.floor(Math.random() * 100)}@example.com`;
+  const phone = `+1${Math.floor(Math.random() * 1000000000).toString().padStart(10, '0')}`;
+  const score = Math.floor(Math.random() * 1000);
+  
+  return {
+    id,
+    name,
+    email,
+    phone,
+    score,
+    avatar: `https://i.pravatar.cc/150?u=${id}`
+  };
+});
 
 // Define types for request bodies
 interface TargetUpdateBody {
@@ -55,6 +76,15 @@ interface SessionCreateBody {
 
 interface InviteCreateBody {
   sessionId: number;
+}
+
+interface PhoneVerificationBody {
+  phone: string;
+}
+
+interface OtpVerifyBody {
+  phone: string;
+  token: string;
 }
 
 // Handlers for mock API endpoints
@@ -319,6 +349,128 @@ export const handlers = [
       });
       
       return HttpResponse.json({ token });
+    } catch (error) {
+      return new HttpResponse(null, { status: 400 });
+    }
+  }),
+  
+  // User Search endpoint
+  http.get('/search/users', async ({ request }) => {
+    await delay(300);
+    const url = new URL(request.url);
+    const query = url.searchParams.get('query')?.toLowerCase() || '';
+    
+    if (!query || query.length < 3) {
+      return HttpResponse.json([], { status: 200 });
+    }
+    
+    const results = mockUsers
+      .filter(user => 
+        user.name.toLowerCase().includes(query) || 
+        user.email.toLowerCase().includes(query) || 
+        user.phone.includes(query)
+      )
+      .slice(0, 10);
+    
+    return HttpResponse.json(results, { status: 200 });
+  }),
+  
+  // Friends endpoints
+  http.get('/friends', async () => {
+    await delay(200);
+    return HttpResponse.json(friends, { status: 200 });
+  }),
+  
+  http.post('/friends/:id', async ({ params }) => {
+    await delay(300);
+    const { id } = params;
+    const userId = id.toString();
+    
+    // Find the user
+    const user = mockUsers.find(u => u.id === userId);
+    
+    if (!user) {
+      return new HttpResponse(null, { status: 404 });
+    }
+    
+    // Check if already a friend
+    const existingFriend = friends.find(f => f.id === userId);
+    
+    if (existingFriend) {
+      return HttpResponse.json({ status: existingFriend.status }, { status: 200 });
+    }
+    
+    // Add as friend with pending status
+    const newFriend = { 
+      ...user, 
+      status: 'pending',
+      addedAt: new Date().toISOString()
+    };
+    
+    friends.push(newFriend);
+    
+    // Auto-accept after a delay for demo purposes
+    setTimeout(() => {
+      const friendIndex = friends.findIndex(f => f.id === userId);
+      if (friendIndex !== -1) {
+        friends[friendIndex].status = 'accepted';
+      }
+    }, 2000);
+    
+    return HttpResponse.json({ status: 'pending' }, { status: 200 });
+  }),
+  
+  // Phone verification endpoints
+  http.post('/auth/phone/verify', async ({ request }) => {
+    await delay(500);
+    try {
+      const body = await request.json() as PhoneVerificationBody;
+      
+      if (!body.phone || !/^\+[1-9]\d{1,14}$/.test(body.phone)) {
+        return new HttpResponse(
+          JSON.stringify({ error: 'Invalid phone number format. Use E.164 format: +1234567890' }), 
+          { status: 400 }
+        );
+      }
+      
+      // In a real app, this would trigger an SMS. For mock, we'll just return success
+      return HttpResponse.json({ 
+        success: true,
+        message: 'OTP sent successfully',
+        expiry: new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10 minute expiry
+      });
+    } catch (error) {
+      return new HttpResponse(null, { status: 400 });
+    }
+  }),
+  
+  http.post('/auth/phone/confirm', async ({ request }) => {
+    await delay(500);
+    try {
+      const body = await request.json() as OtpVerifyBody;
+      
+      if (!body.phone || !body.token) {
+        return new HttpResponse(
+          JSON.stringify({ error: 'Phone number and token are required' }), 
+          { status: 400 }
+        );
+      }
+      
+      // For mock, any 6-digit code is valid
+      if (!/^\d{6}$/.test(body.token)) {
+        return new HttpResponse(
+          JSON.stringify({ error: 'Invalid OTP format. Must be 6 digits.' }), 
+          { status: 400 }
+        );
+      }
+      
+      return HttpResponse.json({
+        success: true,
+        user: {
+          phone: body.phone,
+          phone_verified: true
+        }
+      });
     } catch (error) {
       return new HttpResponse(null, { status: 400 });
     }

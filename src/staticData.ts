@@ -60,6 +60,6 @@ export const seed = {
     };
   }),
   friends: []
-} as const;
+};
 
 export type DB = typeof seed;

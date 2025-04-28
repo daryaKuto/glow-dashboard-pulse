@@ -106,11 +106,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setUser(null);
       setSession(null);
       setHasVerifiedPhone(false);
-      
-      return { error: null };
     } catch (error) {
       console.error('Sign out error:', error);
-      throw error;
     }
   };
   

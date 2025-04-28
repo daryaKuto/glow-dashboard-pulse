@@ -14,7 +14,7 @@ import { useAuth } from '@/providers/AuthProvider';
 const Navbar = () => {
   const { user } = useAuth();
   
-  // NavLinks component using direct Link components instead of buttons with navigate
+  // NavLinks component for both desktop and mobile
   const NavLinks = () => (
     <>
       <Link 
@@ -90,11 +90,9 @@ const Navbar = () => {
             </SheetTrigger>
             <SheetContent side="right" className="w-[300px] bg-brand-surface">
               <div className="flex flex-col space-y-6 mt-12">
-                <SheetClose asChild>
-                  <div className="flex flex-col space-y-4">
-                    <NavLinks />
-                  </div>
-                </SheetClose>
+                <div className="flex flex-col space-y-4">
+                  <NavLinks />
+                </div>
               </div>
             </SheetContent>
           </Sheet>

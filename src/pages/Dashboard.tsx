@@ -21,8 +21,11 @@ const Dashboard: React.FC = () => {
   } = useStats();
   const [socket, setSocket] = useState<MockWebSocket | null>(null);
 
-  // Extract token from URL params
-  const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
+  // Extract token from URL params (or use stored session token)
+  const sessionToken = localStorage.getItem('authSession') 
+    ? JSON.parse(localStorage.getItem('authSession')!).access_token 
+    : null;
+  const token = new URLSearchParams(location.search).get('token') || sessionToken || 'dummy_token';
 
   useEffect(() => {
     fetchStats(token);
@@ -45,7 +48,7 @@ const Dashboard: React.FC = () => {
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'hit') {
-          updateHit(data.targetId, data.score);
+          updateHit(data.targetId.toString(), data.score);
           toast.success(`Hit registered! Score: ${data.score}`);
         }
       } catch (error) {
@@ -54,7 +57,9 @@ const Dashboard: React.FC = () => {
     };
 
     return () => {
-      ws.close();
+      if (socket) {
+        socket.close();
+      }
     };
   }, [token]);
 

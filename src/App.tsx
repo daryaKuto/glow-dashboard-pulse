@@ -15,7 +15,7 @@ import Login from './pages/Login';
 import Settings from './pages/Settings';
 import { Toaster } from './components/ui/sonner';
 import { useEffect } from 'react';
-import { useAuth } from './store/useAuth';
+import { useAuth } from './providers/AuthProvider';
 
 import './App.css';
 
@@ -24,7 +24,7 @@ function App() {
   
   useEffect(() => {
     checkSession();
-  }, []);
+  }, [checkSession]);
   
   return (
     <Router>

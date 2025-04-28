@@ -6,11 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/providers/AuthProvider';
 import { toast } from 'sonner';
 
 const Signup = () => {
   const navigate = useNavigate();
+  const { signUp } = useAuth();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
@@ -24,22 +25,14 @@ const Signup = () => {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
-            full_name: formData.name,
-          },
-        },
+      await signUp(formData.email, formData.password, {
+        full_name: formData.name,
       });
 
-      if (error) throw error;
-
-      toast.success("Success! Please check your email for verification.");
-      navigate('/login');
+      toast.success("Account created successfully!");
+      navigate('/dashboard');
     } catch (error) {
-      toast.error(error.message);
+      toast.error(error.message || "Signup failed");
     } finally {
       setLoading(false);
     }

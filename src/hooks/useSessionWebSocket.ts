@@ -2,8 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSessions } from '@/store/useSessions';
 import { toast } from '@/components/ui/sonner';
-import { MockWebSocket } from '@/lib/types';
-import { mockBackend } from '@/lib/mockBackend';
+import { MockWebSocket } from '@/lib/api';
+import { staticDb } from '@/lib/staticDb';
 
 export const useSessionWebSocket = (sessionId: string | null) => {
   const [connected, setConnected] = useState(false);
@@ -33,7 +33,7 @@ export const useSessionWebSocket = (sessionId: string | null) => {
       },
       
       close: () => {
-        mockBackend.off('score_update', handleScoreUpdate);
+        staticDb.off('score_update', handleScoreUpdate);
         if (socket.onclose) socket.onclose({} as any);
         setConnected(false);
       }
@@ -54,7 +54,7 @@ export const useSessionWebSocket = (sessionId: string | null) => {
     };
     
     // Register for score update events
-    mockBackend.on('score_update', handleScoreUpdate);
+    staticDb.on('score_update', handleScoreUpdate);
     
     // Set socket refs and trigger connection
     socketRef.current = socket;

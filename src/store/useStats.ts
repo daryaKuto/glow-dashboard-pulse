@@ -1,7 +1,8 @@
+
 import { create } from 'zustand';
 import { API } from '@/lib/api';
-import { MockWebSocket } from '@/lib/types';
-import { mockBackend } from '@/lib/mockBackend';
+import { MockWebSocket } from '@/lib/api';
+import { staticDb } from '@/lib/staticDb';
 
 export interface StatsState {
   activeTargets: number;
@@ -100,7 +101,7 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
       },
       
       close: () => {
-        mockBackend.off('hit', handleHit);
+        staticDb.off('hit', handleHit);
         if (socket.onclose) socket.onclose({} as any);
         set({ wsConnected: false });
       }
@@ -122,7 +123,7 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
     };
     
     // Register event handlers
-    mockBackend.on('hit', handleHit);
+    staticDb.on('hit', handleHit);
     
     // Trigger initial connection
     setTimeout(() => {

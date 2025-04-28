@@ -53,7 +53,7 @@ const SessionJoin: React.FC = () => {
   
   const handleLeave = () => {
     clearSession();
-    navigate('/sessions');
+    navigate('/dashboard/sessions');  // Updated to include /dashboard prefix
   };
   
   if (!token) {

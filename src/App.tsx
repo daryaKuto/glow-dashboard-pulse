@@ -1,6 +1,5 @@
-
 import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 
 // Marketing pages
 import LandingPage from './pages/marketing/LandingPage';
@@ -57,6 +56,10 @@ function App() {
         <Route path="/dashboard/leaderboard" element={<Leaderboard />} />
         <Route path="/dashboard/profile" element={<Profile />} />
         <Route path="/dashboard/settings" element={<Settings />} />
+        
+        {/* Fallback route - redirect from old path structure */}
+        <Route path="/profile" element={<Navigate to="/dashboard/profile" replace />} />
+        <Route path="/settings" element={<Navigate to="/dashboard/settings" replace />} />
         
         {/* Fallback route */}
         <Route path="*" element={<NotFound />} />

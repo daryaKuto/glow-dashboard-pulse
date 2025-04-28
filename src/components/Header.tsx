@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/providers/AuthProvider';
@@ -80,14 +79,14 @@ const Header: React.FC = () => {
               <DropdownMenuSeparator className="bg-brand-lavender/20" />
               <DropdownMenuItem 
                 className="hover:bg-brand-lavender/20 cursor-pointer gap-2"
-                onClick={() => navigate('/profile')}
+                onClick={() => navigate('/dashboard/profile')}
               >
                 <UserRound className="size-4" />
                 Profile
               </DropdownMenuItem>
               <DropdownMenuItem 
                 className="hover:bg-brand-lavender/20 cursor-pointer gap-2"
-                onClick={() => navigate('/settings')}
+                onClick={() => navigate('/dashboard/settings')}
               >
                 <Settings className="size-4" />
                 Settings
@@ -109,4 +108,3 @@ const Header: React.FC = () => {
 };
 
 export default Header;
-

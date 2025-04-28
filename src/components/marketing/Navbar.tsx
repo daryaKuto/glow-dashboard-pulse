@@ -30,37 +30,43 @@ const Navbar = () => {
       { to: "/", label: "Home" },
       { to: "/products", label: "Products" },
       { to: "/affiliate/apply", label: "Apply as Affiliate", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" },
-      { to: "/login", label: "Login" },
-      { to: "/signup", label: "Sign Up", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" }
     ];
     
-    // Add dashboard link only if user is logged in
+    // Add auth links if user is not logged in
+    if (!user) {
+      links.push(
+        { to: "/login", label: "Login" },
+        { to: "/signup", label: "Sign Up", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" }
+      );
+    }
+    
+    // Add dashboard link if user is logged in
     if (user) {
       links.push({ to: "/dashboard", label: "Dashboard", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" });
     }
     
     return (
       <>
-        {links.map((link, index) => (
-          isMobile ? (
-            <SheetClose key={index} asChild>
-              <Link 
-                to={link.to}
-                className={`text-white hover:text-brand-lavender transition-colors px-4 py-2 rounded-md ${link.className || ''}`}
-              >
-                {link.label}
-              </Link>
-            </SheetClose>
-          ) : (
+        {links.map((link, index) => {
+          const LinkComponent = (
             <Link 
-              key={index}
               to={link.to}
               className={`text-white hover:text-brand-lavender transition-colors px-4 py-2 rounded-md ${link.className || ''}`}
             >
               {link.label}
             </Link>
-          )
-        ))}
+          );
+          
+          return isMobile ? (
+            <SheetClose key={index} asChild>
+              {LinkComponent}
+            </SheetClose>
+          ) : (
+            <React.Fragment key={index}>
+              {LinkComponent}
+            </React.Fragment>
+          );
+        })}
       </>
     );
   };

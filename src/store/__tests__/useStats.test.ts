@@ -1,4 +1,3 @@
-
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStats } from '../useStats';
 import { act } from '@testing-library/react';

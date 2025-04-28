@@ -1,6 +1,7 @@
+
 import { mockBackend } from './mockBackend';
 import { connectWebSocket } from './websocket';
-import { MockWebSocket } from './types';
+import type { MockWebSocket } from './types';
 
 // Environment check for using mock or real API
 const useMocks = true; // We're fully switching to mocks as per requirements
@@ -121,7 +122,7 @@ export const fetcher = async (endpoint: string, options = {}) => {
 };
 
 // Export the mock WebSocket type and connection function
-export { MockWebSocket };
+export type { MockWebSocket };
 export { connectWebSocket };
 
 // API object with convenience methods

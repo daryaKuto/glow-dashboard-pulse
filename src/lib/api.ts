@@ -1,3 +1,4 @@
+
 import { staticDb } from './staticDb';
 import type { MockWebSocket, RoomLayoutResponse, LeaderboardEntry } from './types';
 
@@ -21,6 +22,8 @@ const isRoomLayoutResponse = (obj: any): obj is RoomLayoutResponse => {
 
 // Unified API interface that works with our static database
 export const fetcher = async (endpoint: string, options = {}) => {
+  console.log('Fetching:', endpoint, options);
+  
   // Extract path components
   const path = endpoint.split('/').filter(p => p);
   
@@ -49,23 +52,26 @@ export const fetcher = async (endpoint: string, options = {}) => {
         break;
         
       case 'rooms':
+        console.log('Room request path:', path, 'method:', (options as any).method);
         if (path.length === 1) {
-          if ((options as any).method === 'GET') {
-            return staticDb.getRooms();
-          } else if ((options as any).method === 'POST') {
+          if ((options as any).method === 'POST') {
             const body = JSON.parse((options as any).body);
             return staticDb.createRoom(body.name);
           }
+          // Handle GET requests for rooms
+          return staticDb.getRooms();
         } else if (path.length === 2) {
-          const roomId = parseInt(path[1]);
-          if ((options as any).method === 'PUT') {
-            const body = JSON.parse((options as any).body);
-            return staticDb.updateRoom(roomId, body.name);
-          } else if ((options as any).method === 'DELETE') {
-            return staticDb.deleteRoom(roomId);
-          } else if (path[1] === 'order') {
+          if (path[1] === 'order') {
             const body = JSON.parse((options as any).body);
             return staticDb.updateRoomOrder(body);
+          } else {
+            const roomId = parseInt(path[1]);
+            if ((options as any).method === 'PUT') {
+              const body = JSON.parse((options as any).body);
+              return staticDb.updateRoom(roomId, body.name);
+            } else if ((options as any).method === 'DELETE') {
+              return staticDb.deleteRoom(roomId);
+            }
           }
         } else if (path.length === 3 && path[2] === 'layout') {
           const roomId = parseInt(path[1]);

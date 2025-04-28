@@ -7,7 +7,6 @@ import {
   Sheet,
   SheetContent,
   SheetTrigger,
-  SheetClose,
 } from "@/components/ui/sheet";
 import { useAuth } from '@/providers/AuthProvider';
 
@@ -16,94 +15,83 @@ const Navbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  const handleNavigate = (path: string, callback?: () => void) => {
-    // Only navigate if we're not already on that page
+  const navigateTo = (path: string) => {
     if (location.pathname !== path) {
       navigate(path);
     }
-    
-    if (callback) callback();
   };
   
-  const NavLinks = ({ onNavLinkClick }: { onNavLinkClick?: () => void }) => (
+  const NavLinks = ({ onClose }: { onClose?: () => void }) => (
     <>
-      <Link to="/" className="block">
-        <Button 
-          variant="ghost" 
-          className="text-white hover:text-brand-lavender transition-colors"
-          onClick={(e) => {
-            e.preventDefault();
-            handleNavigate('/', onNavLinkClick);
-          }}
-        >
-          Home
-        </Button>
-      </Link>
-      <Link to="/products" className="block">
-        <Button 
-          variant="ghost" 
-          className="text-white hover:text-brand-lavender transition-colors"
-          onClick={(e) => {
-            e.preventDefault();
-            handleNavigate('/products', onNavLinkClick);
-          }}
-        >
-          Products
-        </Button>
-      </Link>
+      <Button 
+        variant="ghost" 
+        className="text-white hover:text-brand-lavender transition-colors"
+        onClick={() => {
+          navigateTo('/');
+          if (onClose) onClose();
+        }}
+      >
+        Home
+      </Button>
+      
+      <Button 
+        variant="ghost" 
+        className="text-white hover:text-brand-lavender transition-colors"
+        onClick={() => {
+          navigateTo('/products');
+          if (onClose) onClose();
+        }}
+      >
+        Products
+      </Button>
+      
       {user ? (
-        <Link to="/dashboard" className="block">
+        <Button 
+          variant="ghost" 
+          className="text-white hover:text-brand-lavender transition-colors"
+          onClick={() => {
+            navigateTo('/dashboard');
+            if (onClose) onClose();
+          }}
+        >
+          Dashboard
+        </Button>
+      ) : (
+        <>
           <Button 
             variant="ghost" 
             className="text-white hover:text-brand-lavender transition-colors"
-            onClick={(e) => {
-              e.preventDefault();
-              handleNavigate('/dashboard', onNavLinkClick);
+            onClick={() => {
+              navigateTo('/login');
+              if (onClose) onClose();
             }}
           >
-            Dashboard
+            Login
           </Button>
-        </Link>
-      ) : (
-        <>
-          <Link to="/login" className="block">
-            <Button 
-              variant="ghost" 
-              className="text-white hover:text-brand-lavender transition-colors"
-              onClick={(e) => {
-                e.preventDefault();
-                handleNavigate('/login', onNavLinkClick);
-              }}
-            >
-              Login
-            </Button>
-          </Link>
-          <Link to="/signup" className="block">
-            <Button 
-              variant="default"
-              className="bg-brand-lavender hover:bg-brand-lavender/80"
-              onClick={(e) => {
-                e.preventDefault();
-                handleNavigate('/signup', onNavLinkClick);
-              }}
-            >
-              Sign Up
-            </Button>
-          </Link>
+          
+          <Button 
+            variant="default"
+            className="bg-brand-lavender hover:bg-brand-lavender/80"
+            onClick={() => {
+              navigateTo('/signup');
+              if (onClose) onClose();
+            }}
+          >
+            Sign Up
+          </Button>
         </>
       )}
-      <Link to="/affiliate/apply" className="block">
-        <Button 
-          variant="default"
-          className="bg-brand-lavender hover:bg-brand-lavender/80"
-          onClick={(e) => {
-            e.preventDefault();
-            handleNavigate('/affiliate/apply', onNavLinkClick);
-          }}
-        >
-          Apply as Affiliate
-        </Button>
-      </Link>
+      
+      <Button 
+        variant="default"
+        className="bg-brand-lavender hover:bg-brand-lavender/80"
+        onClick={() => {
+          navigateTo('/affiliate/apply');
+          if (onClose) onClose();
+        }}
+      >
+        Apply as Affiliate
+      </Button>
     </>
   );
 
@@ -111,21 +99,16 @@ const Navbar = () => {
     <nav className="sticky top-0 z-50 w-full bg-brand-surface border-b border-brand-lavender/10">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
-          <Link to="/" className="block">
-            <Button 
-              variant="ghost" 
-              className="text-xl font-display text-white p-0" 
-              onClick={(e) => {
-                e.preventDefault();
-                navigate('/');
-              }}
-            >
-              Fun Gun Training
-            </Button>
-          </Link>
+          <Button 
+            variant="ghost" 
+            className="text-xl font-display text-white p-0" 
+            onClick={() => navigateTo('/')}
+          >
+            Fun Gun Training
+          </Button>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-8">
+          <div className="hidden md:flex items-center space-x-4">
             <NavLinks />
           </div>
 
@@ -137,12 +120,9 @@ const Navbar = () => {
               </Button>
             </SheetTrigger>
             <SheetContent side="right" className="w-[300px] bg-brand-surface">
-              <SheetClose className="absolute top-4 right-4">
-                {/* Close button is automatically provided by SheetClose */}
-              </SheetClose>
-              <div className="flex flex-col space-y-6 mt-6">
-                <NavLinks onNavLinkClick={() => {
-                  // Use the built-in SheetClose functionality
+              <div className="flex flex-col space-y-6 mt-12">
+                <NavLinks onClose={() => {
+                  // Find and click the close button
                   const closeButton = document.querySelector('[data-radix-collection-item]');
                   if (closeButton) {
                     (closeButton as HTMLElement).click();

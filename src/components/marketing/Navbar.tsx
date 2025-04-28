@@ -1,12 +1,13 @@
 
 import React from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
   SheetContent,
   SheetTrigger,
+  SheetClose
 } from "@/components/ui/sheet";
 import { useAuth } from '@/providers/AuthProvider';
 
@@ -16,20 +17,15 @@ const Navbar = () => {
   const location = useLocation();
   
   const navigateTo = (path: string) => {
-    if (location.pathname !== path) {
-      navigate(path);
-    }
+    navigate(path);
   };
   
-  const NavLinks = ({ onClose }: { onClose?: () => void }) => (
+  const NavLinks = () => (
     <>
       <Button 
         variant="ghost" 
         className="text-white hover:text-brand-lavender transition-colors"
-        onClick={() => {
-          navigateTo('/');
-          if (onClose) onClose();
-        }}
+        onClick={() => navigateTo('/')}
       >
         Home
       </Button>
@@ -37,10 +33,7 @@ const Navbar = () => {
       <Button 
         variant="ghost" 
         className="text-white hover:text-brand-lavender transition-colors"
-        onClick={() => {
-          navigateTo('/products');
-          if (onClose) onClose();
-        }}
+        onClick={() => navigateTo('/products')}
       >
         Products
       </Button>
@@ -49,10 +42,7 @@ const Navbar = () => {
         <Button 
           variant="ghost" 
           className="text-white hover:text-brand-lavender transition-colors"
-          onClick={() => {
-            navigateTo('/dashboard');
-            if (onClose) onClose();
-          }}
+          onClick={() => navigateTo('/dashboard')}
         >
           Dashboard
         </Button>
@@ -61,10 +51,7 @@ const Navbar = () => {
           <Button 
             variant="ghost" 
             className="text-white hover:text-brand-lavender transition-colors"
-            onClick={() => {
-              navigateTo('/login');
-              if (onClose) onClose();
-            }}
+            onClick={() => navigateTo('/login')}
           >
             Login
           </Button>
@@ -72,10 +59,7 @@ const Navbar = () => {
           <Button 
             variant="default"
             className="bg-brand-lavender hover:bg-brand-lavender/80"
-            onClick={() => {
-              navigateTo('/signup');
-              if (onClose) onClose();
-            }}
+            onClick={() => navigateTo('/signup')}
           >
             Sign Up
           </Button>
@@ -85,10 +69,7 @@ const Navbar = () => {
       <Button 
         variant="default"
         className="bg-brand-lavender hover:bg-brand-lavender/80"
-        onClick={() => {
-          navigateTo('/affiliate/apply');
-          if (onClose) onClose();
-        }}
+        onClick={() => navigateTo('/affiliate/apply')}
       >
         Apply as Affiliate
       </Button>
@@ -121,13 +102,11 @@ const Navbar = () => {
             </SheetTrigger>
             <SheetContent side="right" className="w-[300px] bg-brand-surface">
               <div className="flex flex-col space-y-6 mt-12">
-                <NavLinks onClose={() => {
-                  // Find and click the close button
-                  const closeButton = document.querySelector('[data-radix-collection-item]');
-                  if (closeButton) {
-                    (closeButton as HTMLElement).click();
-                  }
-                }} />
+                <SheetClose asChild>
+                  <div className="flex flex-col space-y-4">
+                    <NavLinks />
+                  </div>
+                </SheetClose>
               </div>
             </SheetContent>
           </Sheet>

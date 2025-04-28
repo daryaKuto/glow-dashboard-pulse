@@ -1,4 +1,3 @@
-
 import { create } from 'zustand';
 import { API } from '@/lib/api';
 import type { MockWebSocket } from '@/lib/types';
@@ -48,18 +47,30 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
       set({ isLoading: true, error: null });
       
       const stats = await API.getStats(token);
-      const hits = await API.getHitStats(token);
+      const trend = await API.getTrend7d();
       
       set({ 
         activeTargets: stats.targets.online,
         roomsCreated: stats.rooms.count,
         lastSessionScore: stats.sessions.latest.score,
         pendingInvites: stats.invites.length,
-        hitTrend: hits.map((hit: any) => ({
-          date: hit.date,
+        hitTrend: trend.map(hit => ({
+          date: hit.day,
           hits: hit.hits
         })),
         isLoading: false 
+      });
+
+      // Subscribe to hit events to update trend
+      staticDb.on('hit', () => {
+        API.getTrend7d().then(trend => {
+          set({
+            hitTrend: trend.map(hit => ({
+              date: hit.day,
+              hits: hit.hits
+            }))
+          });
+        });
       });
     } catch (error) {
       set({ 
@@ -134,3 +145,5 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
     return socket;
   }
 }));
+
+export { useStats };

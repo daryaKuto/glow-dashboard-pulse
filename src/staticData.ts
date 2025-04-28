@@ -1,4 +1,3 @@
-
 export const seed = {
   users: [{
     id: 'u1',
@@ -59,7 +58,15 @@ export const seed = {
       hits: Math.floor(Math.random() * 100) 
     };
   }),
-  friends: []
+  friends: [],
+  leaderboards: Array.from({ length: 7 }, (_, i) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - i));
+    return {
+      day: date.toISOString().split('T')[0],
+      hits: Math.floor(Math.random() * 100)
+    };
+  })
 };
 
 export type DB = typeof seed;

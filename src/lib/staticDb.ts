@@ -1,7 +1,7 @@
 import { seed, DB } from '../staticData';
 import bcrypt from 'bcryptjs';
 import mitt from 'mitt';
-import type { MockBackendEvents, MockWebSocket, RoomLayoutResponse } from './types';
+import type { MockBackendEvents, MockWebSocket, RoomLayoutResponse, LeaderboardEntry } from './types';
 
 class StaticDb {
   db: DB;
@@ -291,44 +291,46 @@ class StaticDb {
     this.emitter.emit(eventName, eventData);
   }
   
+  private rand(min: number, max: number): number {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  private recordHit(targetId: number) {
+    const day = new Date().toISOString().slice(0, 10);
+    const stat = this.db.leaderboards.find(l => l.day === day) ||
+      this.db.leaderboards[this.db.leaderboards.push({ day, hits: 0 }) - 1];
+    stat.hits += 1;
+    this.persist();
+  }
+
+  getHits7d(): LeaderboardEntry[] {
+    const days = [...Array(7)].map((_, i) => {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      return date.toISOString().slice(0, 10);
+    }).reverse();
+
+    return days.map(day => {
+      const record = this.db.leaderboards.find(l => l.day === day);
+      return { day, hits: record?.hits || 0 };
+    });
+  }
+
   simulateHits() {
-    setInterval(() => {
-      if (this.db.targets.filter(t => t.status === 'online').length) {
-        const onlineTargets = this.db.targets.filter(t => t.status === 'online');
-        const randomTarget = onlineTargets[Math.floor(Math.random() * onlineTargets.length)];
-        const score = Math.floor(Math.random() * 10) + 1;
-        
+    const fire = () => {
+      const onlineTargets = this.db.targets.filter(t => t.status === 'online');
+      if (onlineTargets.length) {
+        const target = onlineTargets[this.rand(0, onlineTargets.length - 1)];
+        this.recordHit(target.id);
         this.emitter.emit('hit', { 
-          targetId: randomTarget.id, 
-          score: score
+          targetId: target.id,
+          score: this.rand(1, 10)
         });
-        
-        // Also update hit stats for today
-        const today = new Date().toISOString().split('T')[0];
-        const todayStat = this.db.hitStats.find(h => h.date === today);
-        
-        if (todayStat) {
-          todayStat.hits += 1;
-        } else {
-          this.db.hitStats.push({ date: today, hits: 1 });
-        }
-        
-        // Simulate score updates for active sessions
-        if (this.db.players.length) {
-          const randomPlayer = this.db.players[Math.floor(Math.random() * this.db.players.length)];
-          randomPlayer.hits += 1;
-          randomPlayer.accuracy = Math.min(100, randomPlayer.accuracy + Math.random() * 2 - 1);
-          
-          this.emitter.emit('score_update', {
-            userId: randomPlayer.userId,
-            hits: randomPlayer.hits,
-            accuracy: Math.round(randomPlayer.accuracy)
-          });
-        }
-        
-        this.persist();
       }
-    }, 3000);
+      setTimeout(fire, this.rand(3000, 12000));
+    };
+    
+    fire();
   }
 
   // Create a mock WebSocket connection

@@ -1,6 +1,5 @@
-
 import { staticDb } from './staticDb';
-import type { MockWebSocket, RoomLayoutResponse } from './types';
+import type { MockWebSocket, RoomLayoutResponse, LeaderboardEntry } from './types';
 
 // Export the mock WebSocket type
 export type { MockWebSocket };
@@ -132,15 +131,19 @@ export const fetcher = async (endpoint: string, options = {}) => {
 export const API = {
   getStats: async (token: string) => {
     const stats = await staticDb.getStats();
+    const trend = staticDb.getHits7d();
     
     return {
       targets: stats.targets,
       rooms: stats.rooms,
       scenarios: staticDb.getScenarios(),
       sessions: stats.sessions,
-      invites: []
+      invites: [],
+      trend
     };
   },
+
+  getTrend7d: () => staticDb.getHits7d(),
 
   getHitStats: (token: string) => staticDb.getHitStats(),
   getTargets: (token: string) => staticDb.getTargets(),

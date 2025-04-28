@@ -1,6 +1,6 @@
 
 import { BaseDb } from './BaseDb';
-import { EventEmitter } from 'events';
+import { EventEmitter } from '../utils/EventEmitter';
 import type { MockWebSocket } from '../types';
 
 export class WebSocketDb extends BaseDb {
@@ -8,12 +8,12 @@ export class WebSocketDb extends BaseDb {
   private sockets: MockWebSocket[] = [];
 
   // Add event emitter methods
-  on(event: string, listener: Function) {
+  on(event: string, listener: (...args: any[]) => void) {
     this.emitter.on(event, listener);
     return this;
   }
 
-  off(event: string, listener: Function) {
+  off(event: string, listener: (...args: any[]) => void) {
     this.emitter.off(event, listener);
     return this;
   }

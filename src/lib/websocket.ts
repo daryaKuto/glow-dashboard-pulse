@@ -1,6 +1,6 @@
 
 import { MockWebSocket } from './types';
-import { mockBackend } from './mockBackend';
+import { staticDb } from './staticDb';
 
 // WebSocket connection helper now uses our mock events
 export const connectWebSocket = (token: string): MockWebSocket => {
@@ -16,8 +16,8 @@ export const connectWebSocket = (token: string): MockWebSocket => {
     },
     
     close: () => {
-      mockBackend.off('hit', handleHit);
-      mockBackend.off('connectionStatus', handleConnection);
+      staticDb.off('hit', handleHit);
+      staticDb.off('connectionStatus', handleConnection);
       if (fakeSocket.onclose) fakeSocket.onclose({} as any);
     }
   };
@@ -44,8 +44,8 @@ export const connectWebSocket = (token: string): MockWebSocket => {
   };
   
   // Register event handlers
-  mockBackend.on('hit', handleHit);
-  mockBackend.on('connectionStatus', handleConnection);
+  staticDb.on('hit', handleHit);
+  staticDb.on('connectionStatus', handleConnection);
   
   // Trigger initial connection status
   setTimeout(() => {

@@ -14,6 +14,11 @@ class StaticDb extends StatsDb {
   private roomsDb = new RoomsDb();
   private sessionsDb = new SessionsDb();
 
+  // For testing purposes
+  _getDbForTesting() {
+    return this.db;
+  }
+
   // Auth methods
   signUp = this.authDb.signUp.bind(this.authDb);
   signIn = this.authDb.signIn.bind(this.authDb);

@@ -1,8 +1,9 @@
 
 import { BaseDb } from './BaseDb';
 import type { ChartLeaderboardEntry } from '../types';
+import { WebSocketDb } from './WebSocketDb';
 
-export class StatsDb extends BaseDb {
+export class StatsDb extends WebSocketDb {
   getStats() {
     return {
       targets: {
@@ -52,7 +53,7 @@ export class StatsDb extends BaseDb {
   
   simulateHits() {
     const fire = () => {
-      // Check if db is initialized and has targets property
+      // Ensure db and targets are initialized
       if (this.db?.targets && this.db.targets.length > 0) {
         const onlineTargets = this.db.targets.filter(t => t.status === 'online');
         if (onlineTargets.length) {

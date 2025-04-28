@@ -1,4 +1,3 @@
-
 import { staticDb } from './staticDb';
 import type { MockWebSocket, RoomLayoutResponse, LeaderboardEntry } from './types';
 
@@ -146,6 +145,14 @@ export const fetcher = async (endpoint: string, options = {}) => {
           return staticDb.getLeaderboard(scope);
         }
         break;
+
+      case 'affiliate':
+        if (path.length === 1 && (options as any).method === 'POST') {
+          const body = JSON.parse((options as any).body);
+          // In static mode, just return a success response
+          return { success: true, message: 'Application submitted successfully' };
+        }
+        break;
     }
     
     throw new Error(`Unhandled static endpoint: ${endpoint}`);
@@ -196,5 +203,12 @@ export const API = {
   // Add friends methods
   getFriends: (token: string) => staticDb.getFriends(),
   addFriend: (token: string, friendId: string) => staticDb.addFriend(friendId),
-  getLeaderboard: (token: string, scope: 'global' | 'friends' = 'global'): LeaderboardEntry[] => staticDb.getLeaderboard(scope)
+  getLeaderboard: (token: string, scope: 'global' | 'friends' = 'global'): LeaderboardEntry[] => staticDb.getLeaderboard(scope),
+  
+  // Add affiliate application method
+  submitAffiliateApplication: async (formData: any) => {
+    console.log('Affiliate application submitted:', formData);
+    // In a real app, this would send the data to the backend
+    return { success: true };
+  }
 };

@@ -7,11 +7,11 @@ import { StatsDb } from './db/StatsDb';
 import { SessionsDb } from './db/SessionsDb';
 import { WebSocketDb } from './db/WebSocketDb';
 
-class StaticDb extends WebSocketDb {
+// Change the inheritance hierarchy: StatsDb now extends WebSocketDb
+class StaticDb extends StatsDb {
   private authDb = new AuthDb();
   private targetsDb = new TargetsDb();
   private roomsDb = new RoomsDb();
-  private statsDb = new StatsDb();
   private sessionsDb = new SessionsDb();
 
   // Auth methods
@@ -34,12 +34,6 @@ class StaticDb extends WebSocketDb {
   updateRoomOrder = this.roomsDb.updateRoomOrder.bind(this.roomsDb);
   getRoomLayout = this.roomsDb.getRoomLayout.bind(this.roomsDb);
   saveRoomLayout = this.roomsDb.saveRoomLayout.bind(this.roomsDb);
-
-  // Stats methods
-  getStats = this.statsDb.getStats.bind(this.statsDb);
-  getHitStats = this.statsDb.getHitStats.bind(this.statsDb);
-  getHits7d = this.statsDb.getHits7d.bind(this.statsDb);
-  simulateHits = this.statsDb.simulateHits.bind(this.statsDb);
 
   // Sessions methods
   getScenarios = this.sessionsDb.getScenarios.bind(this.sessionsDb);

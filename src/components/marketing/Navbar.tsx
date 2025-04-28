@@ -36,7 +36,12 @@ const Navbar = () => {
     
     return (
       <>
-        {links.map((link, index) => {
+        {links.map((link) => {
+          // If user is logged in and this is a login/signup link, render it differently
+          if (user && (link.to === "/login" || link.to === "/signup")) {
+            return isMobile ? null : <div key={link.to} className="hidden"></div>;
+          }
+          
           const LinkElement = (
             <Link 
               to={link.to}
@@ -48,11 +53,11 @@ const Navbar = () => {
           );
           
           return isMobile ? (
-            <SheetClose key={index} asChild>
+            <SheetClose key={link.to} asChild>
               {LinkElement}
             </SheetClose>
           ) : (
-            <div key={index} className="inline-block">
+            <div key={link.to} className="inline-block">
               {LinkElement}
             </div>
           );

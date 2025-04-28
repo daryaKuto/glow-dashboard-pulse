@@ -1,10 +1,9 @@
 
 import { BaseDb } from './BaseDb';
-import type { MockWebSocket } from '../types';
-import mitt from 'mitt';
+import type { MockWebSocket, MockBackendEvents } from '../types';
 
 export class WebSocketDb extends BaseDb {
-  private emitter = mitt();
+  // We don't need to redefine emitter since it's already in BaseDb
   
   createWebSocket(): MockWebSocket {
     // Create a mock websocket connection
@@ -21,13 +20,13 @@ export class WebSocketDb extends BaseDb {
           const message = JSON.parse(data);
           if (message.action === 'hit') {
             // Simulate a hit event
-            this.emitter.emit('hit', {
+            this.emit('hit', {
               targetId: message.targetId,
               score: Math.floor(Math.random() * 50) + 50
             });
           } else if (message.action === 'score_update') {
             // Simulate a score update event
-            this.emitter.emit('score_update', {
+            this.emit('score_update', {
               userId: message.userId || 'player-' + Math.floor(Math.random() * 1000),
               hits: message.hits || Math.floor(Math.random() * 100),
               accuracy: message.accuracy || Math.floor(Math.random() * 100)
@@ -52,7 +51,7 @@ export class WebSocketDb extends BaseDb {
     this.emitter.on('hit', (data) => {
       if (socket.onmessage) {
         socket.onmessage({
-          data: JSON.stringify({ type: 'hit', ...data })
+          data: JSON.stringify({ type: 'hit', targetId: data.targetId, score: data.score })
         } as any);
       }
     });
@@ -60,7 +59,12 @@ export class WebSocketDb extends BaseDb {
     this.emitter.on('score_update', (data) => {
       if (socket.onmessage) {
         socket.onmessage({
-          data: JSON.stringify({ type: 'score_update', ...data })
+          data: JSON.stringify({ 
+            type: 'score_update', 
+            userId: data.userId, 
+            hits: data.hits, 
+            accuracy: data.accuracy 
+          })
         } as any);
       }
     });
@@ -70,17 +74,10 @@ export class WebSocketDb extends BaseDb {
   }
   
   // Method to allow direct emit of events (useful for testing)
-  simulateEvent(type: string, data: any) {
+  simulateEvent(type: keyof MockBackendEvents, data: any) {
     this.emitter.emit(type, data);
   }
   
-  // Add event listener methods
-  on(type: string, handler: any) {
-    this.emitter.on(type, handler);
-    return () => this.emitter.off(type, handler);
-  }
-  
-  off(type: string, handler: any) {
-    this.emitter.off(type, handler);
-  }
+  // Instead of redefining on/off methods which conflict with BaseDb properties,
+  // we'll remove them since they're already available from BaseDb
 }

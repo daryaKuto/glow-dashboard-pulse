@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import PhoneVerifyModal from '@/components/PhoneVerifyModal';
 import FindFriendsTab from '@/components/FindFriendsTab';
-import { useAuth } from '@/store/useAuth';
+import { useAuth } from '@/providers/AuthProvider';
 import { useFriends } from '@/store/useFriends';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
@@ -34,22 +34,21 @@ const LeaderboardPage: React.FC = () => {
   const { user, hasVerifiedPhone, setPhoneVerifyModalOpen } = useAuth();
   const { friends, loadFriends } = useFriends();
   
-  // Check for user and phone verification
+  // Check for user and phone verification - only show phone verification if user exists
   useEffect(() => {
-    if (!user) {
-      navigate('/login');
-      return;
-    }
-    
     if (user && !hasVerifiedPhone) {
       setPhoneVerifyModalOpen(true);
     }
-  }, [user, hasVerifiedPhone, navigate, setPhoneVerifyModalOpen]);
+    
+    // Do not redirect to login anymore
+  }, [user, hasVerifiedPhone, setPhoneVerifyModalOpen]);
   
-  // Load friends data
+  // Load friends data when user exists
   useEffect(() => {
-    loadFriends();
-  }, [loadFriends]);
+    if (user) {
+      loadFriends();
+    }
+  }, [loadFriends, user]);
   
   // Generate mock leaderboard data
   useEffect(() => {
@@ -66,7 +65,7 @@ const LeaderboardPage: React.FC = () => {
       setLeaderboardData(mockData);
     } 
     // Use actual friends data for friends leaderboard
-    else if (scope === 'friends') {
+    else if (scope === 'friends' && user) {
       const friendsData = friends
         .filter(friend => friend.status === 'accepted')
         .map(friend => ({
@@ -87,7 +86,7 @@ const LeaderboardPage: React.FC = () => {
       friendsData.sort((a, b) => b.score - a.score);
       setLeaderboardData(friendsData);
     }
-  }, [scope, timeRange, friends]);
+  }, [scope, timeRange, friends, user]);
   
   return (
     <div className="min-h-screen flex flex-col bg-brand-indigo">
@@ -142,23 +141,47 @@ const LeaderboardPage: React.FC = () => {
                   </TabsContent>
                   
                   <TabsContent value="friends" className="mt-0">
-                    {friends.filter(f => f.status === 'accepted').length === 0 ? (
+                    {user ? (
+                      friends.filter(f => f.status === 'accepted').length === 0 ? (
+                        <div className="text-center py-8 text-brand-fg-secondary">
+                          <p>You haven't added any friends yet.</p>
+                          <button 
+                            onClick={() => setScope('find')}
+                            className="text-brand-lavender hover:underline mt-2"
+                          >
+                            Find friends to add
+                          </button>
+                        </div>
+                      ) : (
+                        <LeaderboardTable data={leaderboardData} />
+                      )
+                    ) : (
                       <div className="text-center py-8 text-brand-fg-secondary">
-                        <p>You haven't added any friends yet.</p>
-                        <button 
-                          onClick={() => setScope('find')}
-                          className="text-brand-lavender hover:underline mt-2"
+                        <p>Please sign in to view your friends leaderboard.</p>
+                        <button
+                          onClick={() => navigate('/login')}
+                          className="bg-brand-lavender text-white px-4 py-2 rounded mt-2 hover:bg-brand-lavender/80"
                         >
-                          Find friends to add
+                          Sign in
                         </button>
                       </div>
-                    ) : (
-                      <LeaderboardTable data={leaderboardData} />
                     )}
                   </TabsContent>
                   
                   <TabsContent value="find" className="mt-0">
-                    <FindFriendsTab />
+                    {user ? (
+                      <FindFriendsTab />
+                    ) : (
+                      <div className="text-center py-8 text-brand-fg-secondary">
+                        <p>Please sign in to find friends.</p>
+                        <button
+                          onClick={() => navigate('/login')}
+                          className="bg-brand-lavender text-white px-4 py-2 rounded mt-2 hover:bg-brand-lavender/80"
+                        >
+                          Sign in
+                        </button>
+                      </div>
+                    )}
                   </TabsContent>
                 </Tabs>
               </CardContent>
@@ -167,7 +190,7 @@ const LeaderboardPage: React.FC = () => {
         </main>
       </div>
       
-      <PhoneVerifyModal />
+      {user && <PhoneVerifyModal />}
     </div>
   );
 };

@@ -3,16 +3,16 @@
 
 ## Overview
 
-This document outlines the API endpoints used by the Target Practice Management System. Note that the current implementation uses a mock API with MSW (Mock Service Worker) for development purposes.
+This document outlines the API endpoints used by the FunGun Training System. The current implementation uses a mock API with MSW (Mock Service Worker) for development purposes.
 
 ## Base URL
 
-For mock implementation: `/` (relative to the application)
-For production: `https://api.fungun.dev/`
+- Development (Mock): `/` (relative to the application)
+- Production: `https://api.fungun.dev/` (planned)
 
 ## Authentication
 
-All API requests require a token passed either as:
+API requests require authentication via a token passed as either:
 - Query parameter: `?token=your_token`
 - Authorization header: `Authorization: Bearer your_token`
 
@@ -64,22 +64,8 @@ Returns hit trend data for the last 7 days.
   {
     "date": "2025-04-23",
     "hits": 67
-  },
-  // ...more dates
+  }
 ]
-```
-
-#### GET /sessions/latest
-Returns information about the latest session.
-
-**Response**:
-```json
-{
-  "id": 1,
-  "name": "Morning Practice",
-  "date": "2023-04-25T09:00:00Z",
-  "score": 87
-}
 ```
 
 ### Targets
@@ -96,8 +82,7 @@ Returns a list of all targets.
     "status": "online",
     "battery": 95,
     "roomId": 1
-  },
-  // ...more targets
+  }
 ]
 ```
 
@@ -112,7 +97,15 @@ Update a target's properties.
 }
 ```
 
-**Response**: The updated target object
+#### POST /targets/locate/:id
+Signal a target to help locate it physically.
+
+**Response**:
+```json
+{
+  "success": true
+}
+```
 
 ### Rooms
 
@@ -127,8 +120,7 @@ Returns a list of all rooms.
     "name": "Living Room",
     "order": 1,
     "targetCount": 2
-  },
-  // ...more rooms
+  }
 ]
 ```
 
@@ -142,8 +134,6 @@ Create a new room.
 }
 ```
 
-**Response**: The created room object with a new ID
-
 #### PUT /rooms/:id
 Update a room's properties.
 
@@ -154,12 +144,8 @@ Update a room's properties.
 }
 ```
 
-**Response**: The updated room object
-
 #### DELETE /rooms/:id
 Delete a room.
-
-**Response**: Empty response with 204 status code
 
 #### PUT /rooms/order
 Update the order of rooms.
@@ -170,8 +156,6 @@ Update the order of rooms.
   "roomIds": [2, 1, 3] 
 }
 ```
-
-**Response**: The list of rooms with updated order
 
 ### Sessions
 
@@ -184,12 +168,11 @@ Returns a list of all sessions.
   {
     "id": 1,
     "name": "Morning Practice",
-    "date": "2023-04-25T09:00:00Z",
+    "date": "2025-04-25T09:00:00Z",
     "duration": 15,
     "score": 87,
     "accuracy": 75
-  },
-  // ...more sessions
+  }
 ]
 ```
 
@@ -204,12 +187,8 @@ Create a new session.
 }
 ```
 
-**Response**: The created session object
-
 #### POST /sessions/:id/end
 End an active session.
-
-**Response**: The session object with final score and accuracy
 
 ### Invites
 
@@ -223,9 +202,8 @@ Returns a list of pending invites.
     "id": 1,
     "token": "abc123",
     "sessionId": 1,
-    "createdAt": "2023-04-25T09:05:00Z"
-  },
-  // ...more invites
+    "createdAt": "2025-04-25T09:05:00Z"
+  }
 ]
 ```
 
@@ -236,13 +214,6 @@ Create a new invite for a session.
 ```json
 {
   "sessionId": 1
-}
-```
-
-**Response**:
-```json
-{
-  "token": "xyz789"
 }
 ```
 
@@ -274,25 +245,33 @@ Create a new invite for a session.
     "userId": "user123",
     "hits": 12,
     "accuracy": 85,
-    "timestamp": "2023-04-25T09:10:00Z"
+    "timestamp": "2025-04-25T09:10:00Z"
   }
   ```
 
 ## Error Handling
 
-All API endpoints return appropriate HTTP status codes:
+API endpoints return appropriate HTTP status codes:
 
 - `200 OK`: Successful request
-- `201 Created`: Resource successfully created
-- `204 No Content`: Resource successfully deleted
+- `201 Created`: Resource created
+- `204 No Content`: Resource deleted
 - `400 Bad Request`: Invalid request
 - `404 Not Found`: Resource not found
+- `401 Unauthorized`: Authentication required
+- `403 Forbidden`: Insufficient permissions
 
 Error responses include a message explaining the error.
 
 ## Rate Limiting
 
-The API implements rate limiting to prevent abuse:
+The API implements rate limiting:
 - 100 requests per minute for authenticated users
 - 20 requests per minute for unauthenticated requests
 
+## Implementation Details
+
+The current implementation uses MSW to mock these endpoints during development:
+- Mock handlers are defined in `src/mocks/handlers.ts`
+- WebSocket mocking is in `src/mocks/mockSocket.ts`
+- Data is stored in memory during the session

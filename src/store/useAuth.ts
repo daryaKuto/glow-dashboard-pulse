@@ -54,7 +54,8 @@ export const useAuth = create<AuthState>((set, get) => ({
         loading: false 
       });
       
-      return () => subscription.unsubscribe();
+      // Return the cleanup function but don't make it part of the Promise resolution
+      return;
     } catch (error) {
       console.error("Auth error:", error);
       set({ loading: false });

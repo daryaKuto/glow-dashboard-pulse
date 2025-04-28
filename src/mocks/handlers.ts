@@ -1,5 +1,5 @@
-
 import { http, HttpResponse, delay } from 'msw';
+import { DefaultBodyType } from 'msw';
 
 // Sample data
 let targets = [

@@ -1,4 +1,3 @@
-
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -19,7 +18,7 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-export const AffiliateForm = () => {
+const AffiliateForm = () => {
   const { register, handleSubmit, reset, formState: { errors, isSubmitting, isSubmitSuccessful } } = 
     useForm<FormData>({ resolver: zodResolver(schema) });
 
@@ -135,3 +134,5 @@ export const AffiliateForm = () => {
     </form>
   );
 };
+
+export default AffiliateForm;

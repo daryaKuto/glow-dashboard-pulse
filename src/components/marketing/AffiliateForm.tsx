@@ -28,7 +28,13 @@ export const AffiliateForm = () => {
       await new Promise(r => setTimeout(r, 500)); // Simulate latency
       // Remove the consent and honeypot fields before saving to the database
       const { consent, _gotcha, ...applicationData } = data;
-      staticDb.createAffiliateApp(applicationData);
+      staticDb.createAffiliateApp({
+        ...applicationData,
+        fullName: applicationData.fullName,  // Ensure it's not optional
+        email: applicationData.email,        // Ensure it's not optional
+        website: applicationData.website,    // Ensure it's not optional
+        promoPlan: applicationData.promoPlan // Ensure it's not optional
+      });
       toast.success("Application submitted successfully!");
       reset();
     } catch (error) {

@@ -14,21 +14,28 @@ import { useAuth } from '@/providers/AuthProvider';
 const Navbar = () => {
   const { user } = useAuth();
   
+  // Define link types with proper TypeScript interface
+  interface NavLinkType {
+    to: string;
+    label: string;
+    className?: string;
+  }
+  
   // NavLinks component with properly wrapped SheetClose for mobile
   const NavLinks = ({ isMobile = false }) => {
-    const links = [
+    const links: NavLinkType[] = [
       { to: "/", label: "Home" },
       { to: "/products", label: "Products" },
     ];
     
-    const authLinks = user ? [
+    const authLinks: NavLinkType[] = user ? [
       { to: "/dashboard", label: "Dashboard" }
     ] : [
       { to: "/login", label: "Login" },
       { to: "/signup", label: "Sign Up", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" }
     ];
     
-    const affiliateLink = { 
+    const affiliateLink: NavLinkType = { 
       to: "/affiliate/apply", 
       label: "Apply as Affiliate", 
       className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" 

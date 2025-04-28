@@ -1,3 +1,4 @@
+
 import { create } from 'zustand';
 import { API } from '@/lib/api';
 import { createMockWebSocket } from '@/mocks/mockSocket';
@@ -87,7 +88,8 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
   setWsConnected: (connected: boolean) => set({ wsConnected: connected }),
   
   initializeWebSocket: (userId: string) => {
-    const socket = useMocks ? 
+    const useMock = import.meta.env.VITE_USE_MOCK === 'true';
+    const socket = useMock ? 
       createMockWebSocket(userId) : 
       new WebSocket(`wss://api.fungun.dev/hits/${userId}`);
 

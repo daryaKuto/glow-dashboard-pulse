@@ -1,7 +1,7 @@
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Menu, X } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -36,6 +36,9 @@ const Navbar = () => {
           </Button>
         </>
       )}
+      <Button asChild className="bg-brand-lavender hover:bg-brand-lavender/80">
+        <Link to="/affiliate/apply">Apply as Affiliate</Link>
+      </Button>
     </>
   );
 

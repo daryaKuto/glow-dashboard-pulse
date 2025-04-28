@@ -26,7 +26,9 @@ export const AffiliateForm = () => {
   const onSubmit = async (data: FormData) => {
     try {
       await new Promise(r => setTimeout(r, 500)); // Simulate latency
-      staticDb.createAffiliateApp(data);
+      // Remove the consent and honeypot fields before saving to the database
+      const { consent, _gotcha, ...applicationData } = data;
+      staticDb.createAffiliateApp(applicationData);
       toast.success("Application submitted successfully!");
       reset();
     } catch (error) {

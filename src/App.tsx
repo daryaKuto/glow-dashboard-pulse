@@ -1,3 +1,5 @@
+
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import ProductsPage from './pages/ProductsPage';
@@ -15,7 +17,6 @@ import Login from './pages/Login';
 import Settings from './pages/Settings';
 import AffiliateApplyPage from './pages/AffiliateApplyPage';
 import { Toaster } from './components/ui/sonner';
-import { useEffect } from 'react';
 import { useAuth } from './providers/AuthProvider';
 
 import './App.css';

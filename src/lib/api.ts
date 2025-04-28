@@ -1,6 +1,6 @@
 
 import { staticDb } from './staticDb';
-import type { MockWebSocket } from './types';
+import type { MockWebSocket, RoomLayoutResponse } from './types';
 
 // Export the mock WebSocket type
 export type { MockWebSocket };
@@ -8,6 +8,16 @@ export type { MockWebSocket };
 // WebSocket connection helper now uses our static database
 export const connectWebSocket = (token: string): MockWebSocket => {
   return staticDb.createWebSocket();
+};
+
+// Type guard to check if response is a RoomLayoutResponse
+const isRoomLayoutResponse = (obj: any): obj is RoomLayoutResponse => {
+  return obj && 
+    typeof obj === 'object' && 
+    'targets' in obj && 
+    'groups' in obj &&
+    Array.isArray(obj.targets) &&
+    Array.isArray(obj.groups);
 };
 
 // Unified API interface that works with our static database
@@ -99,6 +109,14 @@ export const fetcher = async (endpoint: string, options = {}) => {
         } else if (path.length === 3 && path[2] === 'end') {
           const sessionId = parseInt(path[1]);
           return staticDb.endSession(sessionId);
+        }
+        break;
+        
+      case 'invites':
+        if (path.length === 1 && (options as any).method === 'POST') {
+          const body = JSON.parse((options as any).body);
+          // In static mode, just return a dummy token
+          return { token: `mock-invite-${Date.now()}` };
         }
         break;
     }

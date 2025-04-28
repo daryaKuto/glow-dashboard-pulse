@@ -15,3 +15,13 @@ export interface MockWebSocket {
   send: (data: string) => void;
   close: () => void;
 }
+
+// Define API response types
+export interface RoomLayoutResponse {
+  targets: { id: number; x: number; y: number }[];
+  groups: { id: number; name: string; targetIds: number[] }[];
+}
+
+export interface InviteResponse {
+  token: string;
+}

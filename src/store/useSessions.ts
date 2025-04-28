@@ -1,7 +1,7 @@
-
 import { create } from 'zustand';
 import { fetcher } from '@/lib/api';
 import { toast } from "@/components/ui/sonner";
+import { InviteResponse } from '@/lib/types';
 
 export type Player = {
   userId: string;
@@ -124,13 +124,13 @@ export const useSessions = create<SessionsState>((set, get) => ({
   
   createInvite: async (sessionId: number, token: string) => {
     try {
-      const { token: inviteToken } = await fetcher('/invites', {
+      const response = await fetcher('/invites', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify({ sessionId })
-      });
+      }) as InviteResponse;
       
-      return inviteToken;
+      return response.token;
     } catch (error) {
       toast.error('Failed to create invite');
       return null;

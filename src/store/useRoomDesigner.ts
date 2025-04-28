@@ -1,7 +1,7 @@
-
 import { create } from 'zustand';
 import { fetcher } from '@/lib/api';
 import { toast } from "@/components/ui/sonner";
+import { RoomLayoutResponse } from '@/lib/types';
 
 export type Position = {
   x: number;
@@ -88,7 +88,7 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
     try {
       const result = await fetcher(`/rooms/${roomId}/layout`, {
         headers: { Authorization: `Bearer ${token}` }
-      });
+      }) as RoomLayoutResponse;
       
       set({ 
         layout: result.targets || [],

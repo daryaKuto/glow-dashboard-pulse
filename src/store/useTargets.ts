@@ -1,4 +1,3 @@
-
 import { create } from 'zustand';
 import { fetcher } from '@/lib/api';
 import { toast } from "@/components/ui/sonner";
@@ -34,7 +33,7 @@ export const useTargets = create<TargetsState>((set, get) => ({
       const targets = await fetcher('/targets', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      set({ targets, isLoading: false });
+      set({ targets: targets as Target[], isLoading: false });
     } catch (error) {
       set({ error: 'Failed to fetch targets', isLoading: false });
       toast.error('Failed to fetch targets');
@@ -49,7 +48,6 @@ export const useTargets = create<TargetsState>((set, get) => ({
         body: JSON.stringify({ name })
       });
       
-      // Update the target in state
       set(state => ({
         targets: state.targets.map(target => 
           target.id === id ? { ...target, name } : target
@@ -96,7 +94,6 @@ export const useTargets = create<TargetsState>((set, get) => ({
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      // Remove the target from state
       set(state => ({
         targets: state.targets.filter(target => target.id !== id)
       }));
@@ -115,7 +112,6 @@ export const useTargets = create<TargetsState>((set, get) => ({
         body: JSON.stringify({ roomId })
       });
       
-      // Update the target in state
       set(state => ({
         targets: state.targets.map(target => 
           target.id === targetId ? { ...target, roomId } : target

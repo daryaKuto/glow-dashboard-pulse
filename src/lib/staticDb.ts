@@ -1,8 +1,7 @@
-
 import { seed, DB } from '../staticData';
 import bcrypt from 'bcryptjs';
 import mitt from 'mitt';
-import type { MockBackendEvents, MockWebSocket } from './types';
+import type { MockBackendEvents, MockWebSocket, RoomLayoutResponse } from './types';
 
 class StaticDb {
   db: DB;
@@ -184,7 +183,7 @@ class StaticDb {
   }
   
   /* ROOM LAYOUTS */
-  getRoomLayout(roomId: number) {
+  getRoomLayout(roomId: number): RoomLayoutResponse {
     const layout = this.db.layouts.find(l => l.roomId === roomId);
     
     if (layout) return {

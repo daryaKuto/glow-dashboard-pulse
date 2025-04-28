@@ -45,7 +45,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify({ name })
-      });
+      }) as Room;
       
       // Add the new room to state
       set(state => ({

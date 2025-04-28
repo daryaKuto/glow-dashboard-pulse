@@ -1,7 +1,9 @@
+
 import Navbar from '@/components/marketing/Navbar';
 import Footer from '@/components/marketing/Footer';
 import HeroSection from '@/components/marketing/sections/HeroSection';
 import WhySection from '@/components/marketing/sections/WhySection';
+import AffiliateSection from '@/components/marketing/sections/AffiliateSection';
 
 const LandingPage = () => {
   return (
@@ -10,6 +12,7 @@ const LandingPage = () => {
       <main className="flex-1">
         <HeroSection />
         <WhySection />
+        <AffiliateSection />
         {/* Additional sections will be implemented in subsequent iterations */}
       </main>
       <Footer />

@@ -1,47 +1,51 @@
 
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import Index from "./pages/Index";
-import Dashboard from "./pages/Dashboard";
-import Targets from "./pages/Targets";
-import Rooms from "./pages/Rooms";
-import Sessions from "./pages/Sessions";
-import Leaderboard from "./pages/Leaderboard";
-import Profile from "./pages/Profile";
-import Settings from "./pages/Settings";
-import NotFound from "./pages/NotFound";
-import Signup from "./pages/Signup";
-import Login from "./pages/Login";
-import SessionJoin from "./pages/SessionJoin";
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import Index from './pages/Index';
+import Dashboard from './pages/Dashboard';
+import Targets from './pages/Targets';
+import Rooms from './pages/Rooms';
+import RoomDesigner from './pages/RoomDesigner';
+import Sessions from './pages/Sessions';
+import SessionJoin from './pages/SessionJoin';
+import Leaderboard from './pages/Leaderboard';
+import NotFound from './pages/NotFound';
+import Profile from './pages/Profile';
+import Signup from './pages/Signup';
+import Login from './pages/Login';
+import Settings from './pages/Settings';
+import { Toaster } from './components/ui/sonner';
+import { useEffect } from 'react';
+import { useAuth } from './store/useAuth';
 
-const queryClient = new QueryClient();
+import './App.css';
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/targets" element={<Targets />} />
-          <Route path="/rooms" element={<Rooms />} />
-          <Route path="/sessions" element={<Sessions />} />
-          <Route path="/sessions/join/:token" element={<SessionJoin />} />
-          <Route path="/leaderboard" element={<Leaderboard />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/signup" element={<Signup />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+function App() {
+  const { checkSession } = useAuth();
+  
+  useEffect(() => {
+    checkSession();
+  }, []);
+  
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={<Index />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/targets" element={<Targets />} />
+        <Route path="/rooms" element={<Rooms />} />
+        <Route path="/rooms/:id" element={<RoomDesigner />} />
+        <Route path="/sessions" element={<Sessions />} />
+        <Route path="/sessions/join/:token" element={<SessionJoin />} />
+        <Route path="/leaderboard" element={<Leaderboard />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/signup" element={<Signup />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+      <Toaster position="top-center" />
+    </Router>
+  );
+}
 
 export default App;

@@ -26,6 +26,24 @@ let sessions = [
   { id: 3, name: 'Weekend Training', date: '2023-04-18T11:15:00Z', duration: 30, score: 72, accuracy: 65 }
 ];
 
+let roomLayouts = {
+  1: {
+    targets: [
+      { id: 1, x: 100, y: 100 },
+      { id: 2, x: 250, y: 150 }
+    ],
+    groups: [
+      { id: 1, name: 'Enemy 1', targetIds: [1, 2] }
+    ]
+  },
+  2: {
+    targets: [
+      { id: 3, x: 200, y: 200 }
+    ],
+    groups: []
+  }
+};
+
 let currentSession = null;
 let invites = [];
 let friends = [];
@@ -85,6 +103,23 @@ interface PhoneVerificationBody {
 interface OtpVerifyBody {
   phone: string;
   token: string;
+}
+
+interface TargetLayout {
+  id: number;
+  x: number;
+  y: number;
+}
+
+interface TargetGroup {
+  id: number;
+  name: string;
+  targetIds: number[];
+}
+
+interface RoomLayoutBody {
+  targets?: TargetLayout[];
+  groups?: TargetGroup[];
 }
 
 // Handlers for mock API endpoints
@@ -471,6 +506,79 @@ export const handlers = [
           phone_verified: true
         }
       });
+    } catch (error) {
+      return new HttpResponse(null, { status: 400 });
+    }
+  }),
+  
+  // Room Layout endpoints
+  http.get('/rooms/:id/layout', async ({ params }) => {
+    await delay(300);
+    const { id } = params;
+    const roomId = Number(id);
+    
+    // Return default empty layout if not found
+    if (!roomLayouts[roomId]) {
+      roomLayouts[roomId] = {
+        targets: [],
+        groups: []
+      };
+    }
+    
+    return HttpResponse.json(roomLayouts[roomId]);
+  }),
+  
+  http.put('/rooms/:id/layout', async ({ params, request }) => {
+    await delay(300);
+    const { id } = params;
+    const roomId = Number(id);
+    
+    try {
+      const body = await request.json() as RoomLayoutBody;
+      
+      // Create layout if it doesn't exist
+      if (!roomLayouts[roomId]) {
+        roomLayouts[roomId] = {
+          targets: [],
+          groups: []
+        };
+      }
+      
+      // Update layout with new data
+      if (body.targets) {
+        roomLayouts[roomId].targets = body.targets;
+      }
+      
+      if (body.groups) {
+        roomLayouts[roomId].groups = body.groups;
+      }
+      
+      return HttpResponse.json(roomLayouts[roomId]);
+    } catch (error) {
+      return new HttpResponse(null, { status: 400 });
+    }
+  }),
+  
+  http.put('/rooms/:id/groups', async ({ params, request }) => {
+    await delay(300);
+    const { id } = params;
+    const roomId = Number(id);
+    
+    try {
+      const body = await request.json() as { groups: TargetGroup[] };
+      
+      // Create layout if it doesn't exist
+      if (!roomLayouts[roomId]) {
+        roomLayouts[roomId] = {
+          targets: [],
+          groups: []
+        };
+      }
+      
+      // Update groups
+      roomLayouts[roomId].groups = body.groups;
+      
+      return HttpResponse.json(roomLayouts[roomId]);
     } catch (error) {
       return new HttpResponse(null, { status: 400 });
     }

@@ -1,4 +1,3 @@
-
 export const seed = {
   users: [{
     id: 'u1',
@@ -67,7 +66,16 @@ export const seed = {
       day: date.toISOString().split('T')[0],
       hits: Math.floor(Math.random() * 100)
     };
-  })
+  }),
+  applications: [] as {
+    id: string;
+    fullName: string;
+    email: string;
+    website: string;
+    audienceSize?: string;
+    promoPlan: string;
+    createdAt: number;
+  }[],
 };
 
 export type DB = typeof seed;

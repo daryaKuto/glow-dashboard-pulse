@@ -1,4 +1,3 @@
-
 import { DollarSign, Clock, BarChart3 } from 'lucide-react';
 
 const AffiliateSection = () => {
@@ -55,12 +54,10 @@ const AffiliateSection = () => {
 
         <div className="mt-12 flex justify-center">
           <a
-            href="https://example.com/affiliate"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/affiliate/apply"
             className="px-8 py-3 rounded-full font-medium bg-brand-lavender text-brand-indigo
-                     hover:bg-transparent hover:outline hover:outline-2 hover:outline-brand-lavender
-                     hover:text-brand-lavender focus-visible:ring-4 focus-visible:ring-brand-lavender/50 transition"
+                   hover:bg-transparent hover:outline hover:outline-2 hover:outline-brand-lavender
+                   hover:text-brand-lavender focus-visible:ring-4 focus-visible:ring-brand-lavender/50 transition"
           >
             Apply as Affiliate
           </a>

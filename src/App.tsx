@@ -1,4 +1,3 @@
-
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import ProductsPage from './pages/ProductsPage';
@@ -14,6 +13,7 @@ import Profile from './pages/Profile';
 import Signup from './pages/Signup';
 import Login from './pages/Login';
 import Settings from './pages/Settings';
+import AffiliateApplyPage from './pages/AffiliateApplyPage';
 import { Toaster } from './components/ui/sonner';
 import { useEffect } from 'react';
 import { useAuth } from './providers/AuthProvider';
@@ -43,6 +43,7 @@ function App() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/login" element={<Login />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/affiliate/apply" element={<AffiliateApplyPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       <Toaster position="top-center" />

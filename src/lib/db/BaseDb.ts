@@ -28,4 +28,13 @@ export class BaseDb {
   emit(eventName: keyof MockBackendEvents, eventData: any) {
     this.emitter.emit(eventName, eventData);
   }
+  
+  createAffiliateApp(app: Omit<(typeof seed.applications)[0], 'id' | 'createdAt'>) {
+    this.db.applications.push({
+      ...app,
+      id: `a${Date.now()}`,
+      createdAt: Date.now()
+    });
+    this.persist();
+  }
 }

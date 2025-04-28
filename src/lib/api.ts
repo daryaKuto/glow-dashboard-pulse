@@ -104,9 +104,13 @@ export const fetcher = async (endpoint: string, options = {}) => {
         return staticDb.getScenarios();
         
       case 'sessions':
+        console.log('Sessions request:', path, (options as any).method);
         if (path.length === 1) {
           if ((options as any).method === 'GET') {
-            return staticDb.getSessions();
+            // Ensure we're properly calling getSessions
+            const sessions = staticDb.getSessions();
+            console.log('Fetched sessions:', sessions);
+            return sessions;
           } else if ((options as any).method === 'POST') {
             const body = JSON.parse((options as any).body);
             return staticDb.startSession(body.scenarioId, body.includedRoomIds);
@@ -155,6 +159,9 @@ export const API = {
   getTargets: (token: string) => staticDb.getTargets(),
   getRooms: (token: string) => staticDb.getRooms(),
   getInvites: (token: string) => [],
+  
+  // Add a specific method for getting sessions
+  getSessions: (token: string) => staticDb.getSessions(),
   
   // Auth methods
   signUp: (email: string, password: string, userData?: any) => 

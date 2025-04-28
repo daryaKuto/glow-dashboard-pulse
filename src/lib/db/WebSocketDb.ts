@@ -75,7 +75,7 @@ export class WebSocketDb extends BaseDb {
   
   // Method to allow direct emit of events (useful for testing)
   simulateEvent(type: keyof MockBackendEvents, data: any) {
-    this.emitter.emit(type, data);
+    this.emit(type, data);
   }
   
   // Instead of redefining on/off methods which conflict with BaseDb properties,

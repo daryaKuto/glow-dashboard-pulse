@@ -21,38 +21,45 @@ const Navbar = () => {
     to: string;
     label: string;
     className?: string; // Make className optional with the ? operator
+    alwaysVisible?: boolean; // Add flag to determine if link is always visible
   }
   
   // NavLinks component with properly wrapped SheetClose for mobile
   const NavLinks = ({ isMobile = false }) => {
-    const links: NavLinkType[] = [
-      { to: "/", label: "Home" },
-      { to: "/products", label: "Products" },
+    // Marketing links - always visible regardless of auth status
+    const marketingLinks: NavLinkType[] = [
+      { to: "/", label: "Home", alwaysVisible: true },
+      { to: "/products", label: "Products", alwaysVisible: true },
+      { to: "/affiliate/apply", label: "Apply as Affiliate", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white", alwaysVisible: true }
     ];
     
-    const authLinks: NavLinkType[] = user ? [
-      { to: "/dashboard", label: "Dashboard" }
-    ] : [
+    // Auth links - only visible when not logged in
+    const authLinks: NavLinkType[] = !user ? [
       { to: "/login", label: "Login" },
       { to: "/signup", label: "Sign Up", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" }
-    ];
+    ] : [];
     
-    const affiliateLink: NavLinkType = { 
-      to: "/affiliate/apply", 
-      label: "Apply as Affiliate", 
-      className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" 
-    };
+    // Dashboard link - only visible when logged in
+    const dashboardLink: NavLinkType = user ? 
+      { to: "/dashboard", label: "Dashboard", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" } : 
+      { to: "", label: "", alwaysVisible: false };
     
-    const allLinks = [...links, ...authLinks];
+    // Combine all links
+    const allLinks = [...marketingLinks, ...authLinks];
     
-    // Add affiliate link only if not already displaying it (prevent duplicates)
-    if (!user || !authLinks.find(link => link.to === "/affiliate/apply")) {
-      allLinks.push(affiliateLink);
+    // Add dashboard link if user is logged in
+    if (user) {
+      allLinks.push(dashboardLink);
     }
+    
+    // Filter out empty links (for type safety)
+    const visibleLinks = allLinks.filter(link => link.label && (link.alwaysVisible || (!user && !link.alwaysVisible) || (user && link.to === '/dashboard')));
+    
+    console.log("User status:", !!user, "Visible links:", visibleLinks.map(l => l.label));
     
     return (
       <>
-        {allLinks.map((link, index) => (
+        {visibleLinks.map((link, index) => (
           isMobile ? (
             <SheetClose key={index} asChild>
               <Link 

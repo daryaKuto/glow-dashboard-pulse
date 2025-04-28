@@ -1,6 +1,7 @@
 
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Index from './pages/Index';
+import LandingPage from './pages/LandingPage';
+import ProductsPage from './pages/ProductsPage';
 import Dashboard from './pages/Dashboard';
 import Targets from './pages/Targets';
 import Rooms from './pages/Rooms';
@@ -29,7 +30,8 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<Index />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/products" element={<ProductsPage />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/targets" element={<Targets />} />
         <Route path="/rooms" element={<Rooms />} />

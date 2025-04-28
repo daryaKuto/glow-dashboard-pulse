@@ -3,6 +3,27 @@ import { BaseDb } from './BaseDb';
 
 export class SessionsDb extends BaseDb {
   getScenarios() {
+    // Initialize scenarios if they don't exist
+    if (!this.db.scenarios) {
+      this.db.scenarios = [
+        {
+          id: 1,
+          name: "Quick Training",
+          difficulty: "beginner"
+        },
+        {
+          id: 2,
+          name: "Speed Challenge",
+          difficulty: "intermediate"
+        },
+        {
+          id: 3,
+          name: "Precision Master",
+          difficulty: "advanced"
+        }
+      ];
+      this.persist();
+    }
     return [...this.db.scenarios];
   }
   

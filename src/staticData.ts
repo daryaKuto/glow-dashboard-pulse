@@ -1,3 +1,4 @@
+
 import bcrypt from 'bcryptjs';
 
 // Create initial database
@@ -63,6 +64,23 @@ export const createDb = async () => {
         name: "Quick Draw Arena",
         order: 3,
         targetCount: 0
+      }
+    ],
+    scenarios: [
+      {
+        id: 1,
+        name: "Quick Training",
+        difficulty: "beginner"
+      },
+      {
+        id: 2,
+        name: "Speed Challenge",
+        difficulty: "intermediate"
+      },
+      {
+        id: 3,
+        name: "Precision Master",
+        difficulty: "advanced"
       }
     ],
     sessions: [
@@ -150,6 +168,27 @@ export const seed = async () => {
     // Ensure targets array exists
     if (!parsedDb.targets) {
       parsedDb.targets = [];
+    }
+    
+    // Ensure scenarios array exists
+    if (!parsedDb.scenarios) {
+      parsedDb.scenarios = [
+        {
+          id: 1,
+          name: "Quick Training",
+          difficulty: "beginner"
+        },
+        {
+          id: 2,
+          name: "Speed Challenge",
+          difficulty: "intermediate"
+        },
+        {
+          id: 3,
+          name: "Precision Master",
+          difficulty: "advanced"
+        }
+      ];
     }
     
     // Ensure chartLeaderboards array exists

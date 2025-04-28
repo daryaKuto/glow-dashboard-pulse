@@ -17,24 +17,50 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useSessions } from '@/store/useSessions';
+import { format } from 'date-fns';
 
 const Profile: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
+  const { sessions, fetchSessions } = useSessions();
+  const [isLoading, setIsLoading] = useState(true);
+  
   const [user, setUser] = useState({
-    name: 'Jane Doe',
-    email: 'jane@example.com',
+    name: 'Test User',
+    email: 'test_user@example.com',
     avatarUrl: 'https://github.com/shadcn.png',
     totalHits: 1248,
     bestScore: 95,
-    recentSessions: [
-      { id: 1, name: 'Quick Training', date: '2023-04-25', score: 87 },
-      { id: 2, name: 'Accuracy Focus', date: '2023-04-22', score: 95 },
-      { id: 3, name: 'Speed Run', date: '2023-04-18', score: 72 },
-      { id: 4, name: 'Beginner Mode', date: '2023-04-15', score: 65 },
-      { id: 5, name: 'Custom Scenario', date: '2023-04-10', score: 83 }
-    ]
   });
+
+  // Get token from URL or localStorage
+  const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
+
+  // Fetch sessions when component mounts
+  useEffect(() => {
+    const loadSessions = async () => {
+      try {
+        await fetchSessions(token);
+      } catch (error) {
+        console.error("Error fetching sessions:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadSessions();
+  }, [token, fetchSessions]);
+
+  // Get the 5 most recent sessions
+  const recentSessions = sessions
+    .slice(0, 5)
+    .map(session => ({
+      id: session.id,
+      name: session.name,
+      date: format(new Date(session.date), 'yyyy-MM-dd'),
+      score: session.score
+    }));
 
   return (
     <div className="min-h-screen flex flex-col bg-brand-indigo">
@@ -124,20 +150,30 @@ const Profile: React.FC = () => {
             <div className="bg-brand-surface rounded-xl shadow-card">
               <h3 className="text-xl font-display text-white p-6 border-b border-brand-lavender/20">Recent Sessions</h3>
               
-              <ul className="divide-y divide-brand-lavender/20">
-                {user.recentSessions.map(session => (
-                  <li key={session.id} className="p-4 flex justify-between items-center">
-                    <div>
-                      <div className="text-white font-medium">{session.name}</div>
-                      <div className="text-sm text-brand-fg-secondary">{session.date}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xl text-white font-display">{session.score}</div>
-                      <div className="text-xs text-brand-fg-secondary">Score</div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              {isLoading ? (
+                <div className="p-6 text-center text-brand-fg-secondary">
+                  Loading sessions...
+                </div>
+              ) : recentSessions.length === 0 ? (
+                <div className="p-6 text-center text-brand-fg-secondary">
+                  No recent sessions found
+                </div>
+              ) : (
+                <ul className="divide-y divide-brand-lavender/20">
+                  {recentSessions.map(session => (
+                    <li key={session.id} className="p-4 flex justify-between items-center">
+                      <div>
+                        <div className="text-white font-medium">{session.name}</div>
+                        <div className="text-sm text-brand-fg-secondary">{session.date}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xl text-white font-display">{session.score}</div>
+                        <div className="text-xs text-brand-fg-secondary">Score</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </main>

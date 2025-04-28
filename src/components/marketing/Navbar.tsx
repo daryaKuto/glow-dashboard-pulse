@@ -14,11 +14,11 @@ import { useAuth } from '@/providers/AuthProvider';
 const Navbar = () => {
   const { user } = useAuth();
   
-  // Define link types with proper TypeScript interface
+  // Define link types with proper TypeScript interface - making className optional
   interface NavLinkType {
     to: string;
     label: string;
-    className?: string;
+    className?: string; // Make className optional with the ? operator
   }
   
   // NavLinks component with properly wrapped SheetClose for mobile

@@ -47,16 +47,16 @@ function App() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/login" element={<Login />} />
         
-        {/* Dashboard routes */}
+        {/* Dashboard routes - all prefixed with /dashboard */}
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/targets" element={<Targets />} />
-        <Route path="/rooms" element={<Rooms />} />
-        <Route path="/rooms/:id" element={<RoomDesigner />} />
-        <Route path="/sessions" element={<Sessions />} />
-        <Route path="/sessions/join/:token" element={<SessionJoin />} />
-        <Route path="/leaderboard" element={<Leaderboard />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/settings" element={<Settings />} />
+        <Route path="/dashboard/targets" element={<Targets />} />
+        <Route path="/dashboard/rooms" element={<Rooms />} />
+        <Route path="/dashboard/rooms/:id" element={<RoomDesigner />} />
+        <Route path="/dashboard/sessions" element={<Sessions />} />
+        <Route path="/dashboard/sessions/join/:token" element={<SessionJoin />} />
+        <Route path="/dashboard/leaderboard" element={<Leaderboard />} />
+        <Route path="/dashboard/profile" element={<Profile />} />
+        <Route path="/dashboard/settings" element={<Settings />} />
         
         {/* Fallback route */}
         <Route path="*" element={<NotFound />} />

@@ -18,9 +18,9 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { title: 'Dashboard', icon: Home, path: '/dashboard' },
-  { title: 'Targets', icon: Target, path: '/targets' },
-  { title: 'Rooms', icon: Users, path: '/rooms' },
-  { title: 'Sessions', icon: Calendar, path: '/sessions' }
+  { title: 'Targets', icon: Target, path: '/dashboard/targets' },
+  { title: 'Rooms', icon: Users, path: '/dashboard/rooms' },
+  { title: 'Sessions', icon: Calendar, path: '/dashboard/sessions' }
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ isMobile = false, isOpen = true, onClose }) => {

@@ -2,8 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSessions } from '@/store/useSessions';
 import { toast } from '@/components/ui/sonner';
-import { MockWebSocket } from '@/lib/api';
 import { staticDb } from '@/lib/staticDb';
+import type { MockWebSocket } from '@/lib/types';
 
 export const useSessionWebSocket = (sessionId: string | null) => {
   const [connected, setConnected] = useState(false);

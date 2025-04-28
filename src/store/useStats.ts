@@ -1,7 +1,7 @@
 
 import { create } from 'zustand';
 import { API } from '@/lib/api';
-import { MockWebSocket } from '@/lib/api';
+import type { MockWebSocket } from '@/lib/types';
 import { staticDb } from '@/lib/staticDb';
 
 export interface StatsState {

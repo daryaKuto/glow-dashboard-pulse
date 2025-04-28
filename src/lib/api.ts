@@ -1,6 +1,6 @@
 
 import { staticDb } from './staticDb';
-import type { MockWebSocket } from './staticDb';
+import type { MockWebSocket } from './types';
 
 // Export the mock WebSocket type
 export type { MockWebSocket };
@@ -113,7 +113,7 @@ export const fetcher = async (endpoint: string, options = {}) => {
 // API object with convenience methods
 export const API = {
   getStats: async (token: string) => {
-    const stats = await fetcher("/stats", { headers: { Authorization: `Bearer ${token}` } });
+    const stats = await staticDb.getStats();
     
     return {
       targets: stats.targets,

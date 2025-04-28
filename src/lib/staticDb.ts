@@ -79,7 +79,7 @@ class StaticDb {
   
   async signOut() {
     // Just a stub for API compatibility
-    return { error: null };
+    return;
   }
   
   updateUser(id: string, data: any) {

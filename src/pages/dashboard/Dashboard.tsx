@@ -28,6 +28,7 @@ const Dashboard: React.FC = () => {
   const token = new URLSearchParams(location.search).get('token') || sessionToken || 'dummy_token';
 
   useEffect(() => {
+    console.log("Dashboard: Fetching stats with token:", token);
     fetchStats(token);
 
     // Setup WebSocket connection
@@ -35,17 +36,20 @@ const Dashboard: React.FC = () => {
     setSocket(ws);
 
     ws.onopen = () => {
+      console.log("WebSocket connected");
       setWsConnected(true);
       toast.success('Connected to game server');
     };
 
     ws.onclose = () => {
+      console.log("WebSocket disconnected");
       setWsConnected(false);
       toast.error('Disconnected from game server');
     };
 
     ws.onmessage = (event) => {
       try {
+        console.log("WebSocket message received:", event.data);
         const data = JSON.parse(event.data);
         if (data.type === 'hit') {
           updateHit(data.targetId.toString(), data.score);
@@ -61,7 +65,7 @@ const Dashboard: React.FC = () => {
         socket.close();
       }
     };
-  }, [token]);
+  }, [token, fetchStats, setWsConnected, updateHit]);
 
   return (
     <div className="min-h-screen flex flex-col bg-brand-indigo">

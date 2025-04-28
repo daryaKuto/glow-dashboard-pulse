@@ -2,74 +2,38 @@
 import { seed } from '../../staticData';
 
 export class BaseDb {
-  protected db: any = null;
-  private isInitializing = false;
-  private isInitialized = false;
-  private initPromise: Promise<any> | null = null;
+  protected db: any = {};
+  private initialized = false;
   
   constructor() {
-    this.initDb();
+    this.initializeDb();
   }
   
-  private async initDb() {
-    if (this.isInitializing || this.isInitialized) {
-      return this.initPromise;
+  // Initialize the database with seed data
+  private async initializeDb() {
+    try {
+      this.db = await seed();
+      this.initialized = true;
+      console.log("Database initialized with seed data:", this.db);
+    } catch (error) {
+      console.error("Error initializing database:", error);
     }
-    
-    this.isInitializing = true;
-    
-    this.initPromise = new Promise(async (resolve) => {
-      try {
-        this.db = await seed();
-        this.isInitialized = true;
-        console.log('Database initialized', this.db);
-        resolve(this.db);
-      } catch (error) {
-        console.error('Database initialization error:', error);
-        // Create fallback empty DB
-        this.db = {
-          users: [],
-          targets: [],
-          rooms: [],
-          sessions: [],
-          stats: {
-            targets: { total: 0, online: 0 },
-            rooms: { count: 0 },
-            sessions: { latest: null }
-          },
-          chartLeaderboards: []
-        };
-        this.isInitialized = true;
-        resolve(this.db);
-      } finally {
-        this.isInitializing = false;
-      }
-    });
-    
-    return this.initPromise;
   }
   
+  // Ensure the database is initialized before use
   async ensureInitialized() {
-    if (!this.isInitialized) {
-      return this.initPromise;
+    if (!this.initialized) {
+      await this.initializeDb();
     }
-    return this.db;
+    return this.initialized;
   }
   
+  // Save the current state of the database to localStorage
   protected persist() {
-    if (this.isInitialized) {
+    try {
       localStorage.setItem('staticDb', JSON.stringify(this.db));
+    } catch (error) {
+      console.error("Error persisting database:", error);
     }
-  }
-  
-  protected reset() {
-    localStorage.removeItem('staticDb');
-    this.isInitialized = false;
-    this.initDb();
-  }
-  
-  // Allow access to db for testing purposes
-  _getDbForTesting() {
-    return this.db;
   }
 }

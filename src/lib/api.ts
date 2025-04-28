@@ -1,3 +1,4 @@
+
 import { staticDb } from './staticDb';
 import type { MockWebSocket, RoomLayoutResponse, LeaderboardEntry } from './types';
 
@@ -6,6 +7,7 @@ export type { MockWebSocket };
 
 // WebSocket connection helper now uses our static database
 export const connectWebSocket = (token: string): MockWebSocket => {
+  console.log("Connecting WebSocket with token:", token);
   return staticDb.createWebSocket();
 };
 
@@ -30,6 +32,9 @@ export const fetcher = async (endpoint: string, options = {}) => {
   const token = (options as any).headers?.Authorization?.split(' ')[1] || 'dummy_token';
   
   try {
+    // Make sure database is initialized
+    await staticDb.ensureInitialized();
+    
     // Route requests to appropriate static DB methods
     switch (path[0]) {
       case 'targets':
@@ -165,6 +170,7 @@ export const fetcher = async (endpoint: string, options = {}) => {
 // API object with convenience methods
 export const API = {
   getStats: async (token: string) => {
+    await staticDb.ensureInitialized();
     const stats = await staticDb.getStats();
     const trend = staticDb.getHits7d();
     
@@ -178,15 +184,33 @@ export const API = {
     };
   },
 
-  getTrend7d: () => staticDb.getHits7d(),
+  getTrend7d: async () => {
+    await staticDb.ensureInitialized();
+    return staticDb.getHits7d();
+  },
 
-  getHitStats: (token: string) => staticDb.getHitStats(),
-  getTargets: (token: string) => staticDb.getTargets(),
-  getRooms: (token: string) => staticDb.getRooms(),
+  getHitStats: async (token: string) => {
+    await staticDb.ensureInitialized();
+    return staticDb.getHitStats();
+  },
+  
+  getTargets: async (token: string) => {
+    await staticDb.ensureInitialized();
+    return staticDb.getTargets();
+  },
+  
+  getRooms: async (token: string) => {
+    await staticDb.ensureInitialized();
+    return staticDb.getRooms();
+  },
+  
   getInvites: (token: string) => [],
   
   // Add a specific method for getting sessions
-  getSessions: (token: string) => staticDb.getSessions(),
+  getSessions: async (token: string) => {
+    await staticDb.ensureInitialized();
+    return staticDb.getSessions();
+  },
   
   // Auth methods
   signUp: (email: string, password: string, userData?: any) => 
@@ -201,9 +225,20 @@ export const API = {
     staticDb.updateUser(id, data),
 
   // Add friends methods
-  getFriends: (token: string) => staticDb.getFriends(),
-  addFriend: (token: string, friendId: string) => staticDb.addFriend(friendId),
-  getLeaderboard: (token: string, scope: 'global' | 'friends' = 'global'): LeaderboardEntry[] => staticDb.getLeaderboard(scope),
+  getFriends: async (token: string) => {
+    await staticDb.ensureInitialized();
+    return staticDb.getFriends();
+  },
+  
+  addFriend: async (token: string, friendId: string) => {
+    await staticDb.ensureInitialized();
+    return staticDb.addFriend(friendId);
+  },
+  
+  getLeaderboard: async (token: string, scope: 'global' | 'friends' = 'global') => {
+    await staticDb.ensureInitialized();
+    return staticDb.getLeaderboard(scope);
+  },
   
   // Add affiliate application method
   submitAffiliateApplication: async (formData: any) => {

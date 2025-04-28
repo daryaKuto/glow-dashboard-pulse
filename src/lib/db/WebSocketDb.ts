@@ -1,43 +1,30 @@
 
 import { BaseDb } from './BaseDb';
-import mitt from 'mitt';
+import { EventEmitter } from 'events';
 import type { MockWebSocket } from '../types';
 
-type Events = {
-  hit: { targetId: number; score: number };
-  score_update: { userId: string; hits: number; accuracy: number };
-  target_update: { id: number; status: string };
-  user_connected: { userId: string };
-  user_disconnected: { userId: string };
-  friend_request: { fromUserId: string; toUserId: string; requestId: string; status: string };
-  [key: string]: any;
-};
-
 export class WebSocketDb extends BaseDb {
-  protected emitter = mitt<Events>();
-  
-  constructor() {
-    super();
-  }
-  
-  // Event methods
-  on<K extends keyof Events>(type: K, handler: (event: Events[K]) => void) {
-    this.emitter.on(type, handler);
+  private emitter = new EventEmitter();
+  private sockets: MockWebSocket[] = [];
+
+  // Add event emitter methods
+  on(event: string, listener: Function) {
+    this.emitter.on(event, listener);
     return this;
   }
-  
-  off<K extends keyof Events>(type: K, handler: (event: Events[K]) => void) {
-    this.emitter.off(type, handler);
+
+  off(event: string, listener: Function) {
+    this.emitter.off(event, listener);
     return this;
   }
-  
-  emit<K extends keyof Events>(type: K, event: Events[K]) {
-    this.emitter.emit(type, event);
+
+  emit(event: string, ...args: any[]) {
+    this.emitter.emit(event, ...args);
     return this;
   }
-  
-  // Create a mock WebSocket for the frontend
+
   createWebSocket(): MockWebSocket {
+    // Create a mock WebSocket
     const socket: MockWebSocket = {
       onopen: null,
       onclose: null,
@@ -49,88 +36,106 @@ export class WebSocketDb extends BaseDb {
       },
       
       close: () => {
+        this.sockets = this.sockets.filter(s => s !== socket);
         if (socket.onclose) socket.onclose({} as any);
       }
     };
     
-    // Trigger connection event after a short delay
+    this.sockets.push(socket);
+    
+    // Set up event handlers
+    this.on('hit', (event: { targetId: number, score: number }) => {
+      if (socket.onmessage) {
+        socket.onmessage({
+          data: JSON.stringify({
+            type: 'hit',
+            targetId: event.targetId,
+            score: event.score
+          })
+        } as any);
+      }
+    });
+    
+    // Trigger initial connection
     setTimeout(() => {
       if (socket.onopen) socket.onopen({} as any);
     }, 100);
-    
+
+    // Start hit simulation
+    this.simulateHits();
+
     return socket;
   }
-  
-  // Simulate websocket connection methods
-  connectUser(userId: string) {
-    console.log(`User ${userId} connected to WebSocket`);
-    this.emit('user_connected', { userId });
-    return true;
-  }
-  
-  disconnectUser(userId: string) {
-    console.log(`User ${userId} disconnected from WebSocket`);
-    this.emit('user_disconnected', { userId });
-    return true;
-  }
-  
-  // Friend request simulation
-  sendFriendRequest(fromUserId: string, toUserId: string) {
-    console.log(`Friend request from ${fromUserId} to ${toUserId}`);
+
+  simulateHits() {
+    const fire = () => {
+      // Ensure db and targets are initialized
+      if (this.db?.targets && this.db.targets.length > 0) {
+        const onlineTargets = this.db.targets.filter(t => t.status === 'online');
+        if (onlineTargets.length > 0) {
+          const target = onlineTargets[Math.floor(Math.random() * onlineTargets.length)];
+          this.recordHit(target.id);
+          this.emit('hit', { 
+            targetId: target.id,
+            score: Math.floor(Math.random() * 10) + 1
+          });
+        }
+      }
+      setTimeout(fire, Math.floor(Math.random() * 9000) + 3000);
+    };
     
-    // In a real app, this would store the request in a database
-    // and send a notification through the WebSocket
-    
-    this.emit('friend_request', {
-      fromUserId,
-      toUserId,
-      requestId: `req_${Date.now()}`,
-      status: 'pending'
-    });
-    
-    return true;
+    // Add a small delay to ensure db is initialized
+    setTimeout(fire, 1000);
   }
 
-  // Friend management methods
+  recordHit(targetId: number) {
+    const day = new Date().toISOString().split('T')[0];
+    if (!this.db.chartLeaderboards) {
+      this.db.chartLeaderboards = [];
+    }
+    
+    const stat = this.db.chartLeaderboards.find(l => l.day === day) ||
+      this.db.chartLeaderboards[this.db.chartLeaderboards.push({ day, hits: 0 }) - 1];
+    stat.hits += 1;
+    this.persist();
+  }
+
   getFriends() {
-    if (!this.db || !this.db.friends) {
-      return [];
+    if (!this.db.friends) {
+      this.db.friends = [];
     }
     return [...this.db.friends];
   }
-  
+
   addFriend(friendId: string) {
     if (!this.db.friends) {
       this.db.friends = [];
     }
     
     const existingFriend = this.db.friends.find(f => f.id === friendId);
-    if (existingFriend) {
-      return existingFriend;
+    if (!existingFriend) {
+      this.db.friends.push({
+        id: friendId,
+        name: `Friend ${friendId}`,
+        status: "pending",
+        score: Math.floor(Math.random() * 500) + 500,
+        avatar: `https://i.pravatar.cc/150?u=${friendId}`
+      });
     }
     
-    const newFriend = {
-      id: friendId,
-      name: `Friend ${friendId}`,
-      status: 'accepted',
-      score: Math.floor(Math.random() * 1000),
-      avatar: `https://i.pravatar.cc/150?u=${friendId}`
-    };
-    
-    this.db.friends.push(newFriend);
     this.persist();
-    
-    return newFriend;
+    return this.db.friends;
   }
-  
-  // Leaderboard methods
+
   getLeaderboard(scope: 'global' | 'friends' = 'global') {
-    if (!this.db || !this.db.leaderboards) {
-      return [];
+    if (scope === 'global') {
+      return [
+        { id: "global1", name: "Top Player", score: 985, avatar: "https://i.pravatar.cc/150?u=global1" },
+        { id: "global2", name: "Runner Up", score: 940, avatar: "https://i.pravatar.cc/150?u=global2" },
+        { id: "global3", name: "Third Place", score: 915, avatar: "https://i.pravatar.cc/150?u=global3" }
+      ];
+    } else {
+      return this.getFriends().filter(f => f.status === "accepted");
     }
-    
-    return scope === 'global' 
-      ? this.db.leaderboards.global || []
-      : this.db.leaderboards.weekly || [];
   }
 }

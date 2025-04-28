@@ -5,70 +5,73 @@ import { WebSocketDb } from './WebSocketDb';
 
 export class StatsDb extends WebSocketDb {
   getStats() {
+    // Ensure we have stats data
+    if (!this.db.stats) {
+      this.db.stats = {
+        targets: {
+          total: this.db.targets?.length || 0,
+          online: this.db.targets?.filter(t => t.status === 'online')?.length || 0
+        },
+        rooms: {
+          count: this.db.rooms?.length || 0
+        },
+        sessions: {
+          latest: this.db.sessions?.[0] || { score: 0, id: 0 }
+        }
+      };
+      this.persist();
+    }
+    
+    // Calculate current stats
     return {
       targets: {
-        online: this.db?.targets?.filter(t => t.status === 'online')?.length || 0
+        total: this.db.targets?.length || 0,
+        online: this.db.targets?.filter(t => t.status === 'online')?.length || 0
       },
       rooms: {
-        count: this.db?.rooms?.length || 0
+        count: this.db.rooms?.length || 0
       },
       sessions: {
-        latest: this.db?.sessions?.[this.db.sessions.length - 1] || { score: 0 }
-      }
+        latest: this.db.sessions?.[0] || { score: 0, id: 0 }
+      },
+      invites: this.db.friends?.filter(f => f.status === "pending")?.length || 0
     };
   }
   
   getHitStats() {
-    return [...(this.db?.hitStats || [])];
+    if (!this.db.chartLeaderboards) {
+      // Initialize with sample data for the last 7 days
+      const days = [...Array(7)].map((_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - i)); // Last 7 days with today
+        return date.toISOString().split('T')[0];
+      });
+      
+      this.db.chartLeaderboards = days.map(day => ({
+        day, 
+        hits: Math.floor(Math.random() * 70) + 30 // Random hits between 30-100
+      }));
+      
+      this.persist();
+    }
+    
+    return [...(this.db.chartLeaderboards || [])];
   }
   
   getHits7d(): ChartLeaderboardEntry[] {
-    if (!this.db.chartLeaderboards) {
-      this.db.chartLeaderboards = [];
+    if (!this.db.chartLeaderboards || this.db.chartLeaderboards.length === 0) {
+      this.getHitStats(); // Initialize if empty
     }
     
     const days = [...Array(7)].map((_, i) => {
       const date = new Date();
-      date.setDate(date.getDate() - i);
-      return date.toISOString().slice(0, 10);
-    }).reverse();
+      date.setDate(date.getDate() - (6 - i)); // Last 7 days with today
+      return date.toISOString().split('T')[0];
+    });
 
     return days.map(day => {
       const record = this.db.chartLeaderboards.find(l => l.day === day);
       return { day, hits: record?.hits || 0 };
     });
-  }
-
-  private recordHit(targetId: number) {
-    const day = new Date().toISOString().slice(0, 10);
-    if (!this.db.chartLeaderboards) {
-      this.db.chartLeaderboards = [];
-    }
-    
-    const stat = this.db.chartLeaderboards.find(l => l.day === day) ||
-      this.db.chartLeaderboards[this.db.chartLeaderboards.push({ day, hits: 0 }) - 1];
-    stat.hits += 1;
-    this.persist();
-  }
-  
-  simulateHits() {
-    const fire = () => {
-      // Ensure db and targets are initialized
-      if (this.db?.targets && this.db.targets.length > 0) {
-        const onlineTargets = this.db.targets.filter(t => t.status === 'online');
-        if (onlineTargets.length) {
-          const target = onlineTargets[Math.floor(Math.random() * onlineTargets.length)];
-          this.recordHit(target.id);
-          this.emit('hit', { 
-            targetId: target.id,
-            score: Math.floor(Math.random() * 10) + 1
-          });
-        }
-      }
-      setTimeout(fire, Math.floor(Math.random() * 9000) + 3000);
-    };
-    
-    // Add a small delay to ensure db is initialized
-    setTimeout(fire, 1000);
   }
 }

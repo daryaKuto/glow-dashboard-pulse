@@ -48,9 +48,13 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
       
+      // Make sure database is initialized
       await staticDb.ensureInitialized();
+      console.log("Fetching stats from API");
       const stats = await API.getStats(token);
+      console.log("Stats received:", stats);
       const trend = await API.getTrend7d();
+      console.log("Trend received:", trend);
       
       set({ 
         activeTargets: stats.targets.online,
@@ -80,6 +84,7 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
       // Add new listener
       staticDb.on('hit', handleHitUpdate);
     } catch (error) {
+      console.error("Error fetching stats:", error);
       set({ 
         error: error instanceof Error ? error : new Error('Unknown error'), 
         isLoading: false 
@@ -119,14 +124,12 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
       },
       
       close: () => {
-        const handleHit = (event: { targetId: number, score: number }) => {};
-        staticDb.off('hit', handleHit);
         if (socket.onclose) socket.onclose({} as any);
         set({ wsConnected: false });
       }
     };
 
-    // Set up event handlers
+    // Set up event handlers for hit events from the static db
     const handleHit = (event: { targetId: number, score: number }) => {
       if (socket.onmessage) {
         socket.onmessage({
@@ -141,7 +144,7 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
       }
     };
     
-    // Register event handlers
+    // Register event handler with staticDb
     staticDb.on('hit', handleHit);
     
     // Trigger initial connection

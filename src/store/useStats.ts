@@ -1,7 +1,9 @@
+
 import { create } from 'zustand';
 import { API } from '@/lib/api';
 import type { MockWebSocket } from '@/lib/types';
 import { staticDb } from '@/lib/staticDb';
+import type { LeaderboardEntry } from '@/lib/types';
 
 export interface StatsState {
   activeTargets: number;
@@ -63,13 +65,12 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
 
       // Subscribe to hit events to update trend
       staticDb.on('hit', () => {
-        API.getTrend7d().then(trend => {
-          set({
-            hitTrend: trend.map(hit => ({
-              date: hit.day,
-              hits: hit.hits
-            }))
-          });
+        const updatedTrend = staticDb.getHits7d();
+        set({
+          hitTrend: updatedTrend.map(hit => ({
+            date: hit.day,
+            hits: hit.hits
+          }))
         });
       });
     } catch (error) {
@@ -145,5 +146,3 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
     return socket;
   }
 }));
-
-export { useStats };

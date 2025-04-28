@@ -1,40 +1,28 @@
-import { DB } from '../types';
-import mitt from 'mitt';
-import type { MockBackendEvents } from '../types';
+
 import { seed } from '../../staticData';
 
 export class BaseDb {
-  db: DB;
-  emitter = mitt<MockBackendEvents>();
+  protected db: any;
+  private isInitialized = false;
   
   constructor() {
-    const saved = localStorage.getItem('mockDb');
-    this.db = saved ? JSON.parse(saved) : structuredClone(seed);
-    
-    if (!this.db.leaderboards) {
-      this.db.leaderboards = [];
+    this.initDb();
+  }
+  
+  private async initDb() {
+    this.db = await seed();
+    this.isInitialized = true;
+    console.log('Database initialized', this.db);
+  }
+  
+  protected persist() {
+    if (this.isInitialized) {
+      localStorage.setItem('staticDb', JSON.stringify(this.db));
     }
-    
-    if (!saved) localStorage.setItem('mockDb', JSON.stringify(this.db));
   }
   
-  persist() { 
-    localStorage.setItem('mockDb', JSON.stringify(this.db)); 
-  }
-  
-  on = this.emitter.on;
-  off = this.emitter.off;
-  
-  emit(eventName: keyof MockBackendEvents, eventData: any) {
-    this.emitter.emit(eventName, eventData);
-  }
-  
-  createAffiliateApp(app: Omit<(typeof seed.applications)[0], 'id' | 'createdAt'>) {
-    this.db.applications.push({
-      ...app,
-      id: `a${Date.now()}`,
-      createdAt: Date.now()
-    });
-    this.persist();
+  protected reset() {
+    localStorage.removeItem('staticDb');
+    this.initDb();
   }
 }

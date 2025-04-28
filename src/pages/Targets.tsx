@@ -1,66 +1,88 @@
 
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Target, useTargets } from '@/store/useTargets';
+import { useTargets, Target } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
 import { Button } from '@/components/ui/button';
-import { plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import MobileDrawer from '@/components/MobileDrawer';
-import { useIsMobile } from '@/hooks/use-mobile';
 import TargetCard from '@/components/TargetCard';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/sonner';
+
+// Helper to group targets by room
+const groupTargetsByRoom = (targets: Target[], roomId?: number) => {
+  // If roomId is provided, filter targets by that room
+  const filteredTargets = roomId 
+    ? targets.filter(target => target.roomId === roomId)
+    : targets;
+
+  return filteredTargets.reduce((acc, target) => {
+    const roomId = target.roomId || 0;
+    if (!acc[roomId]) {
+      acc[roomId] = [];
+    }
+    acc[roomId].push(target);
+    return acc;
+  }, {} as Record<number, Target[]>);
+};
 
 const Targets: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
-  const { targets, isLoading: targetsLoading, fetchTargets, renameTarget, locateTarget, updateFirmware, deleteTarget } = useTargets();
-  const { rooms, fetchRooms } = useRooms();
+  const { targets, isLoading, fetchTargets, renameTarget, locateTarget, firmwareUpdateTarget, deleteTarget } = useTargets();
+  const { rooms, isLoading: roomsLoading, fetchRooms } = useRooms();
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // Extract token from URL params
-  const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
+  // Extract token and optional roomId filter from URL params
+  const params = new URLSearchParams(location.search);
+  const token = params.get('token') || 'dummy_token';
+  const roomIdParam = params.get('roomId');
+  const roomId = roomIdParam ? Number(roomIdParam) : undefined;
 
   useEffect(() => {
     fetchTargets(token);
     fetchRooms(token);
   }, [token]);
 
-  // Group targets by room
-  const groupedTargets: Record<string, Target[]> = {};
-  
-  // First, add a group for unassigned targets
-  groupedTargets['Unassigned'] = targets.filter(t => t.roomId === null);
-  
-  // Then add groups for each room
-  rooms.forEach(room => {
-    groupedTargets[room.name] = targets.filter(t => t.roomId === room.id);
-  });
+  // Filter targets by search term
+  const filteredTargets = targets.filter(target => 
+    target.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-  // Handler functions
-  const handleRename = (id: number, name: string) => {
+  const groupedTargets = groupTargetsByRoom(filteredTargets, roomId);
+  
+  // Get room names for display
+  const getRoomName = (roomId?: number) => {
+    if (!roomId) return null;
+    const room = rooms.find(room => room.id === roomId);
+    return room ? room.name : 'Unknown Room';
+  };
+
+  // Handle target actions
+  const handleRenameTarget = (id: number, name: string) => {
     renameTarget(id, name, token);
+    toast.success(`Target renamed to "${name}"`);
   };
-
-  const handleLocate = (id: number) => {
+  
+  const handleLocateTarget = (id: number) => {
     locateTarget(id, token);
+    toast.success('Target location signal sent');
   };
-
+  
   const handleFirmwareUpdate = (id: number) => {
-    updateFirmware(id, token);
+    firmwareUpdateTarget(id, token);
+    toast.success('Firmware update initiated');
   };
-
-  const handleDelete = (id: number) => {
-    if (window.confirm("Are you sure you want to delete this target?")) {
+  
+  const handleDeleteTarget = (id: number) => {
+    if (window.confirm('Are you sure you want to delete this target?')) {
       deleteTarget(id, token);
+      toast.success('Target deleted');
     }
-  };
-
-  // Get room name by room ID
-  const getRoomNameById = (roomId: number | null) => {
-    if (roomId === null) return null;
-    const room = rooms.find(r => r.id === roomId);
-    return room?.name || null;
   };
 
   return (
@@ -73,55 +95,70 @@ const Targets: React.FC = () => {
         
         <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
           <div className="container mx-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-display font-bold text-white">Targets</h2>
-              <Button 
-                className="bg-brand-lavender hover:bg-brand-lavender/80"
-                onClick={() => toast.info('Target pairing functionality coming soon!')}
-              >
-                <plus className="h-4 w-4 mr-2" /> Pair Target
-              </Button>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+              <h2 className="text-2xl font-display font-bold text-white">
+                {roomId ? `Targets in ${getRoomName(roomId)}` : 'All Targets'}
+              </h2>
+              
+              <div className="flex w-full sm:w-auto gap-2">
+                <Input
+                  placeholder="Search targets..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="bg-transparent border-brand-lavender/30 text-white"
+                />
+                <Button className="bg-brand-lavender hover:bg-brand-lavender/80">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Target
+                </Button>
+              </div>
             </div>
             
-            {targetsLoading ? (
-              <div className="text-center text-brand-fg-secondary py-8">Loading targets...</div>
-            ) : targets.length === 0 ? (
+            {isLoading || roomsLoading ? (
+              <div className="text-center text-brand-fg-secondary py-8">
+                Loading targets...
+              </div>
+            ) : Object.keys(groupedTargets).length === 0 ? (
               <div className="text-center py-8">
                 <div className="border-2 border-brand-lavender rounded-lg p-8 mx-auto max-w-md">
-                  <div className="text-brand-lavender mb-4">No targets found</div>
+                  <div className="text-brand-lavender mb-4 text-xl">No targets found</div>
                   <p className="text-brand-fg-secondary mb-6">
-                    Pair a target to get started with your training sessions
+                    {searchTerm 
+                      ? `No targets match "${searchTerm}"`
+                      : 'Pair a new target to get started'
+                    }
                   </p>
-                  <Button 
-                    className="bg-brand-lavender hover:bg-brand-lavender/80"
-                    onClick={() => toast.info('Target pairing functionality coming soon!')}
-                  >
-                    <plus className="h-4 w-4 mr-2" /> Pair a Target
+                  <Button className="bg-brand-lavender hover:bg-brand-lavender/80">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Pair a Target
                   </Button>
                 </div>
               </div>
             ) : (
               <div className="space-y-8">
-                {Object.entries(groupedTargets).map(([roomName, roomTargets]) => (
-                  roomTargets.length > 0 && (
-                    <div key={roomName} className="space-y-4">
-                      <h3 className="text-xl font-display text-white">{roomName}</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {roomTargets.map(target => (
-                          <TargetCard 
+                {Object.entries(groupedTargets).map(([roomIdStr, targets]) => {
+                  const roomName = getRoomName(Number(roomIdStr));
+                  return (
+                    <div key={roomIdStr} className="space-y-4">
+                      <h3 className="text-xl font-display text-white">
+                        {roomName || 'Unassigned Targets'}
+                      </h3>
+                      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                        {targets.map(target => (
+                          <TargetCard
                             key={target.id}
                             target={target}
-                            roomName={getRoomNameById(target.roomId)}
-                            onRename={handleRename}
-                            onLocate={handleLocate}
+                            roomName={getRoomName(target.roomId)}
+                            onRename={handleRenameTarget}
+                            onLocate={handleLocateTarget}
                             onFirmwareUpdate={handleFirmwareUpdate}
-                            onDelete={handleDelete}
+                            onDelete={handleDeleteTarget}
                           />
                         ))}
                       </div>
                     </div>
-                  )
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

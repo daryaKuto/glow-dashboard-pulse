@@ -1,205 +1,314 @@
 
-import { http, HttpResponse } from 'msw';
+import { http, HttpResponse, delay } from 'msw';
 
-// Mock data
-const targets = [
-  { id: 1, name: "Target 1", roomId: 1, status: "online", battery: 87 },
-  { id: 2, name: "Target 2", roomId: 1, status: "online", battery: 62 },
-  { id: 3, name: "Target 3", roomId: 2, status: "offline", battery: 24 },
-  { id: 4, name: "Target 4", roomId: null, status: "online", battery: 95 }
+// Sample data
+let targets = [
+  { id: 1, name: 'Target Alpha', status: 'online', battery: 95, roomId: 1 },
+  { id: 2, name: 'Target Beta', status: 'online', battery: 78, roomId: 1 },
+  { id: 3, name: 'Target Gamma', status: 'offline', battery: 12, roomId: 2 },
+  { id: 4, name: 'Target Delta', status: 'online', battery: 65, roomId: null }
 ];
 
-const rooms = [
-  { id: 1, name: "Living Room", order: 1, targetCount: 2 },
-  { id: 2, name: "Garage", order: 2, targetCount: 1 }
+let rooms = [
+  { id: 1, name: 'Living Room', order: 1, targetCount: 2 },
+  { id: 2, name: 'Garage', order: 2, targetCount: 1 }
 ];
 
-const sessions = [
-  { 
-    id: 1, 
-    name: "Morning Practice", 
-    date: "2025-04-26T08:30:00", 
-    duration: 25, 
-    score: 89, 
-    accuracy: 78 
-  },
-  { 
-    id: 2, 
-    name: "Team Challenge", 
-    date: "2025-04-25T14:45:00", 
-    duration: 40, 
-    score: 95, 
-    accuracy: 82 
-  },
-  { 
-    id: 3, 
-    name: "Quick Round", 
-    date: "2025-04-23T19:20:00", 
-    duration: 15, 
-    score: 76, 
-    accuracy: 68 
-  }
+let scenarios = [
+  { id: 1, name: 'Quick Training', difficulty: 'beginner', duration: 10 },
+  { id: 2, name: 'Accuracy Focus', difficulty: 'intermediate', duration: 15 },
+  { id: 3, name: 'Speed Run', difficulty: 'advanced', duration: 20 }
 ];
 
-const scenarios = [
-  { id: 1, name: "Standard Target Practice", difficulty: "beginner" },
-  { id: 2, name: "Moving Targets", difficulty: "intermediate" },
-  { id: 3, name: "Speed Challenge", difficulty: "advanced" },
-  { id: 4, name: "Accuracy Test", difficulty: "expert" }
+let sessions = [
+  { id: 1, name: 'Morning Practice', date: '2023-04-25T09:00:00Z', duration: 15, score: 87, accuracy: 75 },
+  { id: 2, name: 'Evening Challenge', date: '2023-04-22T18:30:00Z', duration: 20, score: 95, accuracy: 88 },
+  { id: 3, name: 'Weekend Training', date: '2023-04-18T11:15:00Z', duration: 30, score: 72, accuracy: 65 }
 ];
 
+let currentSession = null;
+let invites = [];
+
+// Handlers for mock API endpoints
 export const handlers = [
-  // Original handlers
-  http.get('https://api.fungun.dev/stats/targets', () => {
-    return HttpResponse.json({ online: 4, total: 6 });
+  // Stats
+  http.get('/stats/targets', async () => {
+    await delay(500);
+    return HttpResponse.json({
+      total: targets.length,
+      online: targets.filter(t => t.status === 'online').length
+    });
   }),
-
-  http.get('https://api.fungun.dev/stats/rooms', () => {
-    return HttpResponse.json({ count: 3 });
+  
+  http.get('/stats/rooms', async () => {
+    await delay(500);
+    return HttpResponse.json({
+      count: rooms.length
+    });
   }),
-
-  http.get('https://api.fungun.dev/stats/scenarios', () => {
-    return HttpResponse.json({ count: 12 });
+  
+  http.get('/stats/scenarios', async () => {
+    await delay(500);
+    return HttpResponse.json({
+      count: scenarios.length
+    });
   }),
-
-  http.get('https://api.fungun.dev/sessions/latest', () => {
-    return HttpResponse.json({ score: 91, accuracy: 86 });
-  }),
-
-  http.get('https://api.fungun.dev/invites/pending', () => {
-    return HttpResponse.json([
-      { id: 1, from: "Alex" },
-      { id: 2, from: "Sarah" }
-    ]);
-  }),
-
-  http.get('https://api.fungun.dev/stats/hits', () => {
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  
+  http.get('/stats/hits', async () => {
+    await delay(500);
+    // Generate 7 days of hit data
     return HttpResponse.json(
-      days.map(day => ({
-        date: day,
-        hits: Math.floor(Math.random() * 100)
-      }))
+      Array.from({ length: 7 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - i));
+        return { 
+          date: date.toISOString().split('T')[0], 
+          hits: Math.floor(Math.random() * 100)
+        };
+      })
     );
   }),
-
-  // New handlers for Milestone 4
   
-  // Targets endpoints
-  http.get('https://api.fungun.dev/targets', () => {
+  http.get('/sessions/latest', async () => {
+    await delay(500);
+    const latestSession = sessions[0];
+    return HttpResponse.json({
+      id: latestSession.id,
+      name: latestSession.name,
+      date: latestSession.date,
+      score: latestSession.score
+    });
+  }),
+  
+  // Targets
+  http.get('/targets', async () => {
+    await delay(500);
     return HttpResponse.json(targets);
   }),
-
-  http.put('https://api.fungun.dev/targets/:id', async ({ params, request }) => {
+  
+  http.put('/targets/:id', async ({ params, request }) => {
+    await delay(500);
     const { id } = params;
-    const body = await request.json();
-    const targetIndex = targets.findIndex(t => t.id === Number(id));
+    const targetId = Number(id);
     
-    if (targetIndex === -1) {
-      return new HttpResponse(null, { status: 404 });
+    try {
+      const body = await request.json();
+      const targetIndex = targets.findIndex(t => t.id === targetId);
+      
+      if (targetIndex === -1) {
+        return new HttpResponse(null, { status: 404 });
+      }
+      
+      if (body.name) {
+        targets[targetIndex] = { ...targets[targetIndex], name: body.name };
+      }
+      
+      if (body.roomId !== undefined) {
+        targets[targetIndex] = { ...targets[targetIndex], roomId: body.roomId };
+        
+        // Update room target counts
+        updateRoomTargetCounts();
+      }
+      
+      return HttpResponse.json(targets[targetIndex]);
+    } catch (error) {
+      return new HttpResponse(null, { status: 400 });
     }
-    
-    targets[targetIndex] = { ...targets[targetIndex], ...body };
-    return HttpResponse.json(targets[targetIndex]);
   }),
-
-  // Rooms endpoints
-  http.get('https://api.fungun.dev/rooms', () => {
+  
+  // Rooms
+  http.get('/rooms', async () => {
+    await delay(500);
     return HttpResponse.json(rooms);
   }),
-
-  http.post('https://api.fungun.dev/rooms', async ({ request }) => {
-    const body = await request.json();
-    const newRoom = {
-      id: rooms.length + 1,
-      name: body.name,
-      order: rooms.length + 1,
-      targetCount: 0
-    };
-    rooms.push(newRoom);
-    return HttpResponse.json(newRoom);
-  }),
-
-  http.put('https://api.fungun.dev/rooms/:id', async ({ params, request }) => {
-    const { id } = params;
-    const body = await request.json();
-    const roomIndex = rooms.findIndex(r => r.id === Number(id));
-    
-    if (roomIndex === -1) {
-      return new HttpResponse(null, { status: 404 });
+  
+  http.post('/rooms', async ({ request }) => {
+    await delay(500);
+    try {
+      const body = await request.json() as { name: string };
+      const newRoom = {
+        id: Math.max(...rooms.map(r => r.id), 0) + 1,
+        name: body.name,
+        order: rooms.length + 1,
+        targetCount: 0
+      };
+      
+      rooms = [...rooms, newRoom];
+      return HttpResponse.json(newRoom, { status: 201 });
+    } catch (error) {
+      return new HttpResponse(null, { status: 400 });
     }
-    
-    rooms[roomIndex] = { ...rooms[roomIndex], ...body };
-    return HttpResponse.json(rooms[roomIndex]);
   }),
-
-  http.delete('https://api.fungun.dev/rooms/:id', ({ params }) => {
+  
+  http.put('/rooms/:id', async ({ params, request }) => {
+    await delay(500);
     const { id } = params;
-    const roomIndex = rooms.findIndex(r => r.id === Number(id));
+    const roomId = Number(id);
     
-    if (roomIndex === -1) {
-      return new HttpResponse(null, { status: 404 });
+    try {
+      const body = await request.json() as { name?: string };
+      const roomIndex = rooms.findIndex(r => r.id === roomId);
+      
+      if (roomIndex === -1) {
+        return new HttpResponse(null, { status: 404 });
+      }
+      
+      rooms[roomIndex] = { ...rooms[roomIndex], ...body };
+      return HttpResponse.json(rooms[roomIndex]);
+    } catch (error) {
+      return new HttpResponse(null, { status: 400 });
     }
+  }),
+  
+  http.delete('/rooms/:id', async ({ params }) => {
+    await delay(500);
+    const { id } = params;
+    const roomId = Number(id);
     
-    rooms.splice(roomIndex, 1);
+    // Remove room
+    rooms = rooms.filter(r => r.id !== roomId);
+    
+    // Unassign targets in that room
+    targets = targets.map(t => t.roomId === roomId ? { ...t, roomId: null } : t);
+    
+    // Update order of remaining rooms
+    rooms = rooms.map((room, i) => ({ ...room, order: i + 1 }));
+    
     return new HttpResponse(null, { status: 204 });
   }),
-
-  http.put('https://api.fungun.dev/rooms/order', async ({ request }) => {
-    const body = await request.json();
-    body.forEach(item => {
-      const room = rooms.find(r => r.id === item.id);
-      if (room) {
-        room.order = item.order;
-      }
-    });
-    return HttpResponse.json(rooms);
+  
+  http.put('/rooms/order', async ({ request }) => {
+    await delay(500);
+    try {
+      const body = await request.json() as { roomIds: number[] };
+      const { roomIds } = body;
+      
+      roomIds.forEach((roomId, index) => {
+        const room = rooms.find(r => r.id === roomId);
+        if (room) {
+          room.order = index + 1;
+        }
+      });
+      
+      // Sort rooms by their order
+      rooms.sort((a, b) => a.order - b.order);
+      
+      return HttpResponse.json(rooms);
+    } catch (error) {
+      return new HttpResponse(null, { status: 400 });
+    }
   }),
-
-  // Sessions endpoints
-  http.get('https://api.fungun.dev/sessions', () => {
+  
+  // Sessions
+  http.get('/sessions', async () => {
+    await delay(500);
     return HttpResponse.json(sessions);
   }),
-
-  http.post('https://api.fungun.dev/sessions', async ({ request }) => {
-    const body = await request.json();
-    const newSession = {
-      id: sessions.length + 1,
-      name: body.name || `Session ${sessions.length + 1}`,
-      date: new Date().toISOString(),
-      duration: 0,
-      score: 0,
-      accuracy: 0
-    };
-    sessions.push(newSession);
-    return HttpResponse.json(newSession);
+  
+  http.post('/sessions', async ({ request }) => {
+    await delay(500);
+    try {
+      const body = await request.json() as { scenarioId: number, roomIds: number[] };
+      const scenario = scenarios.find(s => s.id === body.scenarioId);
+      
+      if (!scenario) {
+        return new HttpResponse(null, { status: 404, statusText: 'Scenario not found' });
+      }
+      
+      const now = new Date();
+      const newSession = {
+        id: Math.max(...sessions.map(s => s.id), 0) + 1,
+        name: scenario.name,
+        date: now.toISOString(),
+        duration: scenario.duration,
+        score: 0,
+        accuracy: 0
+      };
+      
+      // Set as current session
+      currentSession = { ...newSession };
+      
+      // Add to sessions list
+      sessions = [newSession, ...sessions];
+      
+      return HttpResponse.json(newSession, { status: 201 });
+    } catch (error) {
+      return new HttpResponse(null, { status: 400 });
+    }
   }),
-
-  http.post('https://api.fungun.dev/sessions/:id/end', ({ params }) => {
+  
+  http.post('/sessions/:id/end', async ({ params }) => {
+    await delay(500);
     const { id } = params;
-    const sessionIndex = sessions.findIndex(s => s.id === Number(id));
+    const sessionId = Number(id);
     
-    if (sessionIndex === -1) {
-      return new HttpResponse(null, { status: 404 });
+    if (!currentSession || currentSession.id !== sessionId) {
+      return new HttpResponse(null, { status: 404, statusText: 'No active session found' });
     }
     
-    // Update session with final stats
-    sessions[sessionIndex].duration = Math.floor(Math.random() * 40) + 10;
-    sessions[sessionIndex].score = Math.floor(Math.random() * 30) + 70;
-    sessions[sessionIndex].accuracy = Math.floor(Math.random() * 25) + 65;
+    // Calculate final score and accuracy
+    const finalScore = Math.floor(Math.random() * 50) + 50; // 50-100
+    const finalAccuracy = Math.floor(Math.random() * 40) + 60; // 60-100
     
-    return HttpResponse.json(sessions[sessionIndex]);
+    // Update session with final results
+    sessions = sessions.map(s => 
+      s.id === sessionId
+        ? { ...s, score: finalScore, accuracy: finalAccuracy }
+        : s
+    );
+    
+    // Clear current session
+    const endedSession = { ...currentSession, score: finalScore, accuracy: finalAccuracy };
+    currentSession = null;
+    
+    return HttpResponse.json(endedSession);
   }),
-
-  // Invites endpoints
-  http.post('https://api.fungun.dev/invites', () => {
-    // Generate a random token
-    const token = Math.random().toString(36).substring(2, 15);
-    return HttpResponse.json({ token });
+  
+  // Invites
+  http.get('/invites/pending', async () => {
+    await delay(500);
+    return HttpResponse.json(invites);
   }),
-
-  // Scenarios endpoints
-  http.get('https://api.fungun.dev/scenarios', () => {
-    return HttpResponse.json(scenarios);
-  }),
+  
+  http.post('/invites', async ({ request }) => {
+    await delay(500);
+    try {
+      const body = await request.json() as { sessionId: number };
+      
+      if (!currentSession || currentSession.id !== body.sessionId) {
+        return new HttpResponse(null, { status: 404, statusText: 'No active session found' });
+      }
+      
+      // Generate a random token
+      const token = Math.random().toString(36).substring(2, 10);
+      
+      // Add to invites
+      invites.push({
+        id: Math.max(...invites.map(i => i.id || 0), 0) + 1,
+        token,
+        sessionId: body.sessionId,
+        createdAt: new Date().toISOString()
+      });
+      
+      return HttpResponse.json({ token });
+    } catch (error) {
+      return new HttpResponse(null, { status: 400 });
+    }
+  })
 ];
+
+// Helper to update room target counts
+function updateRoomTargetCounts() {
+  // Reset all counts
+  rooms = rooms.map(room => ({ ...room, targetCount: 0 }));
+  
+  // Count targets in each room
+  targets.forEach(target => {
+    if (target.roomId) {
+      const roomIndex = rooms.findIndex(r => r.id === target.roomId);
+      if (roomIndex !== -1) {
+        rooms[roomIndex].targetCount += 1;
+      }
+    }
+  });
+}

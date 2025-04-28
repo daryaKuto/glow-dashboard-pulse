@@ -1,5 +1,6 @@
+
 import { BaseDb } from './BaseDb';
-import type { MockWebSocket, MockBackendEvents } from '../types';
+import type { MockWebSocket, MockBackendEvents, LeaderboardEntry } from '../types';
 
 export class WebSocketDb extends BaseDb {
   // We don't need to redefine emitter since it's already in BaseDb
@@ -108,7 +109,7 @@ export class WebSocketDb extends BaseDb {
     return this.getFriends();
   }
 
-  getLeaderboard(scope: 'global' | 'friends' = 'global') {
+  getLeaderboard(scope: 'global' | 'friends' = 'global'): LeaderboardEntry[] {
     if (scope === 'friends') {
       return this.getFriends().map(friend => ({
         id: friend.id,

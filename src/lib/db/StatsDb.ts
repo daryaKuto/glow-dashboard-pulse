@@ -1,6 +1,6 @@
 
 import { BaseDb } from './BaseDb';
-import type { LeaderboardEntry } from '../types';
+import type { ChartLeaderboardEntry } from '../types';
 
 export class StatsDb extends BaseDb {
   getStats() {
@@ -21,9 +21,9 @@ export class StatsDb extends BaseDb {
     return [...this.db.hitStats];
   }
   
-  getHits7d(): LeaderboardEntry[] {
-    if (!this.db.leaderboards) {
-      this.db.leaderboards = [];
+  getHits7d(): ChartLeaderboardEntry[] {
+    if (!this.db.chartLeaderboards) {
+      this.db.chartLeaderboards = [];
     }
     
     const days = [...Array(7)].map((_, i) => {
@@ -33,19 +33,19 @@ export class StatsDb extends BaseDb {
     }).reverse();
 
     return days.map(day => {
-      const record = this.db.leaderboards.find(l => l.day === day);
+      const record = this.db.chartLeaderboards.find(l => l.day === day);
       return { day, hits: record?.hits || 0 };
     });
   }
 
   private recordHit(targetId: number) {
     const day = new Date().toISOString().slice(0, 10);
-    if (!this.db.leaderboards) {
-      this.db.leaderboards = [];
+    if (!this.db.chartLeaderboards) {
+      this.db.chartLeaderboards = [];
     }
     
-    const stat = this.db.leaderboards.find(l => l.day === day) ||
-      this.db.leaderboards[this.db.leaderboards.push({ day, hits: 0 }) - 1];
+    const stat = this.db.chartLeaderboards.find(l => l.day === day) ||
+      this.db.chartLeaderboards[this.db.chartLeaderboards.push({ day, hits: 0 }) - 1];
     stat.hits += 1;
     this.persist();
   }

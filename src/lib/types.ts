@@ -1,3 +1,4 @@
+
 // Define event types for the mock backend
 export type MockBackendEvents = { 
   hit: { targetId: number; score: number }; 
@@ -25,10 +26,18 @@ export interface InviteResponse {
   token: string;
 }
 
-// Define leaderboard entry type
-export interface LeaderboardEntry {
+// Define different types of leaderboard entries
+export interface ChartLeaderboardEntry {
   day: string;
   hits: number;
+}
+
+// Define the actual leaderboard entry type for player rankings
+export interface LeaderboardEntry {
+  id: string;
+  name: string;
+  score: number;
+  avatar: string;
 }
 
 // Update DB type to include leaderboards

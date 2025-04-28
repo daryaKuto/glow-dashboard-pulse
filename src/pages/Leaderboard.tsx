@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '@/components/Header';
@@ -13,16 +14,10 @@ import { useAuth } from '@/providers/AuthProvider';
 import { useFriends } from '@/store/useFriends';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { API } from '@/lib/api';
+import { LeaderboardEntry } from '@/lib/types';
 
 type LeaderboardScope = 'global' | 'friends' | 'find';
 type TimeRange = 'today' | 'week' | 'alltime';
-
-interface LeaderboardEntry {
-  id: string;
-  name: string;
-  score: number;
-  avatar: string;
-}
 
 const LeaderboardPage: React.FC = () => {
   const navigate = useNavigate();

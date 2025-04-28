@@ -1,3 +1,4 @@
+
 import { staticDb } from './staticDb';
 import type { MockWebSocket, RoomLayoutResponse, LeaderboardEntry } from './types';
 
@@ -195,5 +196,5 @@ export const API = {
   // Add friends methods
   getFriends: (token: string) => staticDb.getFriends(),
   addFriend: (token: string, friendId: string) => staticDb.addFriend(friendId),
-  getLeaderboard: (token: string, scope: 'global' | 'friends' = 'global') => staticDb.getLeaderboard(scope)
+  getLeaderboard: (token: string, scope: 'global' | 'friends' = 'global'): LeaderboardEntry[] => staticDb.getLeaderboard(scope)
 };

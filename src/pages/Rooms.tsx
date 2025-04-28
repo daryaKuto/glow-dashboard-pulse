@@ -1,10 +1,9 @@
-
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useRooms } from '@/store/useRooms';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import MobileDrawer from '@/components/MobileDrawer';
@@ -26,14 +25,12 @@ const Rooms: React.FC = () => {
   } = useRooms();
   const [newRoomName, setNewRoomName] = useState('');
 
-  // Extract token from URL params
   const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
 
   useEffect(() => {
     fetchRooms(token);
   }, [token]);
 
-  // Handler functions
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRoomName.trim()) return;
@@ -53,7 +50,6 @@ const Rooms: React.FC = () => {
   };
 
   const handleReorder = (reorderedRooms: typeof rooms) => {
-    // Create an array of { id, order } pairs
     const orderedIds = reorderedRooms.map((room, index) => ({
       id: room.id,
       order: index + 1
@@ -62,7 +58,6 @@ const Rooms: React.FC = () => {
     updateRoomOrder(orderedIds, token);
   };
 
-  // Sort rooms by order
   const sortedRooms = [...rooms].sort((a, b) => a.order - b.order);
 
   return (
@@ -91,7 +86,7 @@ const Rooms: React.FC = () => {
                 className="bg-brand-lavender hover:bg-brand-lavender/80 whitespace-nowrap"
                 disabled={!newRoomName.trim()}
               >
-                <plus className="h-4 w-4 mr-2" /> Add Room
+                <Plus className="h-4 w-4 mr-2" /> Add Room
               </Button>
             </form>
             
@@ -107,7 +102,7 @@ const Rooms: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <div className="space-y-4 pl-8"> {/* Extra padding for drag handles */}
+              <div className="space-y-4 pl-8">
                 <p className="text-sm text-brand-fg-secondary">
                   Drag to reorder rooms. Changes are saved automatically.
                 </p>

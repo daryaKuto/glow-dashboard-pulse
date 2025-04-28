@@ -106,7 +106,7 @@ const TargetCard: React.FC<TargetCardProps> = ({
           className="text-red-500 hover:text-white hover:bg-red-900/30"
           onClick={() => onDelete(target.id)}
         >
-          <trash className="h-4 w-4 mr-1" />
+          <Trash className="h-4 w-4 mr-1" />
           Delete
         </Button>
       </CardFooter>

@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
-import { users, copy } from "lucide-react";
+import { Users, Copy } from "lucide-react";
 
 interface InviteModalProps {
   sessionId: number;
@@ -53,7 +53,7 @@ const InviteModal: React.FC<InviteModalProps> = ({ sessionId, onCreateInvite }) 
           className="bg-transparent border-brand-lavender/30 text-brand-lavender hover:bg-brand-lavender/10"
           onClick={() => setIsOpen(true)}
         >
-          <users className="h-4 w-4 mr-2" />
+          <Users className="h-4 w-4 mr-2" />
           Invite Friend
         </Button>
       </DialogTrigger>
@@ -83,7 +83,7 @@ const InviteModal: React.FC<InviteModalProps> = ({ sessionId, onCreateInvite }) 
                   className="bg-brand-indigo border-brand-lavender/30"
                 />
                 <Button variant="outline" onClick={handleCopyLink}>
-                  <copy className="h-4 w-4" />
+                  <Copy className="h-4 w-4" />
                 </Button>
               </div>
               <p className="text-sm text-center text-brand-fg-secondary">

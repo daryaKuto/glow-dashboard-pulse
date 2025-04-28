@@ -8,7 +8,9 @@ import {
   TouchSensor,
   useSensor,
   useSensors,
-  DragEndEvent
+  DragEndEvent,
+  DragStartEvent,
+  UniqueIdentifier
 } from '@dnd-kit/core';
 import { 
   arrayMove,
@@ -19,7 +21,7 @@ import {
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
-import { grip } from 'lucide-react';
+import { Grip } from 'lucide-react';
 
 interface SortableItemProps<T extends { id: number }> {
   id: number;
@@ -62,7 +64,7 @@ const SortableItem = <T extends { id: number }>({
         {...listeners}
         className="absolute top-1/2 left-2 -translate-y-1/2 cursor-move touch-none"
       >
-        <grip className="h-4 w-4 text-brand-lavender/70" />
+        <Grip className="h-4 w-4 text-brand-lavender/70" />
       </div>
       {renderItem(item, isDragging)}
     </div>
@@ -97,8 +99,8 @@ export default function DragDropList<T extends { id: number }>({
     })
   );
 
-  function handleDragStart(event: { active: { id: number } }) {
-    setActiveId(event.active.id);
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as number);
   }
 
   function handleDragEnd(event: DragEndEvent) {

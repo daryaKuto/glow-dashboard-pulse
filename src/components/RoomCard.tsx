@@ -9,9 +9,9 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { 
-  edit, 
-  trash, 
-  users
+  Edit, 
+  Trash, 
+  Users
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Room } from '@/store/useRooms';
@@ -44,7 +44,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
           {room.name}
         </CardTitle>
         <div className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-brand-lavender/20 text-brand-lavender">
-          <users size={12} />
+          <Users size={12} />
           <span>{room.targetCount} targets</span>
         </div>
       </CardHeader>
@@ -60,7 +60,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
           className="text-brand-lavender hover:text-white hover:bg-brand-lavender/20"
           onClick={handleRename}
         >
-          <edit className="h-4 w-4 mr-1" />
+          <Edit className="h-4 w-4 mr-1" />
           Rename
         </Button>
         <Link to={`/targets?roomId=${room.id}`}>
@@ -78,7 +78,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
           className="text-red-500 hover:text-white hover:bg-red-900/30"
           onClick={() => onDelete(room.id)}
         >
-          <trash className="h-4 w-4 mr-1" />
+          <Trash className="h-4 w-4 mr-1" />
           Delete
         </Button>
       </CardFooter>

@@ -1,4 +1,3 @@
-
 import { create } from 'zustand';
 import { fetcher } from '@/lib/api';
 import { toast } from "@/components/ui/sonner";
@@ -50,7 +49,7 @@ interface RoomDesignerState {
   setGridSize: (size: number) => void;
   undo: (token: string) => Promise<void>;
   redo: (token: string) => Promise<void>;
-  saveLayout: (token: string) => Promise<void>;
+  saveLayout: (token: string) => Promise<boolean>;
 }
 
 // Helper to snap values to grid
@@ -440,7 +439,7 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
   
   saveLayout: async (token) => {
     const { roomId, layout, groups } = get();
-    if (!roomId) return;
+    if (!roomId) return false;
     
     try {
       await fetcher(`/rooms/${roomId}/layout`, {

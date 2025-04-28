@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useRoomDesigner } from '@/store/useRoomDesigner';
@@ -29,31 +28,24 @@ const RoomDesigner: React.FC = () => {
   
   const [activeTab, setActiveTab] = useState<string>('palette');
   
-  // Get token from query params
   const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
   
-  // Find current room
   const currentRoom = rooms.find(room => room.id === roomId);
   
   useEffect(() => {
-    // Set the current room ID in the designer store
     setRoom(roomId);
     
-    // Fetch room data if not loaded
     if (rooms.length === 0) {
       fetchRooms(token);
     }
     
-    // Fetch targets if not loaded
     if (targets.length === 0) {
       fetchTargets(token);
     }
     
-    // Fetch the room layout
     fetchLayout(token);
   }, [roomId, token]);
 
-  // Set up keyboard shortcuts for undo/redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'z' && e.ctrlKey && !e.shiftKey) {
@@ -70,8 +62,8 @@ const RoomDesigner: React.FC = () => {
   }, [token]);
 
   const handleSave = async () => {
-    const result = await saveLayout(token);
-    if (result) {
+    const success = await saveLayout(token);
+    if (success) {
       toast.success('Room layout saved');
     }
   };
@@ -89,7 +81,6 @@ const RoomDesigner: React.FC = () => {
         {isMobile && <MobileDrawer />}
         
         <main className="flex-1 flex flex-col overflow-hidden">
-          {/* Toolbar */}
           <div className="bg-brand-surface p-3 border-b border-brand-lavender/20 flex justify-between items-center">
             <div className="flex items-center">
               <Button variant="ghost" size="sm" onClick={handleBack} className="text-brand-lavender">
@@ -126,14 +117,11 @@ const RoomDesigner: React.FC = () => {
             </div>
           </div>
           
-          {/* Main content */}
           <div className="flex flex-1 overflow-hidden">
-            {/* Canvas (75%) */}
             <div className="w-3/4 relative overflow-hidden bg-brand-indigo border-r border-brand-lavender/20">
               <RoomCanvas />
             </div>
             
-            {/* Right panel (25%) */}
             <div className="w-1/4 bg-brand-surface">
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="w-full grid grid-cols-2">

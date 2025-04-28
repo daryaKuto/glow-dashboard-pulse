@@ -1,4 +1,3 @@
-
 import { BaseDb } from './BaseDb';
 import type { MockWebSocket, MockBackendEvents } from '../types';
 
@@ -80,4 +79,55 @@ export class WebSocketDb extends BaseDb {
   
   // Instead of redefining on/off methods which conflict with BaseDb properties,
   // we'll remove them since they're already available from BaseDb
+  getFriends() {
+    if (!this.db.friends) {
+      this.db.friends = [];
+    }
+    return [...this.db.friends];
+  }
+
+  addFriend(friendId: string) {
+    if (!this.db.friends) {
+      this.db.friends = [];
+    }
+    
+    // Check if friend already exists
+    if (!this.db.friends.find(f => f.id === friendId)) {
+      const newFriend = {
+        id: friendId,
+        name: `Player ${this.db.friends.length + 1}`,
+        status: 'accepted' as const,
+        score: Math.floor(Math.random() * 1000),
+        avatar: `https://i.pravatar.cc/150?u=${friendId}`
+      };
+      
+      this.db.friends.push(newFriend);
+      this.persist();
+    }
+    
+    return this.getFriends();
+  }
+
+  getLeaderboard(scope: 'global' | 'friends' = 'global') {
+    if (scope === 'friends') {
+      return this.getFriends().map(friend => ({
+        id: friend.id,
+        name: friend.name,
+        score: friend.score,
+        avatar: friend.avatar
+      }));
+    }
+
+    // Return global leaderboard
+    if (!this.db.leaderboards) {
+      this.db.leaderboards = Array.from({ length: 20 }, (_, i) => ({
+        id: `user-${i+1}`,
+        name: `Player ${i+1}`,
+        score: Math.floor(Math.random() * 1000),
+        avatar: `https://i.pravatar.cc/150?u=user-${i+1}`
+      }));
+    }
+    
+    return [...this.db.leaderboards];
+  }
 }

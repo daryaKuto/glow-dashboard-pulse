@@ -1,4 +1,3 @@
-
 import { staticDb } from './staticDb';
 import type { MockWebSocket, RoomLayoutResponse, LeaderboardEntry } from './types';
 
@@ -128,6 +127,24 @@ export const fetcher = async (endpoint: string, options = {}) => {
           return { token: `mock-invite-${Date.now()}` };
         }
         break;
+
+      case 'friends':
+        if (path.length === 1) {
+          return staticDb.getFriends();
+        } else if (path.length === 2) {
+          if ((options as any).method === 'POST') {
+            const friendId = path[1];
+            return staticDb.addFriend(friendId);
+          }
+        }
+        break;
+
+      case 'leaderboard':
+        if (path.length === 1) {
+          const scope = (options as any).params?.scope || 'global';
+          return staticDb.getLeaderboard(scope);
+        }
+        break;
     }
     
     throw new Error(`Unhandled static endpoint: ${endpoint}`);
@@ -173,5 +190,10 @@ export const API = {
   signOut: () => staticDb.signOut(),
   
   updateUser: (id: string, data: any) => 
-    staticDb.updateUser(id, data)
+    staticDb.updateUser(id, data),
+
+  // Add friends methods
+  getFriends: (token: string) => staticDb.getFriends(),
+  addFriend: (token: string, friendId: string) => staticDb.addFriend(friendId),
+  getLeaderboard: (token: string, scope: 'global' | 'friends' = 'global') => staticDb.getLeaderboard(scope)
 };

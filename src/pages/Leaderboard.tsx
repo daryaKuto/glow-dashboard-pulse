@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '@/components/Header';
@@ -13,6 +12,7 @@ import FindFriendsTab from '@/components/FindFriendsTab';
 import { useAuth } from '@/providers/AuthProvider';
 import { useFriends } from '@/store/useFriends';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { API } from '@/lib/api';
 
 type LeaderboardScope = 'global' | 'friends' | 'find';
 type TimeRange = 'today' | 'week' | 'alltime';
@@ -34,59 +34,33 @@ const LeaderboardPage: React.FC = () => {
   const { user, hasVerifiedPhone, setPhoneVerifyModalOpen } = useAuth();
   const { friends, loadFriends } = useFriends();
   
-  // Check for user and phone verification - only show phone verification if user exists
   useEffect(() => {
     if (user && !hasVerifiedPhone) {
       setPhoneVerifyModalOpen(true);
     }
   }, [user, hasVerifiedPhone, setPhoneVerifyModalOpen]);
   
-  // Load friends data when user exists
   useEffect(() => {
     if (user) {
       loadFriends();
     }
   }, [loadFriends, user]);
   
-  // Generate mock leaderboard data
   useEffect(() => {
-    // Mock data for global leaderboard
-    if (scope === 'global') {
-      const mockData = Array.from({ length: 20 }, (_, i) => ({
-        id: `user-${i+1}`,
-        name: `Player ${i+1}`,
-        score: Math.floor(Math.random() * 1000) + 500,
-        avatar: `https://i.pravatar.cc/150?u=user-${i+1}`
-      }));
-      
-      mockData.sort((a, b) => b.score - a.score);
-      setLeaderboardData(mockData);
-    } 
-    // Use actual friends data for friends leaderboard
-    else if (scope === 'friends' && user) {
-      const friendsData = friends
-        .filter(friend => friend.status === 'accepted')
-        .map(friend => ({
-          id: friend.id,
-          name: friend.name,
-          score: friend.score,
-          avatar: friend.avatar
-        }));
-      
-      // Add current user
-      friendsData.push({
-        id: 'current-user',
-        name: 'You',
-        score: Math.floor(Math.random() * 1000) + 500,
-        avatar: `https://i.pravatar.cc/150?u=current-user`
-      });
-      
-      friendsData.sort((a, b) => b.score - a.score);
-      setLeaderboardData(friendsData);
-    }
-  }, [scope, timeRange, friends, user]);
+    const fetchLeaderboardData = async () => {
+      try {
+        if (scope === 'find') return;
+        
+        const data = await API.getLeaderboard('dummy-token', scope === 'friends' ? 'friends' : 'global');
+        setLeaderboardData(data);
+      } catch (error) {
+        console.error('Failed to fetch leaderboard data:', error);
+      }
+    };
+
+    fetchLeaderboardData();
+  }, [scope]);
   
-  // If user tries to access friends or find tabs while logged out, redirect to global
   useEffect(() => {
     if (!user && (scope === 'friends' || scope === 'find')) {
       setScope('global');

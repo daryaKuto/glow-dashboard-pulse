@@ -2,23 +2,7 @@
 import { seed, DB } from '../staticData';
 import bcrypt from 'bcryptjs';
 import mitt from 'mitt';
-
-// Define the event types for our emitter
-export type MockBackendEvents = { 
-  hit: { targetId: number; score: number }; 
-  connectionStatus: { connected: boolean };
-  score_update: { userId: string; hits: number; accuracy: number };
-};
-
-// Mock WebSocket interface
-export interface MockWebSocket {
-  onopen: ((ev: any) => any) | null;
-  onmessage: ((ev: any) => any) | null;
-  onclose: ((ev: any) => any) | null;
-  onerror: ((ev: any) => any) | null;
-  send: (data: string) => void;
-  close: () => void;
-}
+import type { MockBackendEvents, MockWebSocket } from './types';
 
 class StaticDb {
   db: DB;
@@ -203,11 +187,13 @@ class StaticDb {
   getRoomLayout(roomId: number) {
     const layout = this.db.layouts.find(l => l.roomId === roomId);
     
-    if (layout) return layout;
+    if (layout) return {
+      targets: [...layout.targets],
+      groups: [...layout.groups]
+    };
     
     // Create empty layout if none exists
     return {
-      roomId,
       targets: this.db.targets
         .filter(t => t.roomId === roomId)
         .map(t => ({ id: t.id, x: 100, y: 100 })),

@@ -124,18 +124,9 @@ export const API = {
     };
   },
 
-  getHitStats: (token: string) => fetcher("/stats/hits", {
-    headers: { Authorization: `Bearer ${token}` }
-  }),
-
-  getTargets: (token: string) => fetcher("/targets", {
-    headers: { Authorization: `Bearer ${token}` }
-  }),
-
-  getRooms: (token: string) => fetcher("/rooms", {
-    headers: { Authorization: `Bearer ${token}` }
-  }),
-
+  getHitStats: (token: string) => staticDb.getHitStats(),
+  getTargets: (token: string) => staticDb.getTargets(),
+  getRooms: (token: string) => staticDb.getRooms(),
   getInvites: (token: string) => [],
   
   // Auth methods

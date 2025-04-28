@@ -59,7 +59,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
       const sessions = await fetcher('/sessions', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      set({ sessions, isLoading: false });
+      set({ sessions: sessions as Session[], isLoading: false });
     } catch (error) {
       set({ error: 'Failed to fetch sessions', isLoading: false });
       toast.error('Failed to fetch sessions');
@@ -71,7 +71,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
       const scenarios = await fetcher('/scenarios', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      set({ scenarios });
+      set({ scenarios: scenarios as Scenario[] });
     } catch (error) {
       toast.error('Failed to fetch scenarios');
     }
@@ -86,7 +86,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
           scenarioId,
           includedRoomIds
         })
-      });
+      }) as Session;
       
       set({
         currentSession: session,
@@ -107,7 +107,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
       const finalSession = await fetcher(`/sessions/${id}/end`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
-      });
+      }) as Session;
       
       // Update sessions list
       set(state => ({

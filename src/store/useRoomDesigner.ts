@@ -1,3 +1,4 @@
+
 import { create } from 'zustand';
 import { fetcher } from '@/lib/api';
 import { toast } from "@/components/ui/sonner";
@@ -85,13 +86,13 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
     if (!roomId) return;
     
     try {
-      const { targets, groups } = await fetcher(`/rooms/${roomId}/layout`, {
+      const result = await fetcher(`/rooms/${roomId}/layout`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
       set({ 
-        layout: targets || [],
-        groups: groups || [],
+        layout: result.targets || [],
+        groups: result.groups || [],
       });
     } catch (error) {
       toast.error('Failed to load room layout');

@@ -32,7 +32,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
       const rooms = await fetcher('/rooms', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      set({ rooms, isLoading: false });
+      set({ rooms: rooms as Room[], isLoading: false });
     } catch (error) {
       set({ error: 'Failed to fetch rooms', isLoading: false });
       toast.error('Failed to fetch rooms');

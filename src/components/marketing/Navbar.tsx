@@ -48,9 +48,10 @@ const Navbar = () => {
     return (
       <>
         {links.map((link, index) => {
-          const LinkComponent = (
+          const LinkElement = (
             <Link 
               to={link.to}
+              key={link.to}
               className={`text-white hover:text-brand-lavender transition-colors px-4 py-2 rounded-md ${link.className || ''}`}
             >
               {link.label}
@@ -59,12 +60,12 @@ const Navbar = () => {
           
           return isMobile ? (
             <SheetClose key={index} asChild>
-              {LinkComponent}
+              {LinkElement}
             </SheetClose>
           ) : (
-            <React.Fragment key={index}>
-              {LinkComponent}
-            </React.Fragment>
+            <div key={index} className="inline-block">
+              {LinkElement}
+            </div>
           );
         })}
       </>

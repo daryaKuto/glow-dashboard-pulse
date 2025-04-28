@@ -28,6 +28,28 @@ export class SessionsDb extends BaseDb {
   }
   
   getSessions() {
+    // Ensure we have sessions initialized
+    if (!this.db.sessions) {
+      this.db.sessions = [
+        {
+          id: 1,
+          name: "Morning Practice",
+          date: new Date().toISOString(),
+          duration: 1200,
+          score: 850,
+          accuracy: 78
+        },
+        {
+          id: 2,
+          name: "Speed Training",
+          date: new Date(Date.now() - 86400000).toISOString(),
+          duration: 1800,
+          score: 920,
+          accuracy: 85
+        }
+      ];
+      this.persist();
+    }
     return [...this.db.sessions];
   }
   

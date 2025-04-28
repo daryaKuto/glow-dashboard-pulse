@@ -1,4 +1,3 @@
-
 import { staticDb } from './staticDb';
 import type { MockWebSocket, RoomLayoutResponse, LeaderboardEntry } from './types';
 
@@ -111,10 +110,7 @@ export const fetcher = async (endpoint: string, options = {}) => {
         console.log('Sessions request:', path, (options as any).method);
         if (path.length === 1) {
           if ((options as any).method === 'GET') {
-            // Ensure we're properly calling getSessions
-            const sessions = staticDb.getSessions();
-            console.log('Fetched sessions:', sessions);
-            return sessions;
+            return staticDb.getSessions();
           } else if ((options as any).method === 'POST') {
             const body = JSON.parse((options as any).body);
             return staticDb.startSession(body.scenarioId, body.includedRoomIds);

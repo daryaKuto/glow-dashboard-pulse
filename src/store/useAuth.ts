@@ -1,4 +1,3 @@
-
 import { create } from 'zustand';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -37,6 +36,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       // Set up auth state listener first
       const { data: { subscription } } = supabase.auth.onAuthStateChange(
         (event, session) => {
+          console.log("Auth state changed:", event, session?.user?.id);
           set({ 
             session, 
             user: session?.user ?? null,
@@ -47,6 +47,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       
       // Then check for existing session
       const { data } = await supabase.auth.getSession();
+      console.log("Initial session check:", data.session?.user?.id);
       set({ 
         session: data.session, 
         user: data.session?.user ?? null,

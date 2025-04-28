@@ -43,7 +43,12 @@ const Navbar = () => {
       className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" 
     };
     
-    const allLinks = [...links, ...authLinks, affiliateLink];
+    const allLinks = [...links, ...authLinks];
+    
+    // Add affiliate link only if not already displaying it (prevent duplicates)
+    if (!user || !authLinks.find(link => link.to === "/affiliate/apply")) {
+      allLinks.push(affiliateLink);
+    }
     
     return (
       <>

@@ -60,7 +60,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
   
   updateRoom: async (id: number, name: string, token: string) => {
     try {
-      const updatedRoom = await fetcher(`/rooms/${id}`, {
+      await fetcher(`/rooms/${id}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify({ name })
@@ -99,7 +99,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
   
   updateRoomOrder: async (orderedRooms: { id: number, order: number }[], token: string) => {
     try {
-      const updatedRooms = await fetcher('/rooms/order', {
+      await fetcher('/rooms/order', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify(orderedRooms)

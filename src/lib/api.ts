@@ -1,61 +1,189 @@
-// API helper functions
-import { toast } from "@/components/ui/sonner";
 
-const useMocks = import.meta.env.VITE_USE_MOCK === 'true';
-const API_BASE_URL = useMocks ? 'https://api.fungun.dev' : 'https://api.fungun.dev';
+import { mockBackend } from './mockBackend';
 
-// Fetcher function for API calls
+// Environment check for using mock or real API
+const useMocks = true; // We're fully switching to mocks as per requirements
+
+// Unified API interface that works with both real and mock backends
 export const fetcher = async (endpoint: string, options = {}) => {
-  try {
-    const url = `${API_BASE_URL}${endpoint}`;
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(options as any).headers,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
+  if (useMocks) {
+    // Route the request to our mock backend
+    const path = endpoint.split('/').filter(p => p);
+    
+    // Extract token from options if present
+    const token = (options as any).headers?.Authorization?.split(' ')[1] || 'dummy_token';
+    
+    try {
+      // Route requests to appropriate mock backend methods
+      switch (path[0]) {
+        case 'targets':
+          if (path.length === 1) {
+            return mockBackend.getTargets();
+          } else if (path.length === 2) {
+            const targetId = parseInt(path[1]);
+            if ((options as any).method === 'PUT') {
+              const body = JSON.parse((options as any).body);
+              if ('name' in body) {
+                return mockBackend.renameTarget(targetId, body.name);
+              } else if ('roomId' in body) {
+                return mockBackend.assignRoom(targetId, body.roomId);
+              }
+            } else if ((options as any).method === 'DELETE') {
+              return mockBackend.deleteTarget(targetId);
+            }
+          }
+          break;
+          
+        case 'rooms':
+          if (path.length === 1) {
+            if ((options as any).method === 'GET') {
+              return mockBackend.getRooms();
+            } else if ((options as any).method === 'POST') {
+              const body = JSON.parse((options as any).body);
+              return mockBackend.createRoom(body.name);
+            }
+          } else if (path.length === 2) {
+            const roomId = parseInt(path[1]);
+            if ((options as any).method === 'PUT') {
+              const body = JSON.parse((options as any).body);
+              return mockBackend.updateRoom(roomId, body.name);
+            } else if ((options as any).method === 'DELETE') {
+              return mockBackend.deleteRoom(roomId);
+            } else if (path[1] === 'order') {
+              const body = JSON.parse((options as any).body);
+              return mockBackend.updateRoomOrder(body);
+            }
+          } else if (path.length === 3 && path[2] === 'layout') {
+            const roomId = parseInt(path[1]);
+            if ((options as any).method === 'GET') {
+              return mockBackend.getRoomLayout(roomId);
+            } else if ((options as any).method === 'PUT') {
+              const body = JSON.parse((options as any).body);
+              return mockBackend.saveRoomLayout(roomId, body.targets, body.groups);
+            }
+          }
+          break;
+          
+        case 'stats':
+          if (path.length === 1) {
+            return mockBackend.getStats();
+          } else if (path.length === 2) {
+            if (path[1] === 'targets') {
+              return { online: mockBackend.getStats().targets.online };
+            } else if (path[1] === 'rooms') {
+              return { count: mockBackend.getStats().rooms.count };
+            } else if (path[1] === 'hits') {
+              return mockBackend.getHitStats();
+            } else if (path[1] === 'sessions') {
+              return { latest: mockBackend.getStats().sessions.latest };
+            }
+          }
+          break;
+          
+        case 'scenarios':
+          return mockBackend.getScenarios();
+          
+        case 'sessions':
+          if (path.length === 1) {
+            return mockBackend.getSessions();
+          }
+          break;
+      }
+      
+      throw new Error(`Unhandled mock endpoint: ${endpoint}`);
+    } catch (error) {
+      console.error(`Mock API error for ${endpoint}:`, error);
+      throw error;
     }
+  } else {
+    // Original API implementation (for reference, not used)
+    try {
+      const url = `https://api.fungun.dev${endpoint}`;
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options as any).headers,
+        },
+      });
 
-    return await response.json();
-  } catch (error) {
-    console.error("API request failed:", error);
-    toast.error("Failed to fetch data. Please try again.");
-    throw error;
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("API request failed:", error);
+      throw error;
+    }
   }
 };
 
-// WebSocket connection helper
+// WebSocket connection helper now uses our mock events
 export const connectWebSocket = (token: string) => {
-  const socket = new WebSocket(`${API_BASE_URL.replace('http', 'ws')}/ws?token=${token}`);
+  // Create a fake WebSocket-like object backed by our mock events
+  const fakeSocket = {
+    onopen: null as any,
+    onmessage: null as any,
+    onclose: null as any,
+    onerror: null as any,
+    
+    send: (data: string) => {
+      console.log('Mock WebSocket message sent:', data);
+    },
+    
+    close: () => {
+      mockBackend.off('hit', handleHit);
+      mockBackend.off('connectionStatus', handleConnection);
+      if (fakeSocket.onclose) fakeSocket.onclose({} as any);
+    }
+  };
   
-  socket.onopen = () => {
-    console.log("WebSocket connected");
+  // Set up event handlers
+  const handleHit = (event: { targetId: number, score: number }) => {
+    if (fakeSocket.onmessage) {
+      fakeSocket.onmessage({
+        data: JSON.stringify({
+          type: 'hit',
+          targetId: event.targetId,
+          score: event.score
+        })
+      } as any);
+    }
   };
-
-  socket.onerror = (error) => {
-    console.error("WebSocket error:", error);
-    toast.error("WebSocket connection error. Reconnecting...");
+  
+  const handleConnection = (event: { connected: boolean }) => {
+    if (event.connected) {
+      if (fakeSocket.onopen) fakeSocket.onopen({} as any);
+    } else {
+      if (fakeSocket.onclose) fakeSocket.onclose({} as any);
+    }
   };
-
-  return socket;
+  
+  // Register event handlers
+  mockBackend.on('hit', handleHit);
+  mockBackend.on('connectionStatus', handleConnection);
+  
+  // Trigger initial connection status
+  setTimeout(() => {
+    if (fakeSocket.onopen) fakeSocket.onopen({} as any);
+  }, 100);
+  
+  return fakeSocket;
 };
 
-// API endpoints
+// API object with convenience methods
 export const API = {
   getStats: async (token: string) => {
-    const [targets, rooms, scenarios, sessions, invites] = await Promise.all([
-      fetcher("/stats/targets", { headers: { Authorization: `Bearer ${token}` } }),
-      fetcher("/stats/rooms", { headers: { Authorization: `Bearer ${token}` } }),
-      fetcher("/stats/scenarios", { headers: { Authorization: `Bearer ${token}` } }),
-      fetcher("/sessions/latest", { headers: { Authorization: `Bearer ${token}` } }),
-      fetcher("/invites/pending", { headers: { Authorization: `Bearer ${token}` } })
-    ]);
-
-    return { targets, rooms, scenarios, sessions, invites };
+    const stats = await fetcher("/stats", { headers: { Authorization: `Bearer ${token}` } });
+    
+    return {
+      targets: stats.targets,
+      rooms: stats.rooms,
+      scenarios: mockBackend.getScenarios(),
+      sessions: stats.sessions,
+      invites: []
+    };
   },
 
   getHitStats: (token: string) => fetcher("/stats/hits", {
@@ -70,7 +198,5 @@ export const API = {
     headers: { Authorization: `Bearer ${token}` }
   }),
 
-  getInvites: (token: string) => fetcher("/invites", {
-    headers: { Authorization: `Bearer ${token}` }
-  }),
+  getInvites: (token: string) => [],
 };

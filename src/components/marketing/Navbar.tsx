@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,66 +13,55 @@ import { useAuth } from '@/providers/AuthProvider';
 
 const Navbar = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
   
-  const navigateTo = (path: string) => {
-    navigate(path);
-  };
-  
+  // NavLinks component using direct Link components instead of buttons with navigate
   const NavLinks = () => (
     <>
-      <Button 
-        variant="ghost" 
-        className="text-white hover:text-brand-lavender transition-colors"
-        onClick={() => navigateTo('/')}
+      <Link 
+        to="/"
+        className="text-white hover:text-brand-lavender transition-colors px-4 py-2 rounded-md"
       >
         Home
-      </Button>
+      </Link>
       
-      <Button 
-        variant="ghost" 
-        className="text-white hover:text-brand-lavender transition-colors"
-        onClick={() => navigateTo('/products')}
+      <Link 
+        to="/products"
+        className="text-white hover:text-brand-lavender transition-colors px-4 py-2 rounded-md"
       >
         Products
-      </Button>
+      </Link>
       
       {user ? (
-        <Button 
-          variant="ghost" 
-          className="text-white hover:text-brand-lavender transition-colors"
-          onClick={() => navigateTo('/dashboard')}
+        <Link 
+          to="/dashboard"
+          className="text-white hover:text-brand-lavender transition-colors px-4 py-2 rounded-md"
         >
           Dashboard
-        </Button>
+        </Link>
       ) : (
         <>
-          <Button 
-            variant="ghost" 
-            className="text-white hover:text-brand-lavender transition-colors"
-            onClick={() => navigateTo('/login')}
+          <Link 
+            to="/login"
+            className="text-white hover:text-brand-lavender transition-colors px-4 py-2 rounded-md"
           >
             Login
-          </Button>
+          </Link>
           
-          <Button 
-            variant="default"
-            className="bg-brand-lavender hover:bg-brand-lavender/80"
-            onClick={() => navigateTo('/signup')}
+          <Link 
+            to="/signup"
+            className="bg-brand-lavender hover:bg-brand-lavender/80 text-white px-4 py-2 rounded-md"
           >
             Sign Up
-          </Button>
+          </Link>
         </>
       )}
       
-      <Button 
-        variant="default"
-        className="bg-brand-lavender hover:bg-brand-lavender/80"
-        onClick={() => navigateTo('/affiliate/apply')}
+      <Link 
+        to="/affiliate/apply"
+        className="bg-brand-lavender hover:bg-brand-lavender/80 text-white px-4 py-2 rounded-md"
       >
         Apply as Affiliate
-      </Button>
+      </Link>
     </>
   );
 
@@ -80,13 +69,12 @@ const Navbar = () => {
     <nav className="sticky top-0 z-50 w-full bg-brand-surface border-b border-brand-lavender/10">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
-          <Button 
-            variant="ghost" 
-            className="text-xl font-display text-white p-0" 
-            onClick={() => navigateTo('/')}
+          <Link 
+            to="/"
+            className="text-xl font-display text-white"
           >
             Fun Gun Training
-          </Button>
+          </Link>
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-4">

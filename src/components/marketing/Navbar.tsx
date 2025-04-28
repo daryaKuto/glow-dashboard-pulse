@@ -16,50 +16,32 @@ const Navbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Define link types with proper TypeScript interface - making className optional
+  // Define link types with proper TypeScript interface
   interface NavLinkType {
     to: string;
     label: string;
-    className?: string; // Make className optional with the ? operator
-    alwaysVisible?: boolean; // Add flag to determine if link is always visible
+    className?: string;
   }
   
   // NavLinks component with properly wrapped SheetClose for mobile
   const NavLinks = ({ isMobile = false }) => {
-    // Marketing links - always visible regardless of auth status
-    const marketingLinks: NavLinkType[] = [
-      { to: "/", label: "Home", alwaysVisible: true },
-      { to: "/products", label: "Products", alwaysVisible: true },
-      { to: "/affiliate/apply", label: "Apply as Affiliate", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white", alwaysVisible: true }
-    ];
-    
-    // Auth links - only visible when not logged in
-    const authLinks: NavLinkType[] = !user ? [
+    // Standard marketing links visible to everyone
+    const links: NavLinkType[] = [
+      { to: "/", label: "Home" },
+      { to: "/products", label: "Products" },
+      { to: "/affiliate/apply", label: "Apply as Affiliate", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" },
       { to: "/login", label: "Login" },
       { to: "/signup", label: "Sign Up", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" }
-    ] : [];
+    ];
     
-    // Dashboard link - only visible when logged in
-    const dashboardLink: NavLinkType = user ? 
-      { to: "/dashboard", label: "Dashboard", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" } : 
-      { to: "", label: "", alwaysVisible: false };
-    
-    // Combine all links
-    const allLinks = [...marketingLinks, ...authLinks];
-    
-    // Add dashboard link if user is logged in
+    // Add dashboard link only if user is logged in
     if (user) {
-      allLinks.push(dashboardLink);
+      links.push({ to: "/dashboard", label: "Dashboard", className: "bg-brand-lavender hover:bg-brand-lavender/80 text-white" });
     }
-    
-    // Filter out empty links (for type safety)
-    const visibleLinks = allLinks.filter(link => link.label && (link.alwaysVisible || (!user && !link.alwaysVisible) || (user && link.to === '/dashboard')));
-    
-    console.log("User status:", !!user, "Visible links:", visibleLinks.map(l => l.label));
     
     return (
       <>
-        {visibleLinks.map((link, index) => (
+        {links.map((link, index) => (
           isMobile ? (
             <SheetClose key={index} asChild>
               <Link 

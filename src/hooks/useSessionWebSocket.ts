@@ -2,9 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSessions } from '@/store/useSessions';
 import { toast } from '@/components/ui/sonner';
-import { MockWebSocket } from '@/lib/api';
-
-// Import the mock function directly since we're refactoring to use the mock backend
+import { MockWebSocket } from '@/lib/types';
 import { mockBackend } from '@/lib/mockBackend';
 
 export const useSessionWebSocket = (sessionId: string | null) => {

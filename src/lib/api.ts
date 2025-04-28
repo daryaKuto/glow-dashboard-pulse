@@ -1,18 +1,9 @@
-
 import { mockBackend } from './mockBackend';
+import { connectWebSocket } from './websocket';
+import { MockWebSocket } from './types';
 
 // Environment check for using mock or real API
 const useMocks = true; // We're fully switching to mocks as per requirements
-
-// Define a type for our mock WebSocket that matches what we're returning
-export interface MockWebSocket {
-  onopen: ((this: WebSocket, ev: Event) => any) | null;
-  onmessage: ((this: WebSocket, ev: MessageEvent) => any) | null;
-  onclose: ((this: WebSocket, ev: CloseEvent) => any) | null;
-  onerror: ((this: WebSocket, ev: Event) => any) | null;
-  send: (data: string) => void;
-  close: () => void;
-}
 
 // Unified API interface that works with both real and mock backends
 export const fetcher = async (endpoint: string, options = {}) => {
@@ -129,58 +120,9 @@ export const fetcher = async (endpoint: string, options = {}) => {
   }
 };
 
-// WebSocket connection helper now uses our mock events
-export const connectWebSocket = (token: string): MockWebSocket => {
-  // Create a fake WebSocket-like object backed by our mock events
-  const fakeSocket: MockWebSocket = {
-    onopen: null,
-    onmessage: null,
-    onclose: null,
-    onerror: null,
-    
-    send: (data: string) => {
-      console.log('Mock WebSocket message sent:', data);
-    },
-    
-    close: () => {
-      mockBackend.off('hit', handleHit);
-      mockBackend.off('connectionStatus', handleConnection);
-      if (fakeSocket.onclose) fakeSocket.onclose({} as any);
-    }
-  };
-  
-  // Set up event handlers
-  const handleHit = (event: { targetId: number; score: number }) => {
-    if (fakeSocket.onmessage) {
-      fakeSocket.onmessage({
-        data: JSON.stringify({
-          type: 'hit',
-          targetId: event.targetId,
-          score: event.score
-        })
-      } as any);
-    }
-  };
-  
-  const handleConnection = (event: { connected: boolean }) => {
-    if (event.connected) {
-      if (fakeSocket.onopen) fakeSocket.onopen({} as any);
-    } else {
-      if (fakeSocket.onclose) fakeSocket.onclose({} as any);
-    }
-  };
-  
-  // Register event handlers
-  mockBackend.on('hit', handleHit);
-  mockBackend.on('connectionStatus', handleConnection);
-  
-  // Trigger initial connection status
-  setTimeout(() => {
-    if (fakeSocket.onopen) fakeSocket.onopen({} as any);
-  }, 100);
-  
-  return fakeSocket;
-};
+// Export the mock WebSocket type and connection function
+export { MockWebSocket };
+export { connectWebSocket };
 
 // API object with convenience methods
 export const API = {

@@ -1,4 +1,5 @@
 import mitt from 'mitt';
+import { MockBackendEvents } from './types';
 
 // Define the database shape from the mock-data.json file
 type Target = {
@@ -107,16 +108,9 @@ type DB = {
   stats: Stats;
 };
 
-// Define event types for the emitter
-type Events = { 
-  hit: { targetId: number; score: number }; 
-  session: { id: number; score: number };
-  connectionStatus: { connected: boolean };
-};
-
 class MockBackend {
   private db!: DB;
-  private emitter = mitt<Events>();
+  private emitter = mitt<MockBackendEvents>();
   private hitInterval: number | null = null;
 
   async init() {
@@ -149,12 +143,12 @@ class MockBackend {
   }
   
   // Event handling
-  on<E extends keyof Events>(type: E, callback: (event: Events[E]) => void) {
+  on<E extends keyof MockBackendEvents>(type: E, callback: (event: MockBackendEvents[E]) => void) {
     this.emitter.on(type, callback as any);
     return () => this.emitter.off(type, callback as any);
   }
   
-  off<E extends keyof Events>(type: E, callback: (event: Events[E]) => void) {
+  off<E extends keyof MockBackendEvents>(type: E, callback: (event: MockBackendEvents[E]) => void) {
     this.emitter.off(type, callback as any);
   }
   

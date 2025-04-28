@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { API } from '@/lib/api';
-import { MockWebSocket } from '@/lib/api';
+import { MockWebSocket } from '@/lib/types';
+import { mockBackend } from '@/lib/mockBackend';
 
 export interface StatsState {
   activeTargets: number;
@@ -87,9 +88,6 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
   setWsConnected: (connected: boolean) => set({ wsConnected: connected }),
   
   initializeWebSocket: (userId: string) => {
-    // Import directly from mockBackend to support full migration away from MSW
-    const { mockBackend } = require('@/lib/mockBackend');
-    
     // Create a mock WebSocket
     const socket: MockWebSocket = {
       onopen: null,

@@ -38,13 +38,13 @@ const Dashboard: React.FC = () => {
     ws.onopen = () => {
       console.log("WebSocket connected");
       setWsConnected(true);
-      toast.success('Connected to game server');
+      // toast.success('Connected to game server'); // Disabled notifications
     };
 
     ws.onclose = () => {
       console.log("WebSocket disconnected");
       setWsConnected(false);
-      toast.error('Disconnected from game server');
+      // toast.error('Disconnected from game server'); // Disabled notifications
     };
 
     ws.onmessage = (event) => {
@@ -53,7 +53,7 @@ const Dashboard: React.FC = () => {
         const data = JSON.parse(event.data);
         if (data.type === 'hit') {
           updateHit(data.targetId.toString(), data.score);
-          toast.success(`Hit registered! Score: ${data.score}`);
+          // toast.success(`Hit registered! Score: ${data.score}`); // Disabled hit notifications
         }
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
@@ -68,7 +68,7 @@ const Dashboard: React.FC = () => {
   }, [token, fetchStats, setWsConnected, updateHit]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-indigo">
+    <div className="min-h-screen flex flex-col bg-brand-light">
       <Header />
       
       <div className="flex flex-1">
@@ -77,37 +77,40 @@ const Dashboard: React.FC = () => {
         
         <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
           <div className="container mx-auto">
-            <h2 className="text-2xl font-display font-bold text-white mb-6">Game Stats</h2>
+            <h2 className="text-3xl font-heading text-brand-dark mb-8">Game Stats</h2>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
               <StatCard 
                 title="Active Targets" 
                 value={activeTargets} 
-                icon={<Target className="w-5 h-5" />}
+                icon={<Target className="w-6 h-6 text-brand-brown" />}
                 isLoading={isLoading}
               />
               <StatCard 
                 title="Rooms Created" 
                 value={roomsCreated}
-                icon={<Users className="w-5 h-5" />} 
+                icon={<Users className="w-6 h-6 text-brand-brown" />} 
                 isLoading={isLoading}
               />
               <StatCard 
                 title="Last Session Score" 
                 value={lastSessionScore}
-                icon={<Calendar className="w-5 h-5" />} 
+                icon={<Calendar className="w-6 h-6 text-brand-brown" />} 
                 isLoading={isLoading}
               />
               <StatCard 
                 title="Pending Invites" 
                 value={pendingInvites}
-                icon={<Bell className="w-5 h-5" />} 
+                icon={<Bell className="w-6 h-6 text-brand-brown" />} 
                 isLoading={isLoading}
               />
             </div>
             
-            <div className="h-64 md:h-80">
-              <TrendChart data={hitTrend} isLoading={isLoading} />
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-brand-brown/20">
+              <h3 className="text-xl font-heading text-brand-dark mb-4">Hit Trend</h3>
+              <div className="h-64 md:h-80">
+                <TrendChart data={hitTrend} isLoading={isLoading} />
+              </div>
             </div>
           </div>
         </main>

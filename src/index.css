@@ -1,74 +1,84 @@
 
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@200;300;400;500;600;700&family=Poppins:wght@300;400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap');
-
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --bg-light: #F3E7DB;
+    --text-dark: #1A243C;
+    --accent-brown: #6B4A38;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-
+    --background: 243 231 219; /* F3E7DB in HSL */
+    --foreground: 208 50% 18%; /* 1A243C approximated */
+    --card: 243 231 219;
+    --card-foreground: 208 50% 18%;
+    --popover: 243 231 219;
+    --popover-foreground: 208 50% 18%;
+    --primary: 22 29% 32%; /* 6B4A38 approximated */
+    --primary-foreground: 243 231 219;
+    --secondary: 243 231 219;
+    --secondary-foreground: 208 50% 18%;
+    --muted: 243 231 219;
+    --muted-foreground: 208 30% 40%;
+    --accent: 22 29% 32%;
+    --accent-foreground: 243 231 219;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-
+    --border: 243 20% 85%;
+    --input: 243 20% 85%;
+    --ring: 208 50% 18%;
     --radius: 0.5rem;
   }
 
-  body {
-    @apply bg-brand-indigo font-body text-brand-fg-secondary;
+  * {
+    @apply border-border;
   }
-  
-  h1, h2 {
-    @apply font-display font-bold text-white;
+
+  body {
+    background-color: #F3E7DB;
+    font-family: "Poppins", sans-serif;
+    color: #1A243C;
+  }
+
+  /* Apply Oswald to all headings with normal weight */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: "Oswald", "Arial Black", "Arial", sans-serif;
+    font-weight: 400;      /* Use normal weight for Oswald */
+    letter-spacing: 0.25px;
+    line-height: 1.1;
+    margin: 0 0 0.5em;
+  }
+
+  /* Body text and UI elements stay in Poppins */
+  body, p, li, a, span, input, button, label, figcaption {
+    font-family: "Poppins", sans-serif;
+    font-weight: 400;
   }
 }
 
 .icon {
-  @apply text-brand-lavender transition-colors duration-200;
+  @apply text-brand-brown transition-colors duration-200;
 }
 
 .icon:hover {
-  @apply bg-iridescent bg-clip-text text-transparent;
-}
-
-.icon.hit-flash {
-  @apply animate-hit-flash;
+  @apply text-brand-dark;
 }
 
 .btn-primary {
-  @apply bg-brand-lavender text-white px-4 py-2 rounded-md transition-all duration-200;
+  @apply bg-brand-brown text-white px-4 py-2 rounded-lg transition-all duration-200;
 }
 
 .btn-primary:hover {
-  @apply bg-transparent border border-transparent bg-clip-padding p-[calc(0.5rem-1px)_calc(1rem-1px)];
-  position: relative;
+  @apply bg-brand-dark transform -translate-y-1 shadow-lg;
 }
 
-.btn-primary:hover::before {
-  content: "";
-  @apply absolute inset-0 bg-iridescent rounded-md -z-10;
+.btn-secondary {
+  @apply bg-transparent border-2 border-brand-brown text-brand-brown px-4 py-2 rounded-lg transition-all duration-200;
+}
+
+.btn-secondary:hover {
+  @apply bg-brand-brown text-white transform -translate-y-1;
 }

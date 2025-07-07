@@ -63,7 +63,7 @@ const Profile: React.FC = () => {
     }));
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-indigo">
+    <div className="min-h-screen flex flex-col bg-brand-light">
       <Header />
       
       <div className="flex flex-1">
@@ -71,108 +71,88 @@ const Profile: React.FC = () => {
         {isMobile && <MobileDrawer />}
         
         <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
-          <div className="container mx-auto max-w-4xl">
-            <h2 className="text-2xl font-display font-bold text-white mb-6">Profile</h2>
+          <div className="container mx-auto">
+            <h2 className="text-3xl font-heading text-brand-dark mb-8">Profile</h2>
             
-            <div className="bg-brand-surface rounded-xl p-6 shadow-card mb-6">
-              <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
-                <Avatar className="w-24 h-24 border-4 border-brand-lavender/30">
-                  <AvatarImage src={user.avatarUrl} alt={user.name} />
-                  <AvatarFallback className="bg-brand-lavender text-3xl">{user.name.charAt(0)}</AvatarFallback>
+            {/* Profile Info */}
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-brand-brown/20 mb-6">
+              <div className="flex items-center gap-6">
+                <Avatar className="h-20 w-20 border-2 border-brand-brown/20">
+                  <AvatarImage src={user.avatarUrl} />
+                  <AvatarFallback className="bg-brand-brown text-white text-xl font-heading">
+                    {user.name.split(' ').map(n => n[0]).join('')}
+                  </AvatarFallback>
                 </Avatar>
                 
                 <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-2xl font-display text-white">{user.name}</h3>
-                    
+                  <div className="flex items-center gap-3 mb-2">
+                    <h3 className="text-2xl font-heading text-brand-dark">{user.name}</h3>
                     <Dialog>
                       <DialogTrigger asChild>
-                        <Button variant="outline" size="sm" className="text-brand-lavender hover:bg-brand-lavender/20">
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit
+                        <Button variant="ghost" size="sm" className="text-brand-brown hover:text-brand-dark">
+                          <Edit className="h-4 w-4" />
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="bg-brand-surface border-brand-lavender/30 text-white">
+                      <DialogContent className="bg-white border-brand-brown/20 text-brand-dark">
                         <DialogHeader>
-                          <DialogTitle className="text-white">Edit Profile</DialogTitle>
-                          <DialogDescription className="text-brand-fg-secondary">
+                          <DialogTitle className="text-xl font-heading">Edit Profile</DialogTitle>
+                          <DialogDescription className="text-brand-dark/70 font-body">
                             Update your profile information
                           </DialogDescription>
                         </DialogHeader>
-                        
-                        <div className="space-y-4 py-4">
-                          <div className="text-center mb-4">
-                            <Avatar className="w-24 h-24 border-4 border-brand-lavender/30 mx-auto">
-                              <AvatarImage src={user.avatarUrl} />
-                              <AvatarFallback className="bg-brand-lavender text-3xl">{user.name.charAt(0)}</AvatarFallback>
-                            </Avatar>
-                            <Button variant="link" className="mt-2 text-brand-lavender">
-                              Change avatar
-                            </Button>
+                        <div className="space-y-4">
+                          <div>
+                            <label className="text-sm text-brand-dark font-body">Display Name</label>
+                            <Input defaultValue={user.name} className="bg-white border-brand-brown/30 text-brand-dark" />
                           </div>
-                          
-                          <div className="space-y-2">
-                            <label className="text-sm text-brand-fg-secondary">Display Name</label>
-                            <Input defaultValue={user.name} className="bg-brand-indigo border-brand-lavender/30" />
+                          <div>
+                            <label className="text-sm text-brand-dark font-body">Email</label>
+                            <Input defaultValue={user.email} disabled className="bg-white border-brand-brown/30 text-brand-dark/50" />
+                            <p className="text-xs text-brand-dark/50 font-body">Email cannot be changed</p>
                           </div>
-                          
-                          <div className="space-y-2">
-                            <label className="text-sm text-brand-fg-secondary">Email</label>
-                            <Input defaultValue={user.email} disabled className="bg-brand-indigo border-brand-lavender/30 text-brand-fg-secondary" />
-                            <p className="text-xs text-brand-fg-secondary">Email cannot be changed</p>
-                          </div>
-                        </div>
-                        
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline">Cancel</Button>
-                          <Button className="bg-brand-lavender hover:bg-brand-lavender/80">Save Changes</Button>
                         </div>
                       </DialogContent>
                     </Dialog>
                   </div>
-                  
-                  <p className="text-brand-fg-secondary mt-1">{user.email}</p>
-                  
-                  <div className="grid grid-cols-2 gap-4 mt-4">
-                    <div>
-                      <div className="text-sm text-brand-fg-secondary">Total Hits</div>
-                      <div className="text-2xl text-white font-display">{user.totalHits}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-brand-fg-secondary">Best Score</div>
-                      <div className="text-2xl text-white font-display">{user.bestScore}</div>
-                    </div>
-                  </div>
+                  <p className="text-brand-dark/70 font-body">{user.email}</p>
                 </div>
               </div>
             </div>
             
-            <div className="bg-brand-surface rounded-xl shadow-card">
-              <h3 className="text-xl font-display text-white p-6 border-b border-brand-lavender/20">Recent Sessions</h3>
-              
+            {/* Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              <div className="bg-white rounded-lg p-6 shadow-sm border border-brand-brown/20">
+                <div className="text-sm text-brand-dark/70 font-body">Total Hits</div>
+                <div className="text-3xl text-brand-dark font-heading">{user.totalHits}</div>
+              </div>
+              <div className="bg-white rounded-lg p-6 shadow-sm border border-brand-brown/20">
+                <div className="text-sm text-brand-dark/70 font-body">Best Score</div>
+                <div className="text-3xl text-brand-dark font-heading">{user.bestScore}</div>
+              </div>
+            </div>
+            
+            {/* Recent Sessions */}
+            <div className="bg-white rounded-lg shadow-sm border border-brand-brown/20">
+              <h3 className="text-xl font-heading text-brand-dark p-6 border-b border-brand-brown/20">Recent Sessions</h3>
               {isLoading ? (
-                <div className="p-6 text-center text-brand-fg-secondary">
-                  Loading sessions...
-                </div>
+                <div className="p-6 text-center text-brand-dark/70 font-body">Loading sessions...</div>
               ) : recentSessions.length === 0 ? (
-                <div className="p-6 text-center text-brand-fg-secondary">
-                  No recent sessions found
-                </div>
+                <div className="p-6 text-center text-brand-dark/70 font-body">No sessions yet</div>
               ) : (
-                <ul className="divide-y divide-brand-lavender/20">
-                  {recentSessions.map(session => (
-                    <li key={session.id} className="p-4 flex justify-between items-center">
+                <div className="divide-y divide-brand-brown/10">
+                  {recentSessions.map((session) => (
+                    <div key={session.id} className="p-6 flex justify-between items-center">
                       <div>
-                        <div className="text-white font-medium">{session.name}</div>
-                        <div className="text-sm text-brand-fg-secondary">{session.date}</div>
+                        <div className="font-medium text-brand-dark font-body">{session.name}</div>
+                        <div className="text-sm text-brand-dark/70 font-body">{session.date}</div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xl text-white font-display">{session.score}</div>
-                        <div className="text-xs text-brand-fg-secondary">Score</div>
+                        <div className="text-xl text-brand-dark font-heading">{session.score}</div>
+                        <div className="text-xs text-brand-dark/70 font-body">Score</div>
                       </div>
-                    </li>
+                    </div>
                   ))}
-                </ul>
+                </div>
               )}
             </div>
           </div>

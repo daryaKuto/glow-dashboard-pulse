@@ -1,115 +1,153 @@
 
 import React from 'react';
-import { 
-  Card, 
-  CardContent, 
-  CardHeader,
-  CardTitle,
-  CardFooter
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { 
-  Edit, 
-  Trash, 
-  Circle, 
-  CheckCircle 
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { Target } from '@/store/useTargets';
+import { Target, Battery, Wifi, Settings } from 'lucide-react';
+import TargetIcon from './TargetIcon';
+import { Target as TargetType } from '@/store/useTargets';
 
 interface TargetCardProps {
-  target: Target;
-  roomName?: string | null;
-  onRename: (id: number, name: string) => void;
-  onLocate: (id: number) => void;
-  onFirmwareUpdate: (id: number) => void;
-  onDelete: (id: number) => void;
+  target: TargetType;
+  onRename?: (id: number, name: string) => void;
+  onLocate?: (id: number) => void;
+  onFirmwareUpdate?: (id: number) => void;
+  onDelete?: (targetId: number) => void;
+  className?: string;
+  roomName?: string;
 }
 
-const TargetCard: React.FC<TargetCardProps> = ({
-  target,
-  roomName,
+const TargetCard: React.FC<TargetCardProps> = ({ 
+  target, 
   onRename,
   onLocate,
   onFirmwareUpdate,
-  onDelete
+  onDelete,
+  roomName,
+  className = "" 
 }) => {
-  // Handle rename with a simple inline prompt
-  const handleRename = () => {
-    const newName = window.prompt('Rename target:', target.name);
-    if (newName && newName.trim() !== '' && newName !== target.name) {
-      onRename(target.id, newName);
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'online':
+        return 'bg-green-500';
+      case 'offline':
+        return 'bg-gray-500';
+      case 'error':
+        return 'bg-red-500';
+      default:
+        return 'bg-gray-500';
     }
   };
 
+  const getBatteryColor = (battery: number) => {
+    if (battery > 50) return 'text-green-600';
+    if (battery > 20) return 'text-yellow-600';
+    return 'text-red-600';
+  };
+
+  const formatLastSeen = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+    
+    if (diffInMinutes < 1) return 'Just now';
+    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
+    return `${Math.floor(diffInMinutes / 1440)}d ago`;
+  };
+
+  // Use the target's background color or fallback to white
+  const cardBackgroundClass = target.backgroundColor || 'bg-white';
+
   return (
-    <Card className="w-full bg-brand-surface border-brand-lavender/30 shadow-md hover:shadow-lg transition-shadow">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-lg font-semibold text-white flex items-center gap-2">
-          {target.status === 'online' ? (
-            <CheckCircle size={16} className="text-green-400" />
-          ) : (
-            <Circle size={16} className="text-gray-400" />
-          )}
-          {target.name}
-        </CardTitle>
-        <div className={cn(
-          "px-2 py-1 rounded-full text-xs font-medium",
-          target.status === 'online' 
-            ? "bg-green-900/40 text-green-400" 
-            : "bg-gray-700/40 text-gray-400"
-        )}>
-          {target.status}
-        </div>
-      </CardHeader>
-      <CardContent className="pb-2">
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <div className="text-brand-fg-secondary">Room:</div>
-          <div className="text-white">{roomName || 'Unassigned'}</div>
-          <div className="text-brand-fg-secondary">Battery:</div>
-          <div className="text-white">
-            <div className="w-full bg-gray-700 rounded-full h-2.5">
-              <div 
-                className={cn(
-                  "h-2.5 rounded-full",
-                  target.battery > 70 ? "bg-green-500" : 
-                  target.battery > 30 ? "bg-yellow-500" : "bg-red-500"
-                )}
-                style={{ width: `${target.battery}%` }}
-              ></div>
+    <Card className={`w-full ${cardBackgroundClass} border-brand-brown/20 shadow-sm hover:shadow-md transition-shadow ${className}`}>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <TargetIcon type={target.type || 'standard'} size="lg" />
+            <div>
+              <CardTitle className="text-lg font-heading text-brand-dark">{target.name}</CardTitle>
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant="outline" className="border-brand-brown/30 text-brand-dark font-body">
+                  {target.type || 'standard'}
+                </Badge>
+                <div className={`w-2 h-2 rounded-full ${getStatusColor(target.status)}`}></div>
+                <span className="text-sm text-brand-dark/70 font-body capitalize">{target.status}</span>
+              </div>
             </div>
-            <span className="text-xs mt-1">{target.battery}%</span>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onRename?.(target.id, target.name)}
+              className="text-brand-brown hover:text-brand-dark hover:bg-brand-brown/10"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
           </div>
         </div>
+      </CardHeader>
+      
+      <CardContent className="space-y-4">
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="text-center p-3 bg-brand-brown/5 rounded-lg">
+            <div className="text-2xl font-heading text-brand-dark">{target.hits || 0}</div>
+            <div className="text-sm text-brand-dark/70 font-body">Total Hits</div>
+          </div>
+          <div className="text-center p-3 bg-brand-brown/5 rounded-lg">
+            <div className="text-2xl font-heading text-brand-dark">{target.accuracy || 0}%</div>
+            <div className="text-sm text-brand-dark/70 font-body">Accuracy</div>
+          </div>
+        </div>
+        
+        {/* Details */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <div className="text-brand-dark/70 font-body">Room:</div>
+            <div className="text-brand-dark font-body">{roomName || 'Unassigned'}</div>
+          </div>
+          
+          <div className="flex items-center justify-between text-sm">
+            <div className="text-brand-dark/70 font-body">Battery:</div>
+            <div className={`flex items-center gap-1 font-body ${getBatteryColor(target.battery)}`}>
+              <Battery className="h-4 w-4" />
+              <span>{target.battery}%</span>
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-between text-sm">
+            <div className="text-brand-dark/70 font-body">Last Seen:</div>
+            <div className="text-brand-dark font-body">{formatLastSeen(target.lastSeen || new Date().toISOString())}</div>
+          </div>
+        </div>
+        
+        {/* Actions */}
+        <div className="flex gap-2 pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onLocate?.(target.id)}
+            className="flex-1 border-brand-brown text-brand-brown hover:bg-brand-brown hover:text-white"
+          >
+            <Wifi className="h-4 w-4 mr-2" />
+            Locate
+          </Button>
+          
+          {onDelete && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onDelete(target.id)}
+              className="border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400"
+            >
+              Delete
+            </Button>
+          )}
+        </div>
       </CardContent>
-      <CardFooter className="pt-2 flex justify-between">
-        <Button 
-          variant="outline" 
-          size="sm" 
-          className="text-brand-lavender hover:text-white hover:bg-brand-lavender/20"
-          onClick={handleRename}
-        >
-          <Edit className="h-4 w-4 mr-1" />
-          Rename
-        </Button>
-        <Button 
-          variant="outline" 
-          size="sm"
-          className="text-brand-lavender hover:text-white hover:bg-brand-lavender/20"
-          onClick={() => onLocate(target.id)}
-        >
-          Locate
-        </Button>
-        <Button 
-          variant="outline" 
-          size="sm"
-          className="text-red-500 hover:text-white hover:bg-red-900/30"
-          onClick={() => onDelete(target.id)}
-        >
-          <Trash className="h-4 w-4 mr-1" />
-          Delete
-        </Button>
-      </CardFooter>
     </Card>
   );
 };

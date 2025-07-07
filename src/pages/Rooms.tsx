@@ -61,7 +61,7 @@ const Rooms: React.FC = () => {
   const sortedRooms = [...rooms].sort((a, b) => a.order - b.order);
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-indigo">
+    <div className="min-h-screen flex flex-col bg-brand-light">
       <Header />
       
       <div className="flex flex-1">
@@ -71,7 +71,7 @@ const Rooms: React.FC = () => {
         <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
           <div className="container mx-auto">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-display font-bold text-white">Rooms</h2>
+              <h2 className="text-3xl font-heading text-brand-dark">Rooms</h2>
             </div>
             
             <form onSubmit={handleCreateRoom} className="mb-6 flex gap-2">
@@ -79,11 +79,11 @@ const Rooms: React.FC = () => {
                 placeholder="Room name"
                 value={newRoomName}
                 onChange={(e) => setNewRoomName(e.target.value)}
-                className="bg-transparent border-brand-lavender/30 text-white"
+                className="bg-white border-brand-brown/30 text-brand-dark"
               />
               <Button 
                 type="submit"
-                className="bg-brand-lavender hover:bg-brand-lavender/80 whitespace-nowrap"
+                className="bg-brand-brown hover:bg-brand-dark text-white whitespace-nowrap"
                 disabled={!newRoomName.trim()}
               >
                 <Plus className="h-4 w-4 mr-2" /> Add Room
@@ -91,35 +91,33 @@ const Rooms: React.FC = () => {
             </form>
             
             {isLoading ? (
-              <div className="text-center text-brand-fg-secondary py-8">Loading rooms...</div>
+              <div className="text-center py-8 text-brand-dark/70 font-body">Loading rooms...</div>
             ) : rooms.length === 0 ? (
               <div className="text-center py-8">
-                <div className="border-2 border-brand-lavender rounded-lg p-8 mx-auto max-w-md">
-                  <div className="text-brand-lavender mb-4">No rooms found</div>
-                  <p className="text-brand-fg-secondary mb-6">
-                    Create a room to start organizing your targets
+                <div className="bg-white rounded-lg p-8 mx-auto max-w-md shadow-sm border border-brand-brown/20">
+                  <div className="text-brand-brown mb-4 text-xl font-heading">No rooms yet</div>
+                  <p className="text-brand-dark/70 mb-6 font-body">
+                    Create your first room to get started
                   </p>
+                  <Button className="bg-brand-brown hover:bg-brand-dark text-white">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Room
+                  </Button>
                 </div>
               </div>
             ) : (
-              <div className="space-y-4 pl-8">
-                <p className="text-sm text-brand-fg-secondary">
-                  Drag to reorder rooms. Changes are saved automatically.
-                </p>
-                <DragDropList 
-                  items={sortedRooms}
-                  onReorder={handleReorder}
-                  activationConstraint={{ delay: 100, tolerance: 5 }}
-                  renderItem={(room, isDragging) => (
-                    <RoomCard
-                      room={room}
-                      isDragging={isDragging}
-                      onRename={handleRename}
-                      onDelete={handleDelete}
-                    />
-                  )}
-                />
-              </div>
+              <DragDropList
+                items={sortedRooms}
+                onReorder={handleReorder}
+                renderItem={(room) => (
+                  <RoomCard
+                    key={room.id}
+                    room={room}
+                    onRename={handleRename}
+                    onDelete={handleDelete}
+                  />
+                )}
+              />
             )}
           </div>
         </main>

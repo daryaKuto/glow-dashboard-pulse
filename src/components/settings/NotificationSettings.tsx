@@ -11,7 +11,6 @@ interface NotificationSettingsProps {
     email_session_invites: boolean;
     email_firmware_updates: boolean;
     email_target_offline: boolean;
-    email_marketing: boolean;
   };
   onToggle: (key: keyof NotificationSettingsProps['settings']) => void;
 }
@@ -63,18 +62,6 @@ const NotificationSettings = ({ settings, onToggle }: NotificationSettingsProps)
           <Switch 
             checked={settings.email_target_offline}
             onCheckedChange={() => onToggle('email_target_offline')}
-          />
-        </div>
-        <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <Label className="text-white">Marketing Emails</Label>
-            <p className="text-xs text-brand-fg-secondary">
-              Receive product updates, offers, and news
-            </p>
-          </div>
-          <Switch 
-            checked={settings.email_marketing}
-            onCheckedChange={() => onToggle('email_marketing')}
           />
         </div>
       </CardContent>

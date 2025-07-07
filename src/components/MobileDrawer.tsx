@@ -1,7 +1,6 @@
 
-import { Button } from '@/components/ui/button';
+import React, { useState } from 'react';
 import { Menu } from 'lucide-react';
-import { useState } from 'react';
 import Sidebar from './Sidebar';
 
 const MobileDrawer: React.FC = () => {
@@ -9,26 +8,24 @@ const MobileDrawer: React.FC = () => {
 
   return (
     <>
-      <Button 
-        variant="outline" 
-        className="fixed top-4 left-4 z-40 md:hidden p-2 border-brand-lavender/30 bg-brand-surface/50 backdrop-blur-sm text-brand-lavender"
+      <button
         onClick={() => setIsOpen(true)}
+        className="lg:hidden fixed top-4 left-4 z-40 p-2 bg-brand-brown rounded-lg text-white hover:bg-brand-dark transition-colors shadow-lg"
       >
         <Menu className="w-5 h-5" />
-      </Button>
+      </button>
       
-      {/* Backdrop */}
       {isOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          className="lg:hidden fixed inset-0 bg-black/50 z-40"
           onClick={() => setIsOpen(false)}
-        ></div>
+        />
       )}
       
       <Sidebar 
         isMobile={true} 
-        isOpen={isOpen}
-        onClose={() => setIsOpen(false)}
+        isOpen={isOpen} 
+        onClose={() => setIsOpen(false)} 
       />
     </>
   );

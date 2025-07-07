@@ -1,41 +1,49 @@
 
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { useTargets, Target } from '@/store/useTargets';
+import { useTargets } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
-import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import { toast } from '@/components/ui/sonner';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import MobileDrawer from '@/components/MobileDrawer';
-import TargetCard from '@/components/TargetCard';
 import { useIsMobile } from '@/hooks/use-mobile';
+import TargetCard from '@/components/TargetCard';
+import SearchInput from '@/components/SearchInput';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { toast } from '@/components/ui/sonner';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Plus } from 'lucide-react';
 
-// Helper to group targets by room
-const groupTargetsByRoom = (targets: Target[], roomId?: number) => {
-  // If roomId is provided, filter targets by that room
-  const filteredTargets = roomId 
-    ? targets.filter(target => target.roomId === roomId)
-    : targets;
-
-  return filteredTargets.reduce((acc, target) => {
+// Group targets by room for better organization
+const groupTargetsByRoom = (targets: any[], roomId?: number) => {
+  if (roomId) {
+    return { [roomId]: targets.filter(target => target.roomId === roomId) };
+  }
+  
+  const grouped: { [key: number]: any[] } = {};
+  targets.forEach(target => {
     const roomId = target.roomId || 0;
-    if (!acc[roomId]) {
-      acc[roomId] = [];
+    if (!grouped[roomId]) {
+      grouped[roomId] = [];
     }
-    acc[roomId].push(target);
-    return acc;
-  }, {} as Record<number, Target[]>);
+    grouped[roomId].push(target);
+  });
+  
+  return grouped;
 };
 
 const Targets: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
-  const { targets, isLoading, fetchTargets, renameTarget, locateTarget, updateFirmware, deleteTarget } = useTargets();
+  const { targets, isLoading, fetchTargets, createTarget, renameTarget, locateTarget, updateFirmware, deleteTarget } = useTargets();
   const { rooms, isLoading: roomsLoading, fetchRooms } = useRooms();
   const [searchTerm, setSearchTerm] = useState('');
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [newTargetName, setNewTargetName] = useState('');
+  const [newTargetRoomId, setNewTargetRoomId] = useState<string>('');
 
   // Extract token and optional roomId filter from URL params
   const params = new URLSearchParams(location.search);
@@ -63,102 +71,161 @@ const Targets: React.FC = () => {
   };
 
   // Handle target actions
+  const handleCreateTarget = async () => {
+    if (!newTargetName.trim()) {
+      toast.error('Target name is required');
+      return;
+    }
+    
+    const roomId = newTargetRoomId && newTargetRoomId !== 'none' ? Number(newTargetRoomId) : null;
+    await createTarget(newTargetName.trim(), roomId, token);
+    
+    // Reset form and close dialog
+    setNewTargetName('');
+    setNewTargetRoomId('');
+    setIsAddDialogOpen(false);
+  };
+  
   const handleRenameTarget = (id: number, name: string) => {
     renameTarget(id, name, token);
-    toast.success(`Target renamed to "${name}"`);
+    // toast.success(`Target renamed to "${name}"`); // Disabled notifications
   };
   
   const handleLocateTarget = (id: number) => {
     locateTarget(id, token);
-    toast.success('Target location signal sent');
+    // toast.success('Target location signal sent'); // Disabled notifications
   };
   
   const handleFirmwareUpdate = (id: number) => {
     updateFirmware(id, token);
-    toast.success('Firmware update initiated');
+    // toast.success('Firmware update initiated'); // Disabled notifications
   };
   
   const handleDeleteTarget = (id: number) => {
     if (window.confirm('Are you sure you want to delete this target?')) {
       deleteTarget(id, token);
-      toast.success('Target deleted');
+      // toast.success('Target deleted'); // Disabled notifications
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-indigo">
+    <div className="min-h-screen flex flex-col bg-brand-light">
       <Header />
       
       <div className="flex flex-1">
         {!isMobile && <Sidebar />}
         {isMobile && <MobileDrawer />}
         
-        <main className="flex-1 px-4 py-6 md:p-8 lg:p-10 overflow-y-auto w-full">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-              <h2 className="text-2xl font-display font-bold text-white">
-                {roomId ? `Targets in ${getRoomName(roomId)}` : 'All Targets'}
-              </h2>
-              
-              <div className="flex flex-col sm:flex-row w-full sm:w-auto gap-3">
-                <Input
-                  placeholder="Search targets..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="bg-transparent border-brand-lavender/30 text-white w-full sm:w-[200px]"
-                />
-                <Button className="bg-brand-lavender hover:bg-brand-lavender/80 whitespace-nowrap">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Target
-                </Button>
-              </div>
+        <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
+          <div className="container mx-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-3xl font-heading text-brand-dark">Targets</h2>
+              <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button className="bg-brand-brown hover:bg-brand-dark text-white">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Target
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[425px]">
+                  <DialogHeader>
+                    <DialogTitle>Add New Target</DialogTitle>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="target-name">Target Name</Label>
+                      <Input
+                        id="target-name"
+                        value={newTargetName}
+                        onChange={(e) => setNewTargetName(e.target.value)}
+                        placeholder="Enter target name"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="target-room">Room (Optional)</Label>
+                      <Select value={newTargetRoomId} onValueChange={setNewTargetRoomId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a room" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Room</SelectItem>
+                          {rooms.map(room => (
+                            <SelectItem key={room.id} value={room.id.toString()}>
+                              {room.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button onClick={handleCreateTarget} className="bg-brand-brown hover:bg-brand-dark">
+                      Create Target
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
             
-            {isLoading || roomsLoading ? (
-              <div className="text-center text-brand-fg-secondary py-8">
-                Loading targets...
-              </div>
+            <div className="flex flex-col md:flex-row gap-4 mb-6">
+              <SearchInput
+                placeholder="Search targets..."
+                value={searchTerm}
+                onChange={setSearchTerm}
+                className="flex-1"
+              />
+              <Select value={roomId?.toString() || 'all'} onValueChange={(value) => {
+                if (value === 'all') {
+                  window.history.replaceState({}, '', window.location.pathname);
+                } else {
+                  window.history.replaceState({}, '', `${window.location.pathname}?roomId=${value}`);
+                }
+              }}>
+                <SelectTrigger className="w-full md:w-48">
+                  <SelectValue placeholder="Filter by room" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Rooms</SelectItem>
+                  {rooms.map(room => (
+                    <SelectItem key={room.id} value={room.id.toString()}>
+                      {room.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {isLoading ? (
+              <div className="text-center py-8 text-brand-dark/70 font-body">Loading targets...</div>
             ) : Object.keys(groupedTargets).length === 0 ? (
-              <div className="text-center py-8">
-                <div className="border-2 border-brand-lavender rounded-lg p-6 md:p-8 mx-auto max-w-md">
-                  <div className="text-brand-lavender mb-4 text-xl">No targets found</div>
-                  <p className="text-brand-fg-secondary mb-6">
-                    {searchTerm 
-                      ? `No targets match "${searchTerm}"`
-                      : 'Pair a new target to get started'
-                    }
-                  </p>
-                  <Button className="bg-brand-lavender hover:bg-brand-lavender/80">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Pair a Target
-                  </Button>
-                </div>
-              </div>
+              <div className="text-center py-8 text-brand-dark/70 font-body">No targets found</div>
             ) : (
-              <div className="space-y-8">
-                {Object.entries(groupedTargets).map(([roomIdStr, targets]) => {
-                  const roomName = getRoomName(Number(roomIdStr));
-                  return (
-                    <div key={roomIdStr} className="space-y-4">
-                      <h3 className="text-xl font-display text-white">
-                        {roomName || 'Unassigned Targets'}
+              <div className="space-y-6">
+                {Object.entries(groupedTargets).map(([roomId, roomTargets]) => (
+                  <div key={roomId} className="bg-white rounded-lg p-6 shadow-sm border border-brand-brown/20">
+                    {roomId !== '0' && (
+                      <h3 className="text-xl font-heading text-brand-dark mb-4">
+                        {getRoomName(Number(roomId))}
                       </h3>
-                      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                        {targets.map(target => (
-                          <TargetCard
-                            key={target.id}
-                            target={target}
-                            roomName={getRoomName(target.roomId)}
-                            onRename={handleRenameTarget}
-                            onLocate={handleLocateTarget}
-                            onFirmwareUpdate={handleFirmwareUpdate}
-                            onDelete={handleDeleteTarget}
-                          />
-                        ))}
-                      </div>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {roomTargets.map(target => (
+                        <TargetCard
+                          key={target.id}
+                          target={target}
+                          roomName={getRoomName(target.roomId)}
+                          onRename={handleRenameTarget}
+                          onLocate={handleLocateTarget}
+                          onFirmwareUpdate={handleFirmwareUpdate}
+                          onDelete={handleDeleteTarget}
+                        />
+                      ))}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             )}
           </div>

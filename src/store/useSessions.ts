@@ -62,7 +62,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
       set({ sessions: sessions as Session[], isLoading: false });
     } catch (error) {
       set({ error: 'Failed to fetch sessions', isLoading: false });
-      toast.error('Failed to fetch sessions');
+      // toast.error('Failed to fetch sessions'); // Disabled notifications
     }
   },
   
@@ -73,7 +73,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
       });
       set({ scenarios: scenarios as Scenario[] });
     } catch (error) {
-      toast.error('Failed to fetch scenarios');
+      // toast.error('Failed to fetch scenarios'); // Disabled notifications
     }
   },
   
@@ -94,10 +94,10 @@ export const useSessions = create<SessionsState>((set, get) => ({
         players: [{ userId: 'current-user', name: 'You', hits: 0, accuracy: 0 }]
       });
       
-      toast.success('Session started');
+      // toast.success('Session started'); // Disabled notifications
       return session;
     } catch (error) {
-      toast.error('Failed to start session');
+      // toast.error('Failed to start session'); // Disabled notifications
       return null;
     }
   },
@@ -116,9 +116,9 @@ export const useSessions = create<SessionsState>((set, get) => ({
         isActive: false
       }));
       
-      toast.success(`Session ended with score: ${finalSession.score}`);
+      // toast.success(`Session ended with score: ${finalSession.score}`); // Disabled notifications
     } catch (error) {
-      toast.error('Failed to end session');
+      // toast.error('Failed to end session'); // Disabled notifications
     }
   },
   
@@ -132,7 +132,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
       
       return response.token;
     } catch (error) {
-      toast.error('Failed to create invite');
+      // toast.error('Failed to create invite'); // Disabled notifications
       return null;
     }
   },

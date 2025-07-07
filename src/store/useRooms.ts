@@ -35,7 +35,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
       set({ rooms: rooms as Room[], isLoading: false });
     } catch (error) {
       set({ error: 'Failed to fetch rooms', isLoading: false });
-      toast.error('Failed to fetch rooms');
+      // toast.error('Failed to fetch rooms'); // Disabled notifications
     }
   },
   
@@ -52,9 +52,9 @@ export const useRooms = create<RoomsState>((set, get) => ({
         rooms: [...state.rooms, newRoom]
       }));
       
-      toast.success('Room created successfully');
+      // toast.success('Room created successfully'); // Disabled notifications
     } catch (error) {
-      toast.error('Failed to create room');
+      // toast.error('Failed to create room'); // Disabled notifications
     }
   },
   
@@ -73,9 +73,9 @@ export const useRooms = create<RoomsState>((set, get) => ({
         )
       }));
       
-      toast.success('Room updated successfully');
+      // toast.success('Room updated successfully'); // Disabled notifications
     } catch (error) {
-      toast.error('Failed to update room');
+      // toast.error('Failed to update room'); // Disabled notifications
     }
   },
   
@@ -91,9 +91,9 @@ export const useRooms = create<RoomsState>((set, get) => ({
         rooms: state.rooms.filter(room => room.id !== id)
       }));
       
-      toast.success('Room deleted');
+      // toast.success('Room deleted'); // Disabled notifications
     } catch (error) {
-      toast.error('Failed to delete room');
+      // toast.error('Failed to delete room'); // Disabled notifications
     }
   },
   
@@ -114,7 +114,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
       }));
       
     } catch (error) {
-      toast.error('Failed to update room order');
+      // toast.error('Failed to update room order'); // Disabled notifications
     }
   }
 }));

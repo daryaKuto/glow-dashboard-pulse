@@ -25,7 +25,7 @@ const navItems: NavItem[] = [
 
 const Sidebar: React.FC<SidebarProps> = ({ isMobile = false, isOpen = true, onClose }) => {
   const sidebarClasses = cn(
-    'flex flex-col h-full bg-brand-surface transition-all duration-300 shadow-card',
+    'flex flex-col h-full bg-brand-brown transition-all duration-300 shadow-lg',
     isMobile ? 
       `fixed top-0 bottom-0 left-0 z-50 w-64 ${isOpen ? 'translate-x-0' : '-translate-x-full'}` :
       'w-16 hover:w-64 group'
@@ -34,26 +34,30 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile = false, isOpen = true, onCl
   return (
     <aside className={sidebarClasses}>
       {isMobile && (
-        <div className="flex justify-between items-center p-4 border-b border-brand-lavender/20">
-          <div className="h-8 w-8 rounded-md bg-brand-lavender flex items-center justify-center">
-            <span className="text-white font-display font-bold">FG</span>
-          </div>
-          <button onClick={onClose} className="text-brand-lavender p-2 hover:bg-brand-lavender/20 rounded-full">
+        <div className="flex justify-between items-center p-4 border-b border-white/20">
+          <a href="https://ailith.co" target="_blank" rel="noopener noreferrer" className="h-10 w-10 rounded-lg bg-white/20 flex items-center justify-center border border-white/30 overflow-hidden">
+            <img 
+              src="/LogoFinal.png" 
+              alt="Ailith Logo" 
+              className="h-8 w-8 object-contain"
+            />
+          </a>
+          <button onClick={onClose} className="text-white p-2 hover:bg-white/20 rounded-full transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
           </button>
         </div>
       )}
       
-      <nav className="flex-1 py-4">
-        <ul className="space-y-2 px-2">
+      <nav className="flex-1 py-6">
+        <ul className="space-y-2 px-3">
           {navItems.map((item) => (
             <li key={item.title}>
               <Link 
                 to={item.path} 
-                className="flex items-center p-3 rounded-md text-brand-fg-secondary hover:bg-brand-lavender/10 group-hover:px-4 transition-all"
+                className="flex items-center p-3 rounded-lg text-white/80 hover:bg-white/10 hover:text-white group-hover:px-4 transition-all duration-200"
               >
-                <item.icon className="icon w-6 h-6 flex-shrink-0" />
-                <span className={`ml-3 ${!isMobile && 'opacity-0 group-hover:opacity-100'}`}>
+                <item.icon className="w-6 h-6 flex-shrink-0" />
+                <span className={`ml-3 font-medium ${!isMobile && 'opacity-0 group-hover:opacity-100'}`}>
                   {item.title}
                 </span>
               </Link>
@@ -62,9 +66,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile = false, isOpen = true, onCl
         </ul>
       </nav>
       
-      <div className="p-4 border-t border-brand-lavender/20">
-        <div className={`text-xs text-brand-fg-secondary/70 ${!isMobile && 'opacity-0 group-hover:opacity-100'}`}>
-          FunGun v1.0
+      <div className="p-4 border-t border-white/20">
+        <div className={`text-xs text-white/60 ${!isMobile && 'opacity-0 group-hover:opacity-100'}`}>
+          Ailith v1.0
         </div>
       </div>
     </aside>

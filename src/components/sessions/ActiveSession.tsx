@@ -1,66 +1,124 @@
 
 import React from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CheckCircle, Circle } from 'lucide-react';
-import type { Session } from '@/store/useSessions';
-import SessionScoreboard from '@/components/SessionScoreboard';
-import InviteModal from '@/components/InviteModal';
+import { Users, Target, Clock, Trophy } from 'lucide-react';
 
 interface ActiveSessionProps {
-  session: Session;
-  onEndSession: () => void;
-  onCreateInvite: (sessionId: number) => Promise<string | null>;
-  connected: boolean;
+  session: {
+    id: number;
+    name: string;
+    players: number;
+    targets: number;
+    duration: string;
+    status: 'active' | 'paused' | 'finished';
+  };
+  onJoin?: () => void;
+  onLeave?: () => void;
 }
 
 const ActiveSession: React.FC<ActiveSessionProps> = ({ 
   session, 
-  onEndSession, 
-  onCreateInvite,
-  connected
+  onJoin, 
+  onLeave 
 }) => {
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'active':
+        return 'bg-green-500';
+      case 'paused':
+        return 'bg-yellow-500';
+      case 'finished':
+        return 'bg-gray-500';
+      default:
+        return 'bg-gray-500';
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'active':
+        return 'Active';
+      case 'paused':
+        return 'Paused';
+      case 'finished':
+        return 'Finished';
+      default:
+        return 'Unknown';
+    }
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h3 className="text-xl font-display text-white">
-          Active Session: {session.name}
-        </h3>
-        <div className="flex items-center gap-2">
-          <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
-            connected ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'
-          }`}>
-            {connected ? (
-              <>
-                <CheckCircle size={12} />
-                <span>Connected</span>
-              </>
-            ) : (
-              <>
-                <Circle size={12} />
-                <span>Disconnected</span>
-              </>
-            )}
+    <Card className="bg-white border-brand-brown/20 shadow-sm">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-3 h-3 rounded-full ${getStatusColor(session.status)}`}></div>
+            <CardTitle className="text-xl font-heading text-brand-dark">
+              {session.name}
+            </CardTitle>
+          </div>
+          <span className="text-sm text-brand-dark/70 font-body capitalize">
+            {getStatusText(session.status)}
+          </span>
+        </div>
+      </CardHeader>
+      
+      <CardContent className="space-y-4">
+        {/* Session Stats */}
+        <div className="grid grid-cols-3 gap-4">
+          <div className="text-center p-3 bg-brand-brown/5 rounded-lg">
+            <Users className="h-5 w-5 text-brand-brown mx-auto mb-1" />
+            <div className="text-lg font-heading text-brand-dark">{session.players}</div>
+            <div className="text-xs text-brand-dark/70 font-body">Players</div>
+          </div>
+          
+          <div className="text-center p-3 bg-brand-brown/5 rounded-lg">
+            <Target className="h-5 w-5 text-brand-brown mx-auto mb-1" />
+            <div className="text-lg font-heading text-brand-dark">{session.targets}</div>
+            <div className="text-xs text-brand-dark/70 font-body">Targets</div>
+          </div>
+          
+          <div className="text-center p-3 bg-brand-brown/5 rounded-lg">
+            <Clock className="h-5 w-5 text-brand-brown mx-auto mb-1" />
+            <div className="text-lg font-heading text-brand-dark">{session.duration}</div>
+            <div className="text-xs text-brand-dark/70 font-body">Duration</div>
           </div>
         </div>
-      </div>
-      
-      <div className="flex flex-wrap gap-4 justify-between">
+        
+        {/* Actions */}
         <div className="flex gap-2">
-          <InviteModal 
-            sessionId={session.id}
-            onCreateInvite={onCreateInvite}
-          />
-          <Button 
-            variant="destructive"
-            onClick={onEndSession}
-          >
-            End Session
-          </Button>
+          {session.status === 'active' && onJoin && (
+            <Button
+              onClick={onJoin}
+              className="flex-1 bg-brand-brown hover:bg-brand-dark text-white"
+            >
+              <Trophy className="h-4 w-4 mr-2" />
+              Join Session
+            </Button>
+          )}
+          
+          {session.status === 'active' && onLeave && (
+            <Button
+              onClick={onLeave}
+              variant="outline"
+              className="flex-1 border-brand-brown text-brand-brown hover:bg-brand-brown hover:text-white"
+            >
+              Leave Session
+            </Button>
+          )}
+          
+          {session.status === 'finished' && (
+            <Button
+              variant="outline"
+              className="flex-1 border-brand-brown text-brand-brown hover:bg-brand-brown hover:text-white"
+            >
+              View Results
+            </Button>
+          )}
         </div>
-      </div>
-      
-      <SessionScoreboard players={[]} />
-    </div>
+      </CardContent>
+    </Card>
   );
 };
 

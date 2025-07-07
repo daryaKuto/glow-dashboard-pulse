@@ -1,57 +1,69 @@
 
 import React from 'react';
-import { useDraggable } from '@dnd-kit/core';
-import { Target } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useTargets } from '@/store/useTargets';
+import { Target, Zap, Shield, Star } from 'lucide-react';
 
 interface TargetIconProps {
-  id: number;
-  isSelected?: boolean;
-  isDragging?: boolean;
-  isPlaceholder?: boolean;
+  type: string;
+  size?: 'sm' | 'md' | 'lg';
+  className?: string;
 }
 
 const TargetIcon: React.FC<TargetIconProps> = ({ 
-  id,
-  isSelected = false,
-  isPlaceholder = false
+  type, 
+  size = 'md', 
+  className = "" 
 }) => {
-  const { targets } = useTargets();
-  const target = targets.find(t => t.id === id);
-  
-  // Set up draggable
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `target-${id}`,
-    disabled: isPlaceholder
-  });
-  
-  const classes = cn(
-    'flex flex-col items-center justify-center w-16 h-16 rounded-md transition-all transform',
-    isSelected && 'outline outline-2 outline-brand-orange',
-    isDragging && 'opacity-50',
-    isPlaceholder ? 'cursor-grab' : 'cursor-move'
-  );
-  
+  const getIcon = (type: string) => {
+    const typeLower = type?.toLowerCase() || 'standard';
+    switch (typeLower) {
+      case 'standard':
+        return <Target className="w-full h-full" />;
+      case 'reactive':
+        return <Zap className="w-full h-full" />;
+      case 'armored':
+        return <Shield className="w-full h-full" />;
+      case 'premium':
+        return <Star className="w-full h-full" />;
+      default:
+        return <Target className="w-full h-full" />;
+    }
+  };
+
+  const getSizeClasses = (size: string) => {
+    switch (size) {
+      case 'sm':
+        return 'w-6 h-6';
+      case 'lg':
+        return 'w-12 h-12';
+      default:
+        return 'w-8 h-8';
+    }
+  };
+
+  const getTypeColor = (type: string) => {
+    const typeLower = type?.toLowerCase() || 'standard';
+    switch (typeLower) {
+      case 'standard':
+        return 'text-brand-brown';
+      case 'reactive':
+        return 'text-blue-600';
+      case 'armored':
+        return 'text-gray-700';
+      case 'premium':
+        return 'text-yellow-600';
+      default:
+        return 'text-brand-brown';
+    }
+  };
+
   return (
-    <div 
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      className={classes}
-      style={{
-        touchAction: 'none' // Prevents touch scroll/zoom during drag
-      }}
-    >
-      <Target 
-        size={32}
-        className="text-brand-lavender hover:text-brand-orange transition-colors" 
-      />
-      {target?.name && (
-        <span className="text-xs text-brand-fg-secondary mt-1 overflow-hidden text-ellipsis whitespace-nowrap max-w-full px-1">
-          {target.name}
-        </span>
-      )}
+    <div className={`flex flex-col items-center ${className}`}>
+      <div className={`${getSizeClasses(size)} ${getTypeColor(type)} flex items-center justify-center`}>
+        {getIcon(type)}
+      </div>
+      <span className="text-xs text-brand-dark/70 mt-1 overflow-hidden text-ellipsis whitespace-nowrap max-w-full px-1 font-body">
+        {type || 'Standard'}
+      </span>
     </div>
   );
 };

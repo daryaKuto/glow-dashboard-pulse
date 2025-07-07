@@ -1,47 +1,39 @@
 
 import React from 'react';
-import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface StatCardProps {
   title: string;
-  value: number | string;
-  icon?: React.ReactNode;
-  className?: string;
+  value: number;
+  icon: React.ReactNode;
   isLoading?: boolean;
 }
 
-const StatCard: React.FC<StatCardProps> = ({
-  title,
-  value,
-  icon,
-  className,
-  isLoading = false
-}) => {
-  return (
-    <div className={cn(
-      "bg-brand-surface rounded-xl p-5 shadow-card flex flex-col",
-      className
-    )}>
-      <div className="flex justify-between items-start">
-        <h3 className="text-sm text-brand-fg-secondary font-medium">
-          {title}
-        </h3>
-        {icon && (
-          <div className="text-brand-lavender">
-            {icon}
+const StatCard: React.FC<StatCardProps> = ({ title, value, icon, isLoading = false }) => {
+  if (isLoading) {
+    return (
+      <div className="bg-white p-6 rounded-lg shadow-sm border border-brand-brown/20">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-24 bg-brand-brown/20" />
+            <Skeleton className="h-8 w-16 bg-brand-brown/20" />
           </div>
-        )}
+          <Skeleton className="h-8 w-8 rounded bg-brand-brown/20" />
+        </div>
       </div>
-      
-      <div className="mt-2">
-        {isLoading ? (
-          <Skeleton className="h-10 w-16 bg-brand-lavender/20" />
-        ) : (
-          <p className="text-3xl font-display font-bold text-white">
-            {value}
-          </p>
-        )}
+    );
+  }
+
+  return (
+    <div className="bg-white p-6 rounded-lg shadow-sm border border-brand-brown/20 hover:shadow-md transition-shadow duration-200">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-brand-dark/70 text-sm font-medium font-body">{title}</p>
+          <p className="text-3xl font-heading font-bold text-brand-dark">{value.toLocaleString()}</p>
+        </div>
+        <div className="text-brand-brown">
+          {icon}
+        </div>
       </div>
     </div>
   );

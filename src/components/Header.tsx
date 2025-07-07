@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from '@/components/ui/sonner';
-import { UserRound, Settings, LogOut, Home } from 'lucide-react';
+import { UserRound, Settings, LogOut, Home, LogIn } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const Header: React.FC = () => {
@@ -24,10 +24,10 @@ const Header: React.FC = () => {
   const handleSignOut = async () => {
     try {
       await signOut();
-      toast.success('Logged out successfully');
+      // toast.success('Logged out successfully'); // Disabled notifications
       navigate('/login');
     } catch (error) {
-      toast.error('Failed to log out');
+      // toast.error('Failed to log out'); // Disabled notifications
       console.error('Logout error:', error);
     }
   };
@@ -42,80 +42,94 @@ const Header: React.FC = () => {
   };
 
   return (
-    <header className="sticky top-0 z-10 bg-brand-indigo border-b border-brand-surface py-3 px-4">
-      <div className="container mx-auto flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-md bg-brand-lavender flex items-center justify-center">
-            <span className="text-white font-display font-bold">FG</span>
+    <header className="bg-white border-b border-brand-brown/20 shadow-sm">
+      <div className="container mx-auto px-4">
+        <div className="flex items-center justify-between h-16">
+          {/* Logo */}
+          <a href="https://ailith.co" target="_blank" rel="noopener noreferrer" className="flex items-center">
+            <img 
+              src="/LogoFinal.png" 
+              alt="Ailith" 
+              className="h-8 w-auto"
+            />
+          </a>
+
+          {/* Connection Status */}
+          <div className="hidden md:flex items-center gap-4">
+            <div className={`px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 
+              ${wsConnected ? 'bg-green-500/20 text-green-700 border border-green-500/30' : 'bg-red-500/20 text-red-700 border border-red-500/30'}`}>
+              <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+              <span>{wsConnected ? 'Live' : 'Offline'}</span>
+            </div>
           </div>
-          <Link to="/" className="hover:text-brand-lavender transition-colors">
-            <Button variant="ghost" size="icon" className="text-white hover:text-brand-lavender">
-              <Home className="h-5 w-5" />
-            </Button>
-          </Link>
-          <h1 className="text-xl md:text-2xl font-display font-bold text-white hidden sm:block">
-            FunGun Dashboard
-          </h1>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          <div className={`px-3 py-1 rounded-full text-xs flex items-center gap-1 
-            ${wsConnected ? 'bg-brand-success/20 text-brand-success' : 'bg-brand-error/20 text-brand-error'}`}>
-            <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-brand-success' : 'bg-brand-error'}`}></span>
-            <span>{wsConnected ? 'Connected' : 'Disconnected'}</span>
+
+          {/* User Menu */}
+          <div className="flex items-center gap-4">
+            {user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={user.avatarUrl} alt={user.name} />
+                      <AvatarFallback className="bg-brand-brown text-white text-sm font-heading">
+                        {getInitials(user.name || 'User')}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="bg-white text-brand-dark border border-brand-brown/20 w-56 shadow-lg">
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="flex flex-col space-y-1">
+                      <p className="text-sm font-medium leading-none text-brand-dark">{user?.name || 'User'}</p>
+                      <p className="text-xs leading-none text-brand-dark/60">{user?.email}</p>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator className="bg-brand-brown/20" />
+                  <DropdownMenuItem 
+                    className="hover:bg-brand-brown/10 cursor-pointer gap-2 text-brand-dark"
+                    onClick={() => navigate('/dashboard/profile')}
+                  >
+                    <UserRound className="size-4" />
+                    Profile
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    className="hover:bg-brand-brown/10 cursor-pointer gap-2 text-brand-dark"
+                    onClick={() => navigate('/dashboard/settings')}
+                  >
+                    <Settings className="size-4" />
+                    Settings
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="bg-brand-brown/20" />
+                  <DropdownMenuItem 
+                    className="hover:bg-red-500/10 text-red-600 cursor-pointer gap-2"
+                    onClick={handleSignOut}
+                  >
+                    <LogOut className="size-4" />
+                    Log out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate('/login')}
+                  className="text-brand-dark hover:text-brand-brown"
+                >
+                  <LogIn className="h-4 w-4 mr-2" />
+                  Log In
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => navigate('/signup')}
+                  className="bg-brand-brown hover:bg-brand-dark text-white"
+                >
+                  Sign Up
+                </Button>
+              </div>
+            )}
           </div>
-          
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="outline-none">
-                <Avatar>
-                  <AvatarImage src={user?.avatar_url} />
-                  <AvatarFallback className="bg-brand-lavender">
-                    {user?.name ? getInitials(user.name) : 'U'}
-                  </AvatarFallback>
-                </Avatar>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="bg-brand-surface text-white border-brand-lavender/30 w-56">
-              <DropdownMenuLabel className="font-normal">
-                <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">{user?.name || 'User'}</p>
-                  <p className="text-xs leading-none text-brand-fg-secondary">{user?.email}</p>
-                </div>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator className="bg-brand-lavender/20" />
-              <DropdownMenuItem 
-                className="hover:bg-brand-lavender/20 cursor-pointer gap-2"
-                onClick={() => navigate('/dashboard/profile')}
-              >
-                <UserRound className="size-4" />
-                Profile
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                className="hover:bg-brand-lavender/20 cursor-pointer gap-2"
-                onClick={() => navigate('/dashboard/settings')}
-              >
-                <Settings className="size-4" />
-                Settings
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-brand-lavender/20" />
-              <DropdownMenuItem 
-                className="hover:bg-brand-lavender/20 cursor-pointer gap-2"
-                onClick={() => navigate('/')}
-              >
-                <Home className="size-4" />
-                Marketing Site
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-brand-lavender/20" />
-              <DropdownMenuItem 
-                className="hover:bg-brand-error/20 text-brand-error cursor-pointer gap-2"
-                onClick={handleSignOut}
-              >
-                <LogOut className="size-4" />
-                Log out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </div>
     </header>

@@ -8,6 +8,11 @@ export type Target = {
   roomId: number | null;
   status: 'online' | 'offline';
   battery: number;
+  backgroundColor?: string;
+  type?: string;
+  hits?: number;
+  accuracy?: number;
+  lastSeen?: string;
 };
 
 interface TargetsState {
@@ -15,6 +20,7 @@ interface TargetsState {
   isLoading: boolean;
   error: string | null;
   fetchTargets: (token: string) => Promise<void>;
+  createTarget: (name: string, roomId: number | null, token: string) => Promise<void>;
   renameTarget: (id: number, name: string, token: string) => Promise<void>;
   locateTarget: (id: number, token: string) => Promise<void>;
   updateFirmware: (id: number, token: string) => Promise<void>;
@@ -36,7 +42,25 @@ export const useTargets = create<TargetsState>((set, get) => ({
       set({ targets: targets as Target[], isLoading: false });
     } catch (error) {
       set({ error: 'Failed to fetch targets', isLoading: false });
-      toast.error('Failed to fetch targets');
+      // toast.error('Failed to fetch targets'); // Disabled notifications
+    }
+  },
+  
+  createTarget: async (name: string, roomId: number | null, token: string) => {
+    try {
+      const response = await fetcher('/targets', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name, roomId })
+      });
+      
+      set(state => ({
+        targets: [...state.targets, response as Target]
+      }));
+      
+      // toast.success('Target created successfully'); // Disabled notifications
+    } catch (error) {
+      // toast.error('Failed to create target'); // Disabled notifications
     }
   },
   
@@ -54,9 +78,9 @@ export const useTargets = create<TargetsState>((set, get) => ({
         )
       }));
       
-      toast.success('Target renamed successfully');
+      // toast.success('Target renamed successfully'); // Disabled notifications
     } catch (error) {
-      toast.error('Failed to rename target');
+      // toast.error('Failed to rename target'); // Disabled notifications
     }
   },
   
@@ -68,9 +92,9 @@ export const useTargets = create<TargetsState>((set, get) => ({
         body: JSON.stringify({ locate: true })
       });
       
-      toast.success('Target flashing');
+      // toast.success('Target flashing'); // Disabled notifications
     } catch (error) {
-      toast.error('Failed to locate target');
+      // toast.error('Failed to locate target'); // Disabled notifications
     }
   },
   
@@ -81,9 +105,9 @@ export const useTargets = create<TargetsState>((set, get) => ({
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      toast.success('Firmware update started');
+      // toast.success('Firmware update started'); // Disabled notifications
     } catch (error) {
-      toast.error('Failed to update firmware');
+      // toast.error('Failed to update firmware'); // Disabled notifications
     }
   },
   
@@ -98,9 +122,9 @@ export const useTargets = create<TargetsState>((set, get) => ({
         targets: state.targets.filter(target => target.id !== id)
       }));
       
-      toast.success('Target deleted');
+      // toast.success('Target deleted'); // Disabled notifications
     } catch (error) {
-      toast.error('Failed to delete target');
+      // toast.error('Failed to delete target'); // Disabled notifications
     }
   },
   
@@ -118,9 +142,9 @@ export const useTargets = create<TargetsState>((set, get) => ({
         )
       }));
       
-      toast.success('Target assigned to room');
+      // toast.success('Target assigned to room'); // Disabled notifications
     } catch (error) {
-      toast.error('Failed to assign target to room');
+      // toast.error('Failed to assign target to room'); // Disabled notifications
     }
   }
 }));

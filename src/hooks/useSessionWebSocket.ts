@@ -71,17 +71,17 @@ export const useSessionWebSocket = (sessionId: string | null) => {
 
     socket.onopen = () => {
       setConnected(true);
-      toast.success("Connected to session");
+      // toast.success("Connected to session"); // Disabled notifications
     };
 
     socket.onclose = () => {
       setConnected(false);
-      toast.error("Disconnected from session");
+      // toast.error("Disconnected from session"); // Disabled notifications
     };
 
     socket.onerror = (error) => {
       console.error('WebSocket error:', error);
-      toast.error("Error connecting to session");
+      // toast.error("Error connecting to session"); // Disabled notifications
       setConnected(false);
     };
 

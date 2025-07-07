@@ -95,7 +95,7 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
         groups: result.groups || [],
       });
     } catch (error) {
-      toast.error('Failed to load room layout');
+      // toast.error('Failed to load room layout'); // Disabled notifications
     }
   },
   
@@ -144,13 +144,13 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
         layout: layout,
         undoStack: state.undoStack.slice(0, -1)
       }));
-      toast.error('Failed to update target position');
+      // toast.error('Failed to update target position'); // Disabled notifications
     }
   },
   
   createGroup: async (name, targetIds, token) => {
     if (targetIds.length < 2) {
-      toast.error('Select at least two targets to create a group');
+      // toast.error('Select at least two targets to create a group'); // Disabled notifications
       return;
     }
     
@@ -186,14 +186,14 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
         body: JSON.stringify({ groups: [...get().groups] })
       });
       
-      toast.success('Group created');
+      // toast.success('Group created'); // Disabled notifications
     } catch (error) {
       // Revert on error
       set(state => ({
         groups: state.groups.filter(g => g.id !== newGroupId),
         undoStack: state.undoStack.slice(0, -1)
       }));
-      toast.error('Failed to create group');
+      // toast.error('Failed to create group'); // Disabled notifications
     }
   },
   
@@ -230,14 +230,14 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
         body: JSON.stringify({ groups: updatedGroups })
       });
       
-      toast.success('Group renamed');
+      // toast.success('Group renamed'); // Disabled notifications
     } catch (error) {
       // Revert on error
       set(state => ({
         groups: groups,
         undoStack: state.undoStack.slice(0, -1)
       }));
-      toast.error('Failed to rename group');
+      // toast.error('Failed to rename group'); // Disabled notifications
     }
   },
   
@@ -271,7 +271,7 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
         body: JSON.stringify({ groups: get().groups })
       });
       
-      toast.success('Group deleted');
+      // toast.success('Group deleted'); // Disabled notifications
     } catch (error) {
       // Revert on error
       set(state => ({
@@ -280,7 +280,7 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
         selectedGroupId: groupId,
         undoStack: state.undoStack.slice(0, -1)
       }));
-      toast.error('Failed to delete group');
+      // toast.error('Failed to delete group'); // Disabled notifications
     }
   },
   
@@ -451,7 +451,7 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
       
       return true;
     } catch (error) {
-      toast.error('Failed to save layout');
+      // toast.error('Failed to save layout'); // Disabled notifications
       return false;
     }
   }

@@ -3,27 +3,36 @@ import { DefaultBodyType } from 'msw';
 
 // Sample data
 let targets = [
-  { id: 1, name: 'Target Alpha', status: 'online', battery: 95, roomId: 1 },
-  { id: 2, name: 'Target Beta', status: 'online', battery: 78, roomId: 1 },
-  { id: 3, name: 'Target Gamma', status: 'offline', battery: 12, roomId: 2 },
-  { id: 4, name: 'Target Delta', status: 'online', battery: 65, roomId: null }
+  { id: 1, name: 'Target Alpha', status: 'online', battery: 95, roomId: 1, backgroundColor: 'bg-blue-100', type: 'standard', hits: 127, accuracy: 89, lastSeen: new Date().toISOString() },
+  { id: 2, name: 'Target Beta', status: 'online', battery: 78, roomId: 1, backgroundColor: 'bg-green-100', type: 'moving', hits: 203, accuracy: 92, lastSeen: new Date().toISOString() },
+  { id: 3, name: 'Target Gamma', status: 'offline', battery: 12, roomId: 2, backgroundColor: 'bg-purple-100', type: 'precision', hits: 89, accuracy: 95, lastSeen: new Date(Date.now() - 86400000).toISOString() },
+  { id: 4, name: 'Target Delta', status: 'online', battery: 65, roomId: null, backgroundColor: 'bg-orange-100', type: 'standard', hits: 45, accuracy: 78, lastSeen: new Date().toISOString() },
+  { id: 5, name: 'Target Echo', status: 'online', battery: 92, roomId: 3, backgroundColor: 'bg-pink-100', type: 'moving', hits: 156, accuracy: 88, lastSeen: new Date().toISOString() },
+  { id: 6, name: 'Target Foxtrot', status: 'online', battery: 68, roomId: 3, backgroundColor: 'bg-teal-100', type: 'precision', hits: 234, accuracy: 97, lastSeen: new Date().toISOString() }
 ];
 
 let rooms = [
-  { id: 1, name: 'Living Room', order: 1, targetCount: 2 },
-  { id: 2, name: 'Garage', order: 2, targetCount: 1 }
+  { id: 1, name: 'Training Room A', order: 1, targetCount: 2 },
+  { id: 2, name: 'Practice Zone B', order: 2, targetCount: 1 },
+  { id: 3, name: 'Quick Draw Arena', order: 3, targetCount: 2 },
+  { id: 4, name: 'Precision Range', order: 4, targetCount: 0 },
+  { id: 5, name: 'Speed Training Bay', order: 5, targetCount: 0 }
 ];
 
 let scenarios = [
-  { id: 1, name: 'Quick Training', difficulty: 'beginner', duration: 10 },
-  { id: 2, name: 'Accuracy Focus', difficulty: 'intermediate', duration: 15 },
-  { id: 3, name: 'Speed Run', difficulty: 'advanced', duration: 20 }
+  { id: 1, name: 'Quick Training', difficulty: 'beginner', duration: 10, description: 'Basic target practice for beginners' },
+  { id: 2, name: 'Speed Challenge', difficulty: 'intermediate', duration: 15, description: 'Fast-paced target engagement' },
+  { id: 3, name: 'Precision Master', difficulty: 'advanced', duration: 20, description: 'High-accuracy target practice' },
+  { id: 4, name: 'Moving Targets', difficulty: 'intermediate', duration: 12, description: 'Practice with moving targets' },
+  { id: 5, name: 'Multi-Target Rush', difficulty: 'advanced', duration: 18, description: 'Multiple targets in sequence' }
 ];
 
 let sessions = [
-  { id: 1, name: 'Morning Practice', date: '2023-04-25T09:00:00Z', duration: 15, score: 87, accuracy: 75 },
-  { id: 2, name: 'Evening Challenge', date: '2023-04-22T18:30:00Z', duration: 20, score: 95, accuracy: 88 },
-  { id: 3, name: 'Weekend Training', date: '2023-04-18T11:15:00Z', duration: 30, score: 72, accuracy: 65 }
+  { id: 1, name: 'Morning Practice', date: new Date().toISOString(), duration: 1200, score: 850, accuracy: 78, scenarioId: 1, roomIds: [1, 2], hits: 42, misses: 12 },
+  { id: 2, name: 'Speed Training', date: new Date(Date.now() - 86400000).toISOString(), duration: 1800, score: 920, accuracy: 85, scenarioId: 2, roomIds: [3], hits: 65, misses: 11 },
+  { id: 3, name: 'Precision Session', date: new Date(Date.now() - 2 * 86400000).toISOString(), duration: 1500, score: 780, accuracy: 92, scenarioId: 3, roomIds: [2], hits: 38, misses: 3 },
+  { id: 4, name: 'Weekend Challenge', date: new Date(Date.now() - 3 * 86400000).toISOString(), duration: 2400, score: 1100, accuracy: 88, scenarioId: 4, roomIds: [1, 3], hits: 89, misses: 12 },
+  { id: 5, name: 'Advanced Training', date: new Date(Date.now() - 4 * 86400000).toISOString(), duration: 2000, score: 950, accuracy: 91, scenarioId: 5, roomIds: [1, 2, 3], hits: 72, misses: 7 }
 ];
 
 let roomLayouts = {
@@ -177,6 +186,50 @@ export const handlers = [
   http.get('/targets', async () => {
     await delay(500);
     return HttpResponse.json(targets);
+  }),
+  
+  http.post('/targets', async ({ request }) => {
+    await delay(500);
+    try {
+      const body = await request.json() as any;
+      
+      // Generate random pastel background color
+      const pastelColors = [
+        'bg-pink-100', 'bg-purple-100', 'bg-indigo-100', 'bg-blue-100', 'bg-cyan-100',
+        'bg-teal-100', 'bg-emerald-100', 'bg-green-100', 'bg-lime-100', 'bg-yellow-100',
+        'bg-orange-100', 'bg-red-100', 'bg-rose-100', 'bg-slate-100', 'bg-gray-100',
+        'bg-zinc-100', 'bg-neutral-100', 'bg-stone-100', 'bg-amber-100', 'bg-violet-100'
+      ];
+      const randomColor = pastelColors[Math.floor(Math.random() * pastelColors.length)];
+      
+      // Generate random target type
+      const targetTypes = ['standard', 'moving', 'precision'];
+      const randomType = targetTypes[Math.floor(Math.random() * targetTypes.length)];
+      
+      const newTarget = {
+        id: Math.max(...targets.map(t => t.id), 0) + 1,
+        name: body.name || `Target ${Math.max(...targets.map(t => t.id), 0) + 1}`,
+        roomId: body.roomId || null,
+        status: 'online',
+        battery: Math.floor(Math.random() * 100) + 1,
+        backgroundColor: randomColor,
+        type: randomType,
+        hits: 0,
+        accuracy: 0,
+        lastSeen: new Date().toISOString()
+      };
+      
+      targets = [...targets, newTarget];
+      
+      // Update room target count if assigned to a room
+      if (newTarget.roomId) {
+        updateRoomTargetCounts();
+      }
+      
+      return HttpResponse.json(newTarget, { status: 201 });
+    } catch (error) {
+      return new HttpResponse(null, { status: 400 });
+    }
   }),
   
   http.put('/targets/:id', async ({ params, request }) => {

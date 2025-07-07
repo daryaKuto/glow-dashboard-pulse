@@ -64,18 +64,23 @@ export default {
 					ring: 'hsl(var(--sidebar-ring))'
 				},
 				brand: {
-					indigo: '#0A002B',   // primary bg
-					surface: '#130447',   // elevated cards
-					lavender: '#A884FF',   // accent & icon fill
-					orange: '#FF7A00',   // laser highlight
+					light: '#F3E7DB',
+					dark: '#1A243C',
+					brown: '#6B4A38',
+					// Keep original colors for backward compatibility
+					indigo: '#0A002B',
+					surface: '#130447',
+					lavender: '#A884FF',
+					orange: '#FF7A00',
 					error: '#FF3B5C',
 					success: '#00D97E',
-					'fg-secondary': '#B7B9D6', // text color as specified
+					'fg-secondary': '#B7B9D6',
 				},
 			},
 			fontFamily: {
-				display: ['"Space Grotesk"', 'Inter', 'sans-serif'], // H1-H2 & scores
-				body: ['Inter', 'sans-serif'],                   // UI text
+				heading: ['Oswald', 'Arial Black', 'Arial', 'sans-serif'],
+				body: ['Poppins', 'sans-serif'],
+				display: ['"Space Grotesk"', 'Inter', 'sans-serif'], // Keep for backward compatibility
 			},
 			backgroundImage: {
 				'iridescent': 'linear-gradient(90deg,#00E6FF 0%,#3C6CFF 30%,#B13CFF 60%,#FF7A00 100%)',

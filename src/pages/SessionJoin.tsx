@@ -1,67 +1,107 @@
 
-import React, { useEffect } from 'react';
-import { useParams, useLocation, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useSessions } from '@/store/useSessions';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Users, Target, Clock, Trophy } from 'lucide-react';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import MobileDrawer from '@/components/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useSessionWebSocket } from '@/hooks/useSessionWebSocket';
-import { useSessions } from '@/store/useSessions';
-import { Button } from '@/components/ui/button';
 import SessionScoreboard from '@/components/SessionScoreboard';
 import { toast } from '@/components/ui/sonner';
 
 const SessionJoin: React.FC = () => {
   const { token } = useParams<{ token: string }>();
-  const location = useLocation();
   const navigate = useNavigate();
+  const location = useLocation();
   const isMobile = useIsMobile();
-  
-  // Extract auth token from URL params
-  const authToken = new URLSearchParams(location.search).get('token') || 'dummy_token';
-  
-  const { 
-    setActiveSession, 
-    players, 
-    clearSession 
-  } = useSessions();
-  
-  const { connected } = useSessionWebSocket(token || null);
-  
-  // Set up mock session on first render
+  const { joinSession, currentSession, isLoading } = useSessions();
+  const [isJoining, setIsJoining] = useState(false);
+
+  const sessionToken = new URLSearchParams(location.search).get('token') || 'dummy_token';
+
   useEffect(() => {
-    if (token) {
-      // In a real app, we would validate the token with the server
-      // For now, we'll create a mock session based on the token
-      const mockSession = {
-        id: parseInt(token.substring(0, 3), 16) || 1,
-        name: "Invited Session",
-        date: new Date().toISOString(),
-        duration: 0,
-        score: 0,
-        accuracy: 0
-      };
-      
-      setActiveSession(mockSession);
-      toast.success("Joined session successfully!");
+    if (token && !currentSession) {
+      handleJoinSession();
     }
+  }, [token]);
+
+  const handleJoinSession = async () => {
+    if (!token) return;
     
-    return () => {
-      clearSession();
-    };
-  }, [token, setActiveSession, clearSession]);
-  
-  const handleLeave = () => {
-    clearSession();
-    navigate('/dashboard/sessions');  // Updated to include /dashboard prefix
+    setIsJoining(true);
+    try {
+      const success = await joinSession(token, sessionToken);
+      if (success) {
+        // toast.success('Successfully joined session!'); // Disabled notifications
+      } else {
+        // toast.error('Failed to join session'); // Disabled notifications
+        navigate('/dashboard/sessions');
+      }
+    } catch (error) {
+      console.error('Error joining session:', error);
+      // toast.error('Failed to join session'); // Disabled notifications
+      navigate('/dashboard/sessions');
+    } finally {
+      setIsJoining(false);
+    }
   };
-  
-  if (!token) {
-    return <div>Invalid session invite</div>;
+
+  const handleLeaveSession = () => {
+    navigate('/dashboard/sessions');
+  };
+
+  if (isLoading || isJoining) {
+    return (
+      <div className="min-h-screen flex flex-col bg-brand-light">
+        <Header />
+        <div className="flex flex-1">
+          {!isMobile && <Sidebar />}
+          {isMobile && <MobileDrawer />}
+          <main className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <div className="text-brand-dark/70 font-body">Joining session...</div>
+            </div>
+          </main>
+        </div>
+      </div>
+    );
   }
-  
+
+  if (!currentSession) {
+    return (
+      <div className="min-h-screen flex flex-col bg-brand-light">
+        <Header />
+        <div className="flex flex-1">
+          {!isMobile && <Sidebar />}
+          {isMobile && <MobileDrawer />}
+          <main className="flex-1 flex items-center justify-center">
+            <Card className="w-full max-w-md bg-white border-brand-brown/20 shadow-lg">
+              <CardHeader className="text-center">
+                <CardTitle className="text-xl font-heading text-brand-dark">Session Not Found</CardTitle>
+                <CardDescription className="text-brand-dark/70 font-body">
+                  The session you're looking for doesn't exist or has expired.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button 
+                  onClick={() => navigate('/dashboard/sessions')}
+                  className="w-full bg-brand-brown hover:bg-brand-dark text-white"
+                >
+                  Back to Sessions
+                </Button>
+              </CardContent>
+            </Card>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen flex flex-col bg-brand-indigo">
+    <div className="min-h-screen flex flex-col bg-brand-light">
       <Header />
       
       <div className="flex flex-1">
@@ -70,38 +110,71 @@ const SessionJoin: React.FC = () => {
         
         <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
           <div className="container mx-auto">
-            <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-display font-bold text-white">
-                  Joined Session
-                </h2>
-                <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
-                  connected ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'
-                }`}>
-                  {connected ? (
-                    <>
-                      <circle className="h-2 w-2 fill-current" />
-                      <span>Connected</span>
-                    </>
-                  ) : (
-                    <>
-                      <circle className="h-2 w-2 fill-current" />
-                      <span>Connecting...</span>
-                    </>
-                  )}
-                </div>
-              </div>
-              
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-3xl font-heading text-brand-dark">Active Session</h2>
               <Button 
+                onClick={handleLeaveSession}
                 variant="outline"
-                className="border-brand-lavender/30 text-brand-lavender hover:bg-brand-lavender/10"
-                onClick={handleLeave}
+                className="border-brand-brown text-brand-brown hover:bg-brand-brown hover:text-white"
               >
                 Leave Session
               </Button>
-              
-              <SessionScoreboard players={players} />
             </div>
+            
+            {/* Session Info */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <Card className="bg-white border-brand-brown/20 shadow-sm">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3">
+                    <Users className="h-6 w-6 text-brand-brown" />
+                    <div>
+                      <div className="text-sm text-brand-dark/70 font-body">Players</div>
+                      <div className="text-2xl font-heading text-brand-dark">{currentSession.players?.length || 0}</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card className="bg-white border-brand-brown/20 shadow-sm">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3">
+                    <Target className="h-6 w-6 text-brand-brown" />
+                    <div>
+                      <div className="text-sm text-brand-dark/70 font-body">Targets</div>
+                      <div className="text-2xl font-heading text-brand-dark">{currentSession.targets?.length || 0}</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card className="bg-white border-brand-brown/20 shadow-sm">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3">
+                    <Clock className="h-6 w-6 text-brand-brown" />
+                    <div>
+                      <div className="text-sm text-brand-dark/70 font-body">Duration</div>
+                      <div className="text-2xl font-heading text-brand-dark">15:30</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            
+            {/* Scoreboard */}
+            <Card className="bg-white border-brand-brown/20 shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-brand-dark font-heading flex items-center gap-2">
+                  <Trophy className="h-5 w-5 text-brand-brown" />
+                  Live Scoreboard
+                </CardTitle>
+                <CardDescription className="text-brand-dark/70 font-body">
+                  Real-time scores and rankings
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <SessionScoreboard sessionId={currentSession.id} />
+              </CardContent>
+            </Card>
           </div>
         </main>
       </div>

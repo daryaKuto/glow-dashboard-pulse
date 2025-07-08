@@ -1,6 +1,6 @@
 
-// Define event types for the mock backend
-export type MockBackendEvents = { 
+// Define event types for WebSocket connections
+export type WebSocketEvents = { 
   hit: { targetId: number; score: number }; 
   connectionStatus: { connected: boolean };
   score_update: { userId: string; hits: number; accuracy: number };

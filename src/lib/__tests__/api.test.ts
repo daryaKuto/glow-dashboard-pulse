@@ -2,23 +2,23 @@ import { API } from '../api';
 import * as thingsboard from '@/services/thingsboard';
 
 // Mock the ThingsBoard service
-jest.mock('@/services/thingsboard', () => ({
-  login: jest.fn(),
-  logout: jest.fn(),
-  listDevices: jest.fn(),
-  latestTelemetry: jest.fn(),
-  openTelemetryWS: jest.fn(),
+vi.mock('@/services/thingsboard', () => ({
+  login: vi.fn(),
+  logout: vi.fn(),
+  listDevices: vi.fn(),
+  latestTelemetry: vi.fn(),
+  openTelemetryWS: vi.fn(),
 }));
 
 describe('API Integration', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('Auth Methods', () => {
     test('signIn should call ThingsBoard login', async () => {
       const mockResponse = { token: 'test-token', refreshToken: 'refresh-token' };
-      (thingsboard.login as jest.Mock).mockResolvedValue(mockResponse);
+      (thingsboard.login as any).mockResolvedValue(mockResponse);
 
       const result = await API.signIn('test@example.com', 'password');
       
@@ -28,7 +28,7 @@ describe('API Integration', () => {
 
     test('signOut should call ThingsBoard logout and clear storage', async () => {
       const mockLocalStorage = {
-        removeItem: jest.fn(),
+        removeItem: vi.fn(),
       };
       Object.defineProperty(window, 'localStorage', {
         value: mockLocalStorage,
@@ -46,7 +46,7 @@ describe('API Integration', () => {
   describe('Device Methods', () => {
     test('getTargets should call ThingsBoard listDevices', async () => {
       const mockDevices = [{ id: '1', name: 'Device 1' }];
-      (thingsboard.listDevices as jest.Mock).mockResolvedValue(mockDevices);
+      (thingsboard.listDevices as any).mockResolvedValue(mockDevices);
 
       const result = await API.getTargets();
       
@@ -56,7 +56,7 @@ describe('API Integration', () => {
 
     test('connectWebSocket should call ThingsBoard openTelemetryWS', () => {
       const mockWebSocket = {} as any;
-      (thingsboard.openTelemetryWS as jest.Mock).mockReturnValue(mockWebSocket);
+      (thingsboard.openTelemetryWS as any).mockReturnValue(mockWebSocket);
 
       const result = API.connectWebSocket('test-token');
       
@@ -68,7 +68,7 @@ describe('API Integration', () => {
   describe('Stats Methods', () => {
     test('getStats should return stats with device count', async () => {
       const mockDevices = [{ id: '1' }, { id: '2' }];
-      (thingsboard.listDevices as jest.Mock).mockResolvedValue(mockDevices);
+      (thingsboard.listDevices as any).mockResolvedValue(mockDevices);
 
       const result = await API.getStats();
       

@@ -1,5 +1,5 @@
 
-import { seed } from '../staticData';
+// StaticDb is deprecated - using API client instead
 import { AuthDb } from './db/AuthDb';
 import { TargetsDb } from './db/TargetsDb';
 import { RoomsDb } from './db/RoomsDb';

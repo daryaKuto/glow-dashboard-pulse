@@ -6,6 +6,9 @@ import {
   latestTelemetry,
   openTelemetryWS,
 } from '@/services/thingsboard';
+import tbClient from './tbClient';
+
+const controllerId = import.meta.env.VITE_TB_CONTROLLER_ID as string;
 
 // Export the WebSocket type for compatibility
 export type MockWebSocket = ReturnType<typeof openTelemetryWS>;
@@ -120,10 +123,10 @@ export const API = {
     timeLimitMs:number;
     startedAt:number;
   }) => {
-    // TODO: Implement with ThingsBoard device shared attributes
-    // For now, just log the config for development
-    console.log('Scenario config to push:', cfg);
-    throw new Error('pushScenarioConfig → not implemented with ThingsBoard yet');
+    if (!controllerId) {
+      throw new Error('VITE_TB_CONTROLLER_ID environment variable not set');
+    }
+    return tbClient.post(`/plugins/telemetry/DEVICE/${controllerId}/SHARED_SCOPE`, cfg);
   },
 
   /* ----------  PLACE-HOLDERS (not yet mapped) ---------- */

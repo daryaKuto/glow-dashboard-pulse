@@ -1,23 +1,18 @@
 
-import { seed } from '../../staticData';
-
+// BaseDb is deprecated - using API client instead
 export class BaseDb {
   protected db: any = {};
   private initialized = false;
   
   constructor() {
-    this.initializeDb();
+    // No longer initializing with seed data
+    this.initialized = true;
   }
   
   // Initialize the database with seed data
   private async initializeDb() {
-    try {
-      this.db = await seed();
-      this.initialized = true;
-      console.log("Database initialized with seed data:", this.db);
-    } catch (error) {
-      console.error("Error initializing database:", error);
-    }
+    // No-op since we're using API client
+    this.initialized = true;
   }
   
   // Ensure the database is initialized before use

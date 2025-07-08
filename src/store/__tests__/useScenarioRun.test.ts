@@ -5,18 +5,25 @@ import API from '@/lib/api';
 import { SCENARIOS } from '@/data/scenarios';
 
 // Mock dependencies
-jest.mock('@/lib/api');
-jest.mock('../useRooms');
+vi.mock('@/lib/api');
+vi.mock('../useRooms');
 
-const mockAPI = API as jest.Mocked<typeof API>;
-const mockUseRooms = useRooms as jest.MockedFunction<typeof useRooms>;
+const mockAPI = API as any;
+const mockUseRooms = useRooms as any;
 
 describe('useScenarioRun', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
+    
+    // Reset the store state
+    useScenarioRun.setState({
+      active: false,
+      current: undefined,
+      error: undefined
+    });
     
     // Mock useRooms.getState
-    mockUseRooms.getState = jest.fn().mockReturnValue({
+    mockUseRooms.getState = vi.fn().mockReturnValue({
       rooms: [
         { id: 'room-1', name: 'Test Room' },
         { id: 'room-2', name: 'Another Room' }
@@ -24,14 +31,14 @@ describe('useScenarioRun', () => {
     });
 
     // Mock API.getTargets
-    mockAPI.getTargets.mockResolvedValue([
+    mockAPI.getTargets = vi.fn().mockResolvedValue([
       { id: 'target-1', roomId: 'room-1', name: 'Target 1' },
       { id: 'target-2', roomId: 'room-1', name: 'Target 2' },
       { id: 'target-3', roomId: 'room-2', name: 'Target 3' }
     ]);
 
     // Mock API.pushScenarioConfig
-    mockAPI.pushScenarioConfig.mockResolvedValue(undefined);
+    mockAPI.pushScenarioConfig = vi.fn().mockResolvedValue(undefined);
   });
 
   test('should initialize with inactive state', () => {
@@ -101,7 +108,7 @@ describe('useScenarioRun', () => {
   });
 
   test('should handle API errors during start', async () => {
-    mockAPI.pushScenarioConfig.mockRejectedValue(new Error('API Error'));
+    mockAPI.pushScenarioConfig = vi.fn().mockRejectedValue(new Error('API Error'));
     
     const { result } = renderHook(() => useScenarioRun());
     const quickDraw = SCENARIOS.find(s => s.id === 'quick-draw')!;

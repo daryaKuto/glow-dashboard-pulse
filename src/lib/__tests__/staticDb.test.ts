@@ -31,10 +31,11 @@ describe('StaticDb', () => {
     vi.clearAllMocks();
   });
 
-  it('should initialize with test user', async () => {
+  it('should initialize without seed data', async () => {
     await staticDb.ensureInitialized();
     const db = staticDb._getDbForTesting();
-    expect(db.users[0].email).toBe('test_user@example.com');
+    expect(db).toBeDefined();
+    // Note: No longer testing for specific user data since staticData was removed
   });
 
   describe('getHits7d', () => {

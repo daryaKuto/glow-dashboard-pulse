@@ -128,35 +128,40 @@ export const createDb = async () => {
         name: "Quick Training",
         difficulty: "beginner",
         duration: 10,
-        description: "Basic target practice for beginners"
+        description: "Basic target practice for beginners",
+        targetCount: 2
       },
       {
         id: 2,
         name: "Speed Challenge",
         difficulty: "intermediate",
         duration: 15,
-        description: "Fast-paced target engagement"
+        description: "Fast-paced target engagement",
+        targetCount: 3
       },
       {
         id: 3,
         name: "Precision Master",
         difficulty: "advanced",
         duration: 20,
-        description: "High-accuracy target practice"
+        description: "High-accuracy target practice",
+        targetCount: 4
       },
       {
         id: 4,
         name: "Moving Targets",
         difficulty: "intermediate",
         duration: 12,
-        description: "Practice with moving targets"
+        description: "Practice with moving targets",
+        targetCount: 3
       },
       {
         id: 5,
         name: "Multi-Target Rush",
         difficulty: "advanced",
         duration: 18,
-        description: "Multiple targets in sequence"
+        description: "Multiple targets in sequence",
+        targetCount: 5
       }
     ],
     sessions: [
@@ -356,17 +361,20 @@ export const seed = async () => {
         {
           id: 1,
           name: "Quick Training",
-          difficulty: "beginner"
+          difficulty: "beginner",
+          targetCount: 2
         },
         {
           id: 2,
           name: "Speed Challenge",
-          difficulty: "intermediate"
+          difficulty: "intermediate",
+          targetCount: 3
         },
         {
           id: 3,
           name: "Precision Master",
-          difficulty: "advanced"
+          difficulty: "advanced",
+          targetCount: 4
         }
       ];
     }

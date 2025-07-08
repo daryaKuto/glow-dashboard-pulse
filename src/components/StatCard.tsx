@@ -29,7 +29,7 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, icon, isLoading = fal
       <div className="flex items-center justify-between">
         <div>
           <p className="text-brand-dark/70 text-sm font-medium font-body">{title}</p>
-          <p className="text-3xl font-heading font-bold text-brand-dark">{value.toLocaleString()}</p>
+          <p className="text-3xl font-heading font-bold text-brand-dark">{typeof value === 'number' ? value.toLocaleString() : '—'}</p>
         </div>
         <div className="text-brand-brown">
           {icon}

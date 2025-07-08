@@ -1,6 +1,6 @@
 
 import { create } from 'zustand';
-import { fetcher } from '@/lib/api';
+import API from '@/lib/api';
 import { toast } from "@/components/ui/sonner";
 
 export type Room = {
@@ -29,23 +29,18 @@ export const useRooms = create<RoomsState>((set, get) => ({
   fetchRooms: async (token: string) => {
     set({ isLoading: true, error: null });
     try {
-      const rooms = await fetcher('/rooms', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const rooms = await API.getRooms();
       set({ rooms: rooms as Room[], isLoading: false });
     } catch (error) {
-      set({ error: 'Failed to fetch rooms', isLoading: false });
-      // toast.error('Failed to fetch rooms'); // Disabled notifications
+      // Rooms not implemented yet, set empty array
+      set({ rooms: [], isLoading: false });
+      console.log('Rooms not implemented with ThingsBoard yet');
     }
   },
   
   createRoom: async (name: string, token: string) => {
     try {
-      const newRoom = await fetcher('/rooms', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name })
-      }) as Room;
+      const newRoom = await API.createRoom(name);
       
       // Add the new room to state
       set(state => ({
@@ -54,17 +49,13 @@ export const useRooms = create<RoomsState>((set, get) => ({
       
       // toast.success('Room created successfully'); // Disabled notifications
     } catch (error) {
-      // toast.error('Failed to create room'); // Disabled notifications
+      toast.error('Create room not implemented with ThingsBoard yet');
     }
   },
   
   updateRoom: async (id: number, name: string, token: string) => {
     try {
-      await fetcher(`/rooms/${id}`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name })
-      });
+      await API.updateRoom(id, name);
       
       // Update the room in state
       set(state => ({
@@ -75,16 +66,13 @@ export const useRooms = create<RoomsState>((set, get) => ({
       
       // toast.success('Room updated successfully'); // Disabled notifications
     } catch (error) {
-      // toast.error('Failed to update room'); // Disabled notifications
+      toast.error('Update room not implemented with ThingsBoard yet');
     }
   },
   
   deleteRoom: async (id: number, token: string) => {
     try {
-      await fetcher(`/rooms/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await API.deleteRoom(id);
       
       // Remove the room from state
       set(state => ({
@@ -93,17 +81,13 @@ export const useRooms = create<RoomsState>((set, get) => ({
       
       // toast.success('Room deleted'); // Disabled notifications
     } catch (error) {
-      // toast.error('Failed to delete room'); // Disabled notifications
+      toast.error('Delete room not implemented with ThingsBoard yet');
     }
   },
   
   updateRoomOrder: async (orderedRooms: { id: number, order: number }[], token: string) => {
     try {
-      await fetcher('/rooms/order', {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify(orderedRooms)
-      });
+      await API.updateRoomOrder(orderedRooms);
       
       // Update room order in state
       set(state => ({
@@ -114,7 +98,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
       }));
       
     } catch (error) {
-      // toast.error('Failed to update room order'); // Disabled notifications
+      toast.error('Update room order not implemented with ThingsBoard yet');
     }
   }
 }));

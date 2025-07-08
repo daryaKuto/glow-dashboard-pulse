@@ -9,17 +9,20 @@ export class SessionsDb extends BaseDb {
         {
           id: 1,
           name: "Quick Training",
-          difficulty: "beginner"
+          difficulty: "beginner",
+          targetCount: 2
         },
         {
           id: 2,
           name: "Speed Challenge",
-          difficulty: "intermediate"
+          difficulty: "intermediate",
+          targetCount: 3
         },
         {
           id: 3,
           name: "Precision Master",
-          difficulty: "advanced"
+          difficulty: "advanced",
+          targetCount: 4
         }
       ];
       this.persist();

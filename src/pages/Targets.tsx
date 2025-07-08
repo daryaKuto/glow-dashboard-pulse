@@ -38,7 +38,7 @@ const groupTargetsByRoom = (targets: any[], roomId?: number) => {
 const Targets: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
-  const { targets, isLoading, fetchTargets, createTarget, renameTarget, locateTarget, updateFirmware, deleteTarget } = useTargets();
+  const { targets, isLoading, refresh } = useTargets();
   const { rooms, isLoading: roomsLoading, fetchRooms } = useRooms();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -52,9 +52,9 @@ const Targets: React.FC = () => {
   const roomId = roomIdParam ? Number(roomIdParam) : undefined;
 
   useEffect(() => {
-    fetchTargets(token);
+    refresh();
     fetchRooms(token);
-  }, [token]);
+  }, [refresh, token, fetchRooms]);
 
   // Filter targets by search term
   const filteredTargets = targets.filter(target => 
@@ -77,8 +77,8 @@ const Targets: React.FC = () => {
       return;
     }
     
-    const roomId = newTargetRoomId && newTargetRoomId !== 'none' ? Number(newTargetRoomId) : null;
-    await createTarget(newTargetName.trim(), roomId, token);
+    // TODO: Implement with ThingsBoard API
+    toast.error('Create target not implemented with ThingsBoard yet');
     
     // Reset form and close dialog
     setNewTargetName('');
@@ -86,25 +86,25 @@ const Targets: React.FC = () => {
     setIsAddDialogOpen(false);
   };
   
-  const handleRenameTarget = (id: number, name: string) => {
-    renameTarget(id, name, token);
-    // toast.success(`Target renamed to "${name}"`); // Disabled notifications
+  const handleRenameTarget = (id: string, name: string) => {
+    // TODO: Implement with ThingsBoard API
+    toast.error('Rename target not implemented with ThingsBoard yet');
   };
   
-  const handleLocateTarget = (id: number) => {
-    locateTarget(id, token);
-    // toast.success('Target location signal sent'); // Disabled notifications
+  const handleLocateTarget = (id: string) => {
+    // TODO: Implement with ThingsBoard API
+    toast.error('Locate target not implemented with ThingsBoard yet');
   };
   
-  const handleFirmwareUpdate = (id: number) => {
-    updateFirmware(id, token);
-    // toast.success('Firmware update initiated'); // Disabled notifications
+  const handleFirmwareUpdate = (id: string) => {
+    // TODO: Implement with ThingsBoard API
+    toast.error('Firmware update not implemented with ThingsBoard yet');
   };
   
-  const handleDeleteTarget = (id: number) => {
+  const handleDeleteTarget = (id: string) => {
     if (window.confirm('Are you sure you want to delete this target?')) {
-      deleteTarget(id, token);
-      // toast.success('Target deleted'); // Disabled notifications
+      // TODO: Implement with ThingsBoard API
+      toast.error('Delete target not implemented with ThingsBoard yet');
     }
   };
 

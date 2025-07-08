@@ -120,9 +120,6 @@ class MockBackend {
         ? JSON.parse(saved)
         : await fetch('/mock-data.json').then(r => r.json());
         
-      // Start hit simulation
-      this.simulateHits();
-      
       // Emit connection status
       this.emitter.emit('connectionStatus', { connected: true });
       
@@ -152,41 +149,7 @@ class MockBackend {
     this.emitter.off(type, callback as any);
   }
   
-  simulateHits() {
-    // Clear any existing interval
-    if (this.hitInterval) {
-      clearInterval(this.hitInterval);
-    }
-    
-    // Set up interval for hit events
-    this.hitInterval = window.setInterval(() => {
-      const onlineTargets = this.db.targets.filter(t => t.status === 'online');
-      if (onlineTargets.length > 0) {
-        const target = onlineTargets[Math.floor(Math.random() * onlineTargets.length)];
-        const score = Math.floor(Math.random() * 50) + 50; // Random score between 50-100
-        
-        // Emit the hit event
-        this.emitter.emit('hit', { targetId: target.id, score });
-        
-        // Update hit stats for today
-        const today = new Date().toISOString().split('T')[0];
-        const hitStat = this.db.stats.hits.find(h => h.date === today);
-        
-        if (hitStat) {
-          hitStat.hits += 1;
-        } else {
-          this.db.stats.hits.push({ date: today, hits: 1 });
-        }
-        
-        // Keep only last 7 days
-        while (this.db.stats.hits.length > 7) {
-          this.db.stats.hits.shift();
-        }
-        
-        this.persist();
-      }
-    }, 3000);
-  }
+  // simulateHits() method removed
 
   stopSimulation() {
     if (this.hitInterval) {

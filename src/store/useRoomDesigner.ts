@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { fetcher } from '@/lib/api';
+import API from '@/lib/api';
 import { toast } from "@/components/ui/sonner";
 import { RoomLayoutResponse } from '@/lib/types';
 
@@ -86,16 +86,18 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
     if (!roomId) return;
     
     try {
-      const result = await fetcher(`/rooms/${roomId}/layout`, {
-        headers: { Authorization: `Bearer ${token}` }
-      }) as RoomLayoutResponse;
-      
+      const result = await API.getRoomLayout(roomId);
       set({ 
         layout: result.targets || [],
         groups: result.groups || [],
       });
     } catch (error) {
-      // toast.error('Failed to load room layout'); // Disabled notifications
+      // Room layout not implemented yet, set empty arrays
+      set({ 
+        layout: [],
+        groups: [],
+      });
+      console.log('Room layout not implemented with ThingsBoard yet');
     }
   },
   
@@ -144,13 +146,13 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
         layout: layout,
         undoStack: state.undoStack.slice(0, -1)
       }));
-      // toast.error('Failed to update target position'); // Disabled notifications
+      toast.error('Move target not implemented with ThingsBoard yet');
     }
   },
   
   createGroup: async (name, targetIds, token) => {
     if (targetIds.length < 2) {
-      // toast.error('Select at least two targets to create a group'); // Disabled notifications
+      toast.error('Select at least two targets to create a group');
       return;
     }
     
@@ -180,20 +182,15 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
     
     // Persist to backend
     try {
-      await fetcher(`/rooms/${get().roomId}/groups`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ groups: [...get().groups] })
-      });
-      
-      // toast.success('Group created'); // Disabled notifications
+      await API.createGroup(get().roomId!, newGroup);
+      toast.success('Group created');
     } catch (error) {
       // Revert on error
       set(state => ({
         groups: state.groups.filter(g => g.id !== newGroupId),
         undoStack: state.undoStack.slice(0, -1)
       }));
-      // toast.error('Failed to create group'); // Disabled notifications
+      toast.error('Create group not implemented with ThingsBoard yet');
     }
   },
   
@@ -224,20 +221,15 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
     
     // Persist to backend
     try {
-      await fetcher(`/rooms/${get().roomId}/groups`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ groups: updatedGroups })
-      });
-      
-      // toast.success('Group renamed'); // Disabled notifications
+      await API.updateGroup(get().roomId!, { id: groupId, name });
+      toast.success('Group renamed');
     } catch (error) {
       // Revert on error
       set(state => ({
         groups: groups,
         undoStack: state.undoStack.slice(0, -1)
       }));
-      // toast.error('Failed to rename group'); // Disabled notifications
+      toast.error('Rename group not implemented with ThingsBoard yet');
     }
   },
   
@@ -265,13 +257,8 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
     
     // Persist to backend
     try {
-      await fetcher(`/rooms/${get().roomId}/groups`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ groups: get().groups })
-      });
-      
-      // toast.success('Group deleted'); // Disabled notifications
+      await API.deleteGroup(get().roomId!, { id: groupId });
+      toast.success('Group deleted');
     } catch (error) {
       // Revert on error
       set(state => ({
@@ -280,7 +267,7 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
         selectedGroupId: groupId,
         undoStack: state.undoStack.slice(0, -1)
       }));
-      // toast.error('Failed to delete group'); // Disabled notifications
+      toast.error('Ungroup targets not implemented with ThingsBoard yet');
     }
   },
   
@@ -443,15 +430,11 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
     if (!roomId) return false;
     
     try {
-      await fetcher(`/rooms/${roomId}/layout`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ targets: layout, groups })
-      });
-      
+      await API.saveRoomLayout(roomId, layout, groups);
+      toast.success('Layout saved');
       return true;
     } catch (error) {
-      // toast.error('Failed to save layout'); // Disabled notifications
+      toast.error('Failed to save layout');
       return false;
     }
   }

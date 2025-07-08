@@ -11,8 +11,7 @@ import Dashboard from './pages/dashboard/Dashboard';
 import Targets from './pages/Targets';
 import Rooms from './pages/Rooms';
 import RoomDesigner from './pages/RoomDesigner';
-import Sessions from './pages/Sessions';
-import SessionJoin from './pages/SessionJoin';
+import Scenarios from './pages/Scenarios';
 import Leaderboard from './pages/Leaderboard';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
@@ -45,8 +44,7 @@ function App() {
         <Route path="/dashboard/targets" element={<Targets />} />
         <Route path="/dashboard/rooms" element={<Rooms />} />
         <Route path="/dashboard/rooms/:id" element={<RoomDesigner />} />
-        <Route path="/dashboard/sessions" element={<Sessions />} />
-        <Route path="/dashboard/sessions/join/:token" element={<SessionJoin />} />
+        <Route path="/dashboard/scenarios" element={<Scenarios />} />
         <Route path="/dashboard/leaderboard" element={<Leaderboard />} />
         <Route path="/dashboard/profile" element={<Profile />} />
         <Route path="/dashboard/settings" element={<Settings />} />
@@ -56,7 +54,8 @@ function App() {
         <Route path="/settings" element={<Navigate to="/dashboard/settings" replace />} />
         <Route path="/targets" element={<Navigate to="/dashboard/targets" replace />} />
         <Route path="/rooms" element={<Navigate to="/dashboard/rooms" replace />} />
-        <Route path="/sessions" element={<Navigate to="/dashboard/sessions" replace />} />
+        <Route path="/scenarios" element={<Navigate to="/dashboard/scenarios" replace />} />
+        <Route path="/sessions" element={<Navigate to="/dashboard/scenarios" replace />} />
         <Route path="/leaderboard" element={<Navigate to="/dashboard/leaderboard" replace />} />
         
         {/* 404 route */}

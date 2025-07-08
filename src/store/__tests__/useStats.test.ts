@@ -9,7 +9,7 @@ describe('useStats store', () => {
     useStats.setState({
       activeTargets: 0,
       roomsCreated: 0,
-      lastSessionScore: 0,
+      lastScenarioScore: 0,
       pendingInvites: 0,
       hitTrend: Array.from({ length: 7 }, (_, i) => {
         const date = new Date();
@@ -32,7 +32,7 @@ describe('useStats store', () => {
     const state = useStats.getState();
     expect(state.activeTargets).toBe(0);
     expect(state.roomsCreated).toBe(0);
-    expect(state.lastSessionScore).toBe(0);
+    expect(state.lastScenarioScore).toBe(0);
     expect(state.pendingInvites).toBe(0);
     expect(state.hitTrend).toHaveLength(7);
     expect(state.isLoading).toBe(true);
@@ -49,7 +49,7 @@ describe('useStats store', () => {
     expect(state.isLoading).toBe(false);
     expect(state.activeTargets).toBe(5);
     expect(state.roomsCreated).toBe(3);
-    expect(state.lastSessionScore).toBe(84);
+    expect(state.lastScenarioScore).toBe(84);
     expect(state.pendingInvites).toBe(2);
   });
 
@@ -64,14 +64,14 @@ describe('useStats store', () => {
     const today = state.hitTrend[state.hitTrend.length - 1];
     
     expect(today.hits).toBeGreaterThan(0);
-    expect(state.lastSessionScore).toBe(50);
+    expect(state.lastScenarioScore).toBe(50);
     
     // Update with higher score
     act(() => {
       useStats.getState().updateHit('target-123', 75);
     });
     
-    expect(useStats.getState().lastSessionScore).toBe(75);
+    expect(useStats.getState().lastScenarioScore).toBe(75);
   });
 
   it('should update WebSocket connection status', () => {

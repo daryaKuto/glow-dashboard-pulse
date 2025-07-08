@@ -61,31 +61,9 @@ export class WebSocketDb extends BaseDb {
       if (socket.onopen) socket.onopen({} as any);
     }, 100);
 
-    // Start hit simulation
-    this.simulateHits();
+    // this.simulateHits(); // Simulated hits disabled
 
     return socket;
-  }
-
-  simulateHits() {
-    const fire = () => {
-      // Ensure db and targets are initialized
-      if (this.db?.targets && this.db.targets.length > 0) {
-        const onlineTargets = this.db.targets.filter(t => t.status === 'online');
-        if (onlineTargets.length > 0) {
-          const target = onlineTargets[Math.floor(Math.random() * onlineTargets.length)];
-          this.recordHit(target.id);
-          this.emit('hit', { 
-            targetId: target.id,
-            score: Math.floor(Math.random() * 10) + 1
-          });
-        }
-      }
-      setTimeout(fire, Math.floor(Math.random() * 9000) + 3000);
-    };
-    
-    // Add a small delay to ensure db is initialized
-    setTimeout(fire, 1000);
   }
 
   recordHit(targetId: number) {

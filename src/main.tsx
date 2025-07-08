@@ -9,8 +9,8 @@ import { AuthProvider } from './providers/AuthProvider'
 
 // Initialize static database and start simulated hit events
 staticDb.ensureInitialized().then(() => {
-  console.log('Database ready, starting simulated hits');
-  staticDb.simulateHits();
+  console.log('Database ready');
+  // staticDb.simulateHits(); // Simulated hits disabled
 });
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

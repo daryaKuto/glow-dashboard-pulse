@@ -1,4 +1,3 @@
-
 import React, { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -12,17 +11,23 @@ import {
 } from "@/components/ui/dialog";
 import { Checkbox } from '@/components/ui/checkbox';
 import { CheckCircle, Circle, Plus } from 'lucide-react';
-import { useSessions } from '@/store/useSessions';
+import { useScenarios } from '@/store/useScenarios';
 import { useRooms } from '@/store/useRooms';
 
-interface CreateSessionDialogProps {
-  onStart: (scenarioId: number, roomIds: number[]) => void;
+interface CreateScenarioDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreateScenario: (scenarioData: { scenarioId: number; roomIds: number[] }) => void;
 }
 
-const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({ onStart }) => {
+const CreateScenarioDialog: React.FC<CreateScenarioDialogProps> = ({ 
+  open, 
+  onOpenChange, 
+  onCreateScenario 
+}) => {
   const [selectedScenario, setSelectedScenario] = React.useState<number | null>(null);
   const [selectedRooms, setSelectedRooms] = React.useState<number[]>([]);
-  const { scenarios, fetchScenarios } = useSessions();
+  const { scenarios, fetchScenarios } = useScenarios();
   const { rooms, fetchRooms } = useRooms();
   const location = useLocation();
   const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
@@ -30,7 +35,7 @@ const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({ onStart }) =>
   useEffect(() => {
     fetchScenarios(token);
     fetchRooms(token);
-  }, [token]);
+  }, [token, fetchScenarios, fetchRooms]);
   
   const toggleRoomSelection = (roomId: number) => {
     setSelectedRooms(prev => 
@@ -42,48 +47,44 @@ const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({ onStart }) =>
   
   const handleStart = () => {
     if (selectedScenario !== null) {
-      onStart(selectedScenario, selectedRooms);
+      onCreateScenario({ scenarioId: selectedScenario, roomIds: selectedRooms });
     }
   };
   
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button className="bg-brand-lavender hover:bg-brand-lavender/80">
-          <Plus className="h-4 w-4 mr-2" />
-          New Session
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="bg-brand-surface border-brand-lavender/30 text-white max-w-md">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-white border-brand-brown/20 max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-white">Start New Session</DialogTitle>
-          <DialogDescription className="text-brand-fg-secondary">
+          <DialogTitle className="text-brand-dark font-heading">Start New Scenario</DialogTitle>
+          <DialogDescription className="text-brand-dark/70 font-body">
             Choose a scenario and select rooms to include
           </DialogDescription>
         </DialogHeader>
         
         <div className="space-y-6 py-4">
           <div className="space-y-2">
-            <h4 className="text-sm font-semibold text-white">Select Scenario</h4>
+            <h4 className="text-sm font-semibold text-brand-dark font-body">Select Scenario</h4>
             <div className="grid gap-2">
               {scenarios.map((scenario) => (
                 <div 
                   key={scenario.id}
-                  className={`flex items-center justify-between p-3 rounded-lg cursor-pointer border ${
+                  className={`flex items-center justify-between p-3 rounded-lg cursor-pointer border transition-colors ${
                     selectedScenario === scenario.id 
-                      ? 'border-brand-lavender bg-brand-lavender/10' 
-                      : 'border-gray-700'
+                      ? 'border-brand-brown bg-brand-brown/5' 
+                      : 'border-brand-brown/20 hover:border-brand-brown/40'
                   }`}
                   onClick={() => setSelectedScenario(scenario.id)}
                 >
                   <div className="flex flex-col">
-                    <span className="text-sm font-medium">{scenario.name}</span>
-                    <span className="text-xs text-brand-fg-secondary capitalize">{scenario.difficulty}</span>
+                    <span className="text-sm font-medium text-brand-dark font-body">{scenario.name}</span>
+                    <span className="text-xs text-brand-dark/70 font-body capitalize">
+                      {scenario.difficulty} • {scenario.targetCount || 0} targets
+                    </span>
                   </div>
                   {selectedScenario === scenario.id ? (
-                    <CheckCircle size={16} className="text-brand-lavender" />
+                    <CheckCircle size={16} className="text-brand-brown" />
                   ) : (
-                    <Circle size={16} className="text-gray-600" />
+                    <Circle size={16} className="text-brand-brown/40" />
                   )}
                 </div>
               ))}
@@ -91,7 +92,7 @@ const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({ onStart }) =>
           </div>
           
           <div className="space-y-2">
-            <h4 className="text-sm font-semibold text-white">Include Rooms</h4>
+            <h4 className="text-sm font-semibold text-brand-dark font-body">Include Rooms</h4>
             <div className="space-y-2">
               {rooms.map((room) => (
                 <div key={room.id} className="flex items-center space-x-2">
@@ -99,8 +100,9 @@ const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({ onStart }) =>
                     id={`room-${room.id}`}
                     checked={selectedRooms.includes(room.id)}
                     onCheckedChange={() => toggleRoomSelection(room.id)}
+                    className="border-brand-brown/30 data-[state=checked]:bg-brand-brown data-[state=checked]:border-brand-brown"
                   />
-                  <label htmlFor={`room-${room.id}`} className="text-sm font-medium">
+                  <label htmlFor={`room-${room.id}`} className="text-sm font-medium text-brand-dark font-body">
                     {room.name} ({room.targetCount} targets)
                   </label>
                 </div>
@@ -111,11 +113,11 @@ const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({ onStart }) =>
         
         <div className="flex justify-end">
           <Button
-            className="bg-brand-lavender hover:bg-brand-lavender/80"
+            className="bg-brand-brown hover:bg-brand-dark text-white font-body"
             disabled={selectedScenario === null}
             onClick={handleStart}
           >
-            Start Session
+            Start Scenario
           </Button>
         </div>
       </DialogContent>
@@ -123,4 +125,4 @@ const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({ onStart }) =>
   );
 };
 
-export default CreateSessionDialog;
+export default CreateScenarioDialog; 

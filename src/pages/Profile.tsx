@@ -17,13 +17,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useSessions } from '@/store/useSessions';
+import { useScenarios } from '@/store/useScenarios';
 import { format } from 'date-fns';
 
 const Profile: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
-  const { sessions, fetchSessions } = useSessions();
+  const { scenarioHistory, fetchScenarios } = useScenarios();
   const [isLoading, setIsLoading] = useState(true);
   
   const [user, setUser] = useState({
@@ -41,7 +41,7 @@ const Profile: React.FC = () => {
   useEffect(() => {
     const loadSessions = async () => {
       try {
-        await fetchSessions(token);
+        await fetchScenarios(token);
       } catch (error) {
         console.error("Error fetching sessions:", error);
       } finally {
@@ -50,16 +50,16 @@ const Profile: React.FC = () => {
     };
     
     loadSessions();
-  }, [token, fetchSessions]);
+  }, [token, fetchScenarios]);
 
-  // Get the 5 most recent sessions
-  const recentSessions = sessions
+  // Get the 5 most recent scenarios
+  const recentScenarios = scenarioHistory
     .slice(0, 5)
-    .map(session => ({
-      id: session.id,
-      name: session.name,
-      date: format(new Date(session.date), 'yyyy-MM-dd'),
-      score: session.score
+    .map(scenario => ({
+      id: scenario.id,
+      name: scenario.name,
+      date: format(new Date(scenario.date), 'yyyy-MM-dd'),
+      score: scenario.score
     }));
 
   return (
@@ -136,18 +136,18 @@ const Profile: React.FC = () => {
               <h3 className="text-xl font-heading text-brand-dark p-6 border-b border-brand-brown/20">Recent Sessions</h3>
               {isLoading ? (
                 <div className="p-6 text-center text-brand-dark/70 font-body">Loading sessions...</div>
-              ) : recentSessions.length === 0 ? (
+              ) : recentScenarios.length === 0 ? (
                 <div className="p-6 text-center text-brand-dark/70 font-body">No sessions yet</div>
               ) : (
                 <div className="divide-y divide-brand-brown/10">
-                  {recentSessions.map((session) => (
-                    <div key={session.id} className="p-6 flex justify-between items-center">
+                  {recentScenarios.map((scenario) => (
+                    <div key={scenario.id} className="p-6 flex justify-between items-center">
                       <div>
-                        <div className="font-medium text-brand-dark font-body">{session.name}</div>
-                        <div className="text-sm text-brand-dark/70 font-body">{session.date}</div>
+                        <div className="font-medium text-brand-dark font-body">{scenario.name}</div>
+                        <div className="text-sm text-brand-dark/70 font-body">{scenario.date}</div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xl text-brand-dark font-heading">{session.score}</div>
+                        <div className="text-xl text-brand-dark font-heading">{scenario.score}</div>
                         <div className="text-xs text-brand-dark/70 font-body">Score</div>
                       </div>
                     </div>

@@ -20,7 +20,7 @@ const navItems: NavItem[] = [
   { title: 'Dashboard', icon: Home, path: '/dashboard' },
   { title: 'Targets', icon: Target, path: '/dashboard/targets' },
   { title: 'Rooms', icon: Users, path: '/dashboard/rooms' },
-  { title: 'Sessions', icon: Calendar, path: '/dashboard/sessions' }
+  { title: 'Scenarios', icon: Calendar, path: '/dashboard/scenarios' }
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ isMobile = false, isOpen = true, onClose }) => {

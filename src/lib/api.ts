@@ -1,245 +1,169 @@
-import { staticDb } from './staticDb';
-import type { MockWebSocket, RoomLayoutResponse, LeaderboardEntry } from './types';
+// src/lib/api.ts
+import {
+  login,
+  logout,
+  listDevices,
+  latestTelemetry,
+  openTelemetryWS,
+} from '@/services/thingsboard';
 
-// Export the mock WebSocket type
-export type { MockWebSocket };
+// Export the WebSocket type for compatibility
+export type MockWebSocket = ReturnType<typeof openTelemetryWS>;
 
-// WebSocket connection helper now uses our static database
-export const connectWebSocket = (token: string): MockWebSocket => {
-  console.log("Connecting WebSocket with token:", token);
-  return staticDb.createWebSocket();
-};
-
-// Type guard to check if response is a RoomLayoutResponse
-const isRoomLayoutResponse = (obj: any): obj is RoomLayoutResponse => {
-  return obj && 
-    typeof obj === 'object' && 
-    'targets' in obj && 
-    'groups' in obj &&
-    Array.isArray(obj.targets) &&
-    Array.isArray(obj.groups);
-};
-
-// Unified API interface that works with our static database
-export const fetcher = async (endpoint: string, options = {}) => {
-  console.log('Fetching:', endpoint, options);
-  
-  // Extract path components
-  const path = endpoint.split('/').filter(p => p);
-  
-  // Extract token from options if present (not used in static mode but kept for API compatibility)
-  const token = (options as any).headers?.Authorization?.split(' ')[1] || 'dummy_token';
-  
-  try {
-    // Make sure database is initialized
-    await staticDb.ensureInitialized();
-    
-    // Route requests to appropriate static DB methods
-    switch (path[0]) {
-      case 'targets':
-        if (path.length === 1) {
-          return staticDb.getTargets();
-        } else if (path.length === 2) {
-          const targetId = parseInt(path[1]);
-          if ((options as any).method === 'PUT') {
-            const body = JSON.parse((options as any).body);
-            if ('name' in body) {
-              return staticDb.renameTarget(targetId, body.name);
-            } else if ('roomId' in body) {
-              return staticDb.assignRoom(targetId, body.roomId);
-            }
-          } else if ((options as any).method === 'DELETE') {
-            return staticDb.deleteTarget(targetId);
-          }
-        }
-        break;
-        
-      case 'rooms':
-        console.log('Room request path:', path, 'method:', (options as any).method);
-        if (path.length === 1) {
-          if ((options as any).method === 'POST') {
-            const body = JSON.parse((options as any).body);
-            return staticDb.createRoom(body.name);
-          }
-          // Handle GET requests for rooms
-          return staticDb.getRooms();
-        } else if (path.length === 2) {
-          if (path[1] === 'order') {
-            const body = JSON.parse((options as any).body);
-            return staticDb.updateRoomOrder(body);
-          } else {
-            const roomId = parseInt(path[1]);
-            if ((options as any).method === 'PUT') {
-              const body = JSON.parse((options as any).body);
-              return staticDb.updateRoom(roomId, body.name);
-            } else if ((options as any).method === 'DELETE') {
-              return staticDb.deleteRoom(roomId);
-            }
-          }
-        } else if (path.length === 3 && path[2] === 'layout') {
-          const roomId = parseInt(path[1]);
-          if ((options as any).method === 'GET') {
-            return staticDb.getRoomLayout(roomId);
-          } else if ((options as any).method === 'PUT') {
-            const body = JSON.parse((options as any).body);
-            return staticDb.saveRoomLayout(roomId, body.targets, body.groups);
-          }
-        }
-        break;
-        
-      case 'stats':
-        if (path.length === 1) {
-          return staticDb.getStats();
-        } else if (path.length === 2) {
-          if (path[1] === 'targets') {
-            return { online: staticDb.getStats().targets.online };
-          } else if (path[1] === 'rooms') {
-            return { count: staticDb.getStats().rooms.count };
-          } else if (path[1] === 'hits') {
-            return staticDb.getHitStats();
-          } else if (path[1] === 'sessions') {
-            return { latest: staticDb.getStats().sessions.latest };
-          }
-        }
-        break;
-        
-      case 'scenarios':
-        return staticDb.getScenarios();
-        
-      case 'sessions':
-        console.log('Sessions request:', path, (options as any).method);
-        if (path.length === 1) {
-          if ((options as any).method === 'GET') {
-            return staticDb.getSessions();
-          } else if ((options as any).method === 'POST') {
-            const body = JSON.parse((options as any).body);
-            return staticDb.startSession(body.scenarioId, body.includedRoomIds);
-          }
-        } else if (path.length === 3 && path[2] === 'end') {
-          const sessionId = parseInt(path[1]);
-          return staticDb.endSession(sessionId);
-        }
-        break;
-        
-      case 'invites':
-        if (path.length === 1 && (options as any).method === 'POST') {
-          const body = JSON.parse((options as any).body);
-          // In static mode, just return a dummy token
-          return { token: `mock-invite-${Date.now()}` };
-        }
-        break;
-
-      case 'friends':
-        if (path.length === 1) {
-          return staticDb.getFriends();
-        } else if (path.length === 2) {
-          if ((options as any).method === 'POST') {
-            const friendId = path[1];
-            return staticDb.addFriend(friendId);
-          }
-        }
-        break;
-
-      case 'leaderboard':
-        if (path.length === 1) {
-          const scope = (options as any).params?.scope || 'global';
-          return staticDb.getLeaderboard(scope);
-        }
-        break;
-
-      case 'affiliate':
-        if (path.length === 1 && (options as any).method === 'POST') {
-          const body = JSON.parse((options as any).body);
-          // In static mode, just return a success response
-          return { success: true, message: 'Application submitted successfully' };
-        }
-        break;
-    }
-    
-    throw new Error(`Unhandled static endpoint: ${endpoint}`);
-  } catch (error) {
-    console.error(`Static API error for ${endpoint}:`, error);
-    throw error;
-  }
-};
-
-// API object with convenience methods
+/* ----------  AUTH  ---------- */
 export const API = {
-  getStats: async (token: string) => {
-    await staticDb.ensureInitialized();
-    const stats = await staticDb.getStats();
-    const trend = staticDb.getHits7d();
-    
+  // sign-in: returns token + refreshToken just like before
+  async signIn(email: string, password: string) {
+    return login(email, password);
+  },
+
+  // sign-out: invalidate server session, clear local storage helpers
+  async signOut() {
+    await logout();
+    localStorage.removeItem('tb_access');
+    localStorage.removeItem('tb_refresh');
+  },
+
+  /* ----------  DEVICES  ---------- */
+  /** "Targets" page = ThingsBoard devices */
+  getTargets: async () => listDevices(),
+
+  /** Wrapper for live telemetry WebSocket */
+  connectWebSocket: (token: string) => openTelemetryWS(token),
+
+  /* ----------  TARGET MANAGEMENT  ---------- */
+  createTarget: async (name: string, roomId: number | null) => {
+    // TODO: Implement with ThingsBoard device creation
+    throw new Error('createTarget → not implemented with ThingsBoard yet');
+  },
+  
+  renameTarget: async (id: number, name: string) => {
+    // TODO: Implement with ThingsBoard device update
+    throw new Error('renameTarget → not implemented with ThingsBoard yet');
+  },
+  
+  deleteTarget: async (id: number) => {
+    // TODO: Implement with ThingsBoard device deletion
+    throw new Error('deleteTarget → not implemented with ThingsBoard yet');
+  },
+  
+  assignRoom: async (targetId: number, roomId: number | null) => {
+    // TODO: Implement with ThingsBoard device attributes
+    throw new Error('assignRoom → not implemented with ThingsBoard yet');
+  },
+  
+  updateFirmware: async (id: number) => {
+    // TODO: Implement with ThingsBoard device firmware update
+    throw new Error('updateFirmware → not implemented with ThingsBoard yet');
+  },
+
+  /* ----------  ROOM MANAGEMENT  ---------- */
+  getRooms: async () => {
+    // TODO: Implement with ThingsBoard device groups or custom entities
+    throw new Error('getRooms → not implemented with ThingsBoard yet');
+  },
+  
+  createRoom: async (name: string) => {
+    // TODO: Implement with ThingsBoard device groups
+    throw new Error('createRoom → not implemented with ThingsBoard yet');
+  },
+  
+  updateRoom: async (id: number, name: string) => {
+    // TODO: Implement with ThingsBoard device groups
+    throw new Error('updateRoom → not implemented with ThingsBoard yet');
+  },
+  
+  deleteRoom: async (id: number) => {
+    // TODO: Implement with ThingsBoard device groups
+    throw new Error('deleteRoom → not implemented with ThingsBoard yet');
+  },
+  
+  updateRoomOrder: async (order: any) => {
+    // TODO: Implement with ThingsBoard device groups
+    throw new Error('updateRoomOrder → not implemented with ThingsBoard yet');
+  },
+  
+  getRoomLayout: async (roomId: number) => {
+    // TODO: Implement with ThingsBoard device attributes
+    throw new Error('getRoomLayout → not implemented with ThingsBoard yet');
+  },
+  
+  saveRoomLayout: async (roomId: number, targets: any[], groups: any[]) => {
+    // TODO: Implement with ThingsBoard device attributes
+    throw new Error('saveRoomLayout → not implemented with ThingsBoard yet');
+  },
+  
+  createGroup: async (roomId: number, groupData: any) => {
+    // TODO: Implement with ThingsBoard device groups
+    throw new Error('createGroup → not implemented with ThingsBoard yet');
+  },
+  
+  updateGroup: async (roomId: number, groupData: any) => {
+    // TODO: Implement with ThingsBoard device groups
+    throw new Error('updateGroup → not implemented with ThingsBoard yet');
+  },
+  
+  deleteGroup: async (roomId: number, groupData: any) => {
+    // TODO: Implement with ThingsBoard device groups
+    throw new Error('deleteGroup → not implemented with ThingsBoard yet');
+  },
+
+  /* ----------  SCENARIO RUNTIME  ---------- */
+  /**
+   * Push scenario config to backend – stores under a special device's
+   * SHARED_SCOPE attributes so firmware can pick it up.
+   */
+  pushScenarioConfig: async (cfg: {
+    scenarioId: string;
+    targetIds:  string[];
+    shotsPerTarget:number;
+    timeLimitMs:number;
+    startedAt:number;
+  }) => {
+    // TODO: Implement with ThingsBoard device shared attributes
+    // For now, just log the config for development
+    console.log('Scenario config to push:', cfg);
+    throw new Error('pushScenarioConfig → not implemented with ThingsBoard yet');
+  },
+
+  /* ----------  PLACE-HOLDERS (not yet mapped) ---------- */
+  getSessions: async () => {
+    // TODO: Implement with ThingsBoard custom entities
+    throw new Error('getSessions → not implemented with ThingsBoard yet');
+  },
+  
+  getFriends: async () => {
+    // TODO: Implement with ThingsBoard custom entities
+    throw new Error('getFriends → not implemented with ThingsBoard yet');
+  },
+  
+  getLeaderboard: async () => {
+    // TODO: Implement with ThingsBoard custom entities
+    throw new Error('getLeaderboard → not implemented with ThingsBoard yet');
+  },
+  
+  getInvites: async () => {
+    // TODO: Implement with ThingsBoard custom entities
+    throw new Error('getInvites → not implemented with ThingsBoard yet');
+  },
+  
+  listScenarios: async () => {
+    // TODO: Implement with ThingsBoard custom entities
+    return [] as { id: string; name: string; targetCount: number }[];
+  },
+
+  /* Stats & trend helpers used by dashboard hero bar */
+  async getStats() {
+    const devices = await listDevices();
     return {
-      targets: stats.targets,
-      rooms: stats.rooms,
-      scenarios: staticDb.getScenarios(),
-      sessions: stats.sessions,
+      targets: { online: devices.length },
+      rooms: { count: 0 },
+      sessions: { latest: { score: 0 } },
       invites: [],
-      trend
     };
   },
-
-  getTrend7d: async () => {
-    await staticDb.ensureInitialized();
-    return staticDb.getHits7d();
-  },
-
-  getHitStats: async (token: string) => {
-    await staticDb.ensureInitialized();
-    return staticDb.getHitStats();
-  },
-  
-  getTargets: async (token: string) => {
-    await staticDb.ensureInitialized();
-    return staticDb.getTargets();
-  },
-  
-  getRooms: async (token: string) => {
-    await staticDb.ensureInitialized();
-    return staticDb.getRooms();
-  },
-  
-  getInvites: (token: string) => [],
-  
-  // Add a specific method for getting sessions
-  getSessions: async (token: string) => {
-    await staticDb.ensureInitialized();
-    return staticDb.getSessions();
-  },
-  
-  // Auth methods
-  signUp: (email: string, password: string, userData?: any) => 
-    staticDb.signUp(email, password, userData),
-    
-  signIn: (email: string, password: string) => 
-    staticDb.signIn(email, password),
-    
-  signOut: () => staticDb.signOut(),
-  
-  updateUser: (id: string, data: any) => 
-    staticDb.updateUser(id, data),
-
-  // Add friends methods
-  getFriends: async (token: string) => {
-    await staticDb.ensureInitialized();
-    return staticDb.getFriends();
-  },
-  
-  addFriend: async (token: string, friendId: string) => {
-    await staticDb.ensureInitialized();
-    return staticDb.addFriend(friendId);
-  },
-  
-  getLeaderboard: async (token: string, scope: 'global' | 'friends' = 'global') => {
-    await staticDb.ensureInitialized();
-    return staticDb.getLeaderboard(scope);
-  },
-  
-  // Add affiliate application method
-  submitAffiliateApplication: async (formData: any) => {
-    console.log('Affiliate application submitted:', formData);
-    // In a real app, this would send the data to the backend
-    return { success: true };
-  }
+  /** 7-day hit trend – stub empty array until we wire TB aggregate API */
+  getTrend7d: async () => [],
 };
+
+export default API;

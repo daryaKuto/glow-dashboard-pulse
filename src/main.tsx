@@ -7,6 +7,16 @@ import './index.css'
 import { staticDb } from './lib/staticDb'
 import { AuthProvider } from './providers/AuthProvider'
 
+// Initialize MSW for development
+if (import.meta.env.DEV) {
+  import('./mocks/browser').then(({ worker }) => {
+    worker.start({
+      onUnhandledRequest: 'bypass', // Don't warn about unhandled requests
+    });
+    console.log('MSW started for development');
+  });
+}
+
 // Initialize static database and start simulated hit events
 staticDb.ensureInitialized().then(() => {
   console.log('Database ready');

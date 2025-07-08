@@ -31,4 +31,8 @@ export const latestTelemetry = (deviceId: string, keys: string[]) =>
 export const openTelemetryWS = (accessToken: string) =>
   new WebSocket(
     `${import.meta.env.VITE_TB_WS_URL}?token=${accessToken}`
-  ); 
+  );
+
+/* ----------  ATTRIBUTES  ---------- */
+export const updateSharedAttributes = (deviceId: string, attributes: Record<string, any>) =>
+  api.post(`/plugins/telemetry/DEVICE/${deviceId}/SHARED_SCOPE`, attributes); 

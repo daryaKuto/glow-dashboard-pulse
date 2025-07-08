@@ -55,8 +55,8 @@ const Scenarios: React.FC = () => {
         {!isMobile && <Sidebar />}
         {isMobile && <MobileDrawer />}
         
-        <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
-          <div className="container mx-auto">
+        <main className="flex-1 overflow-y-auto">
+          <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-3xl font-heading text-brand-dark">Scenario Templates</h2>
               {active && (
@@ -126,7 +126,7 @@ const Scenarios: React.FC = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {SCENARIOS.map(template => (
                     <Card key={template.id} className="w-full bg-white border-brand-brown/20 shadow-sm hover:shadow-md transition-shadow duration-200">
                       <CardHeader className="pb-3">

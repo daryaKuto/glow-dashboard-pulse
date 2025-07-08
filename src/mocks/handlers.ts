@@ -1,6 +1,10 @@
 import { http, HttpResponse, delay } from 'msw';
 import { DefaultBodyType } from 'msw';
 
+// Reduced delays for better development experience
+const FAST_DELAY = 100; // Reduced from 500ms
+const MEDIUM_DELAY = 200; // Reduced from 300ms
+
 // Sample data
 let targets = [
   { id: 1, name: 'Target Alpha', status: 'online', battery: 95, roomId: 1, backgroundColor: 'bg-blue-100', type: 'standard', hits: 127, accuracy: 89, lastSeen: new Date().toISOString() },
@@ -135,7 +139,7 @@ interface RoomLayoutBody {
 export const handlers = [
   // Stats
   http.get('/stats/targets', async () => {
-    await delay(500);
+    await delay(FAST_DELAY);
     return HttpResponse.json({
       total: targets.length,
       online: targets.filter(t => t.status === 'online').length
@@ -143,21 +147,21 @@ export const handlers = [
   }),
   
   http.get('/stats/rooms', async () => {
-    await delay(500);
+    await delay(FAST_DELAY);
     return HttpResponse.json({
       count: rooms.length
     });
   }),
   
   http.get('/stats/scenarios', async () => {
-    await delay(500);
+    await delay(FAST_DELAY);
     return HttpResponse.json({
       count: scenarios.length
     });
   }),
   
   http.get('/stats/hits', async () => {
-    await delay(500);
+    await delay(FAST_DELAY);
     // Generate 7 days of hit data
     return HttpResponse.json(
       Array.from({ length: 7 }, (_, i) => {
@@ -172,7 +176,7 @@ export const handlers = [
   }),
   
   http.get('/sessions/latest', async () => {
-    await delay(500);
+    await delay(FAST_DELAY);
     const latestSession = sessions[0];
     return HttpResponse.json({
       id: latestSession.id,
@@ -184,12 +188,12 @@ export const handlers = [
   
   // Targets
   http.get('/targets', async () => {
-    await delay(500);
+    await delay(FAST_DELAY);
     return HttpResponse.json(targets);
   }),
   
   http.post('/targets', async ({ request }) => {
-    await delay(500);
+    await delay(FAST_DELAY);
     try {
       const body = await request.json() as any;
       
@@ -233,7 +237,7 @@ export const handlers = [
   }),
   
   http.put('/targets/:id', async ({ params, request }) => {
-    await delay(500);
+    await delay(FAST_DELAY);
     const { id } = params;
     const targetId = Number(id);
     
@@ -264,12 +268,12 @@ export const handlers = [
   
   // Rooms
   http.get('/rooms', async () => {
-    await delay(500);
+    await delay(FAST_DELAY);
     return HttpResponse.json(rooms);
   }),
   
   http.post('/rooms', async ({ request }) => {
-    await delay(500);
+    await delay(FAST_DELAY);
     try {
       const body = await request.json() as RoomCreateBody;
       const newRoom = {
@@ -287,7 +291,7 @@ export const handlers = [
   }),
   
   http.put('/rooms/:id', async ({ params, request }) => {
-    await delay(500);
+    await delay(FAST_DELAY);
     const { id } = params;
     const roomId = Number(id);
     
@@ -307,7 +311,7 @@ export const handlers = [
   }),
   
   http.delete('/rooms/:id', async ({ params }) => {
-    await delay(500);
+    await delay(FAST_DELAY);
     const { id } = params;
     const roomId = Number(id);
     
@@ -324,7 +328,7 @@ export const handlers = [
   }),
   
   http.put('/rooms/order', async ({ request }) => {
-    await delay(500);
+    await delay(FAST_DELAY);
     try {
       const body = await request.json() as RoomOrderBody;
       const { roomIds } = body;
@@ -444,7 +448,7 @@ export const handlers = [
   
   // User Search endpoint
   http.get('/search/users', async ({ request }) => {
-    await delay(300);
+    await delay(MEDIUM_DELAY);
     const url = new URL(request.url);
     const query = url.searchParams.get('query')?.toLowerCase() || '';
     
@@ -470,7 +474,7 @@ export const handlers = [
   }),
   
   http.post('/friends/:id', async ({ params }) => {
-    await delay(300);
+    await delay(MEDIUM_DELAY);
     const { id } = params;
     const userId = id.toString();
     
@@ -510,7 +514,7 @@ export const handlers = [
   
   // Phone verification endpoints
   http.post('/auth/phone/verify', async ({ request }) => {
-    await delay(500);
+    await delay(FAST_DELAY);
     try {
       const body = await request.json() as PhoneVerificationBody;
       
@@ -533,7 +537,7 @@ export const handlers = [
   }),
   
   http.post('/auth/phone/confirm', async ({ request }) => {
-    await delay(500);
+    await delay(FAST_DELAY);
     try {
       const body = await request.json() as OtpVerifyBody;
       
@@ -566,7 +570,7 @@ export const handlers = [
   
   // Room Layout endpoints
   http.get('/rooms/:id/layout', async ({ params }) => {
-    await delay(300);
+    await delay(MEDIUM_DELAY);
     const { id } = params;
     const roomId = Number(id);
     
@@ -582,7 +586,7 @@ export const handlers = [
   }),
   
   http.put('/rooms/:id/layout', async ({ params, request }) => {
-    await delay(300);
+    await delay(MEDIUM_DELAY);
     const { id } = params;
     const roomId = Number(id);
     
@@ -613,7 +617,7 @@ export const handlers = [
   }),
   
   http.put('/rooms/:id/groups', async ({ params, request }) => {
-    await delay(300);
+    await delay(MEDIUM_DELAY);
     const { id } = params;
     const roomId = Number(id);
     

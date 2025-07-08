@@ -120,7 +120,7 @@ const PhoneVerifyModal: React.FC = () => {
               <div className="flex justify-end space-x-2 pt-2">
                 <Button
                   variant="outline"
-                  className="bg-transparent border-gray-700 text-white hover:bg-gray-800"
+                  className="bg-transparent border-gray-700 text-white hover:bg-gray-700 hover:text-white"
                   onClick={handleCancel}
                 >
                   Cancel

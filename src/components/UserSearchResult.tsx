@@ -77,7 +77,7 @@ const UserSearchResult: React.FC<UserSearchResultProps> = ({
               size="sm"
               variant="ghost"
               onClick={handleAcceptRequest}
-              className="text-green-600 hover:text-green-700 hover:bg-green-50"
+              className="text-green-600 hover:text-green-700 hover:bg-green-600 hover:text-white"
             >
               <Check className="h-4 w-4" />
             </Button>
@@ -86,7 +86,7 @@ const UserSearchResult: React.FC<UserSearchResultProps> = ({
               size="sm"
               variant="ghost"
               onClick={handleDeclineRequest}
-              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              className="text-red-600 hover:text-red-700 hover:bg-red-600 hover:text-white"
             >
               <X className="h-4 w-4" />
             </Button> */}

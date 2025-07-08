@@ -127,10 +127,9 @@ const TargetCard: React.FC<TargetCardProps> = ({
         {/* Actions */}
         <div className="flex gap-2 pt-2">
           <Button
-            variant="outline"
             size="sm"
             onClick={() => onLocate?.(target.id)}
-            className="flex-1 border-brand-brown text-brand-brown hover:bg-brand-brown hover:text-white"
+            className="flex-1 border border-brand-brown bg-white text-brand-brown hover:bg-brand-brown hover:text-white transition-colors"
           >
             <Wifi className="h-4 w-4 mr-2" />
             Locate
@@ -138,10 +137,9 @@ const TargetCard: React.FC<TargetCardProps> = ({
           
           {onDelete && (
             <Button
-              variant="outline"
               size="sm"
               onClick={() => onDelete(target.id)}
-              className="border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400"
+              className="border border-red-300 bg-white text-red-600 hover:bg-red-600 hover:text-white transition-colors"
             >
               Delete
             </Button>

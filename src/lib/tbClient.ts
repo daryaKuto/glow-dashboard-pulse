@@ -3,6 +3,7 @@ import axios, { AxiosError } from 'axios';
 /** Axios instance pre-configured for ThingsBoard Cloud */
 const api = axios.create({
   baseURL: import.meta.env.VITE_TB_BASE_URL,
+  timeout: 10000, // 10 second timeout for better UX
 });
 
 let refreshPromise: Promise<string> | null = null;

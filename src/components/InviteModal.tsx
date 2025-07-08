@@ -50,7 +50,7 @@ const InviteModal: React.FC<InviteModalProps> = ({ sessionId, onCreateInvite }) 
       <DialogTrigger asChild>
         <Button
           variant="outline"
-          className="bg-transparent border-brand-lavender/30 text-brand-lavender hover:bg-brand-lavender/10"
+          className="bg-transparent border-brand-lavender/30 text-brand-lavender hover:bg-brand-lavender hover:text-white"
           onClick={() => setIsOpen(true)}
         >
           <Users className="h-4 w-4 mr-2" />
@@ -82,7 +82,7 @@ const InviteModal: React.FC<InviteModalProps> = ({ sessionId, onCreateInvite }) 
                   readOnly
                   className="bg-brand-indigo border-brand-lavender/30"
                 />
-                <Button variant="outline" onClick={handleCopyLink}>
+                <Button variant="outline" onClick={handleCopyLink} className="border-brand-lavender/30 text-brand-lavender hover:bg-brand-lavender hover:text-white">
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>

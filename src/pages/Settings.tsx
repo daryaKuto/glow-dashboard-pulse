@@ -38,9 +38,16 @@ const Settings = () => {
         if (user) {
           setUserId(user.id);
           // Load user settings here
+        } else if (import.meta.env.DEV) {
+          // In development mode, set a dummy user ID
+          setUserId('dev-user-id');
         }
       } catch (error) {
         console.error('Error checking user:', error);
+        if (import.meta.env.DEV) {
+          // In development mode, set a dummy user ID even if there's an error
+          setUserId('dev-user-id');
+        }
       } finally {
         setIsLoading(false);
       }

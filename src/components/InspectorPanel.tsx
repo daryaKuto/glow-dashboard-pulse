@@ -131,7 +131,7 @@ const InspectorPanel: React.FC = () => {
                     variant="outline" 
                     size="sm" 
                     onClick={cancelEdit}
-                    className="text-brand-fg-secondary"
+                    className="text-brand-fg-secondary hover:bg-brand-lavender hover:text-white"
                   >
                     <X className="h-4 w-4 mr-1" />
                     Cancel

@@ -20,7 +20,7 @@ import {
 const StatTile = ({ label, value, icon }: { label: string; value: string | number; icon: React.ReactNode }) => (
   <div className="bg-white p-4 rounded-lg shadow-sm border border-brand-brown/20 flex flex-col items-center">
     <div className="text-brand-brown mb-2">{icon}</div>
-    <span className="text-sm text-brand-dark/70 font-body">{label}</span>
+    <span className="text-sm text-brand-dark font-body">{label}</span>
     <span className="text-xl font-heading font-semibold text-brand-dark">{value}</span>
   </div>
 );
@@ -93,12 +93,12 @@ const Dashboard: React.FC = () => {
         {!isMobile && <Sidebar />}
         {isMobile && <MobileDrawer />}
         
-        <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
-          <div className="container mx-auto">
+        <main className="flex-1 overflow-y-auto">
+          <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <h2 className="text-3xl font-heading text-brand-dark mb-8">Game Stats</h2>
             
             {/* Original Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
               <StatCard 
                 title="Active Targets" 
                 value={activeTargets} 
@@ -136,7 +136,7 @@ const Dashboard: React.FC = () => {
                     <button
                       key={opt}
                       onClick={() => setRange(opt)}
-                      className={`px-3 py-1 rounded-md text-sm transition-colors font-body ${
+                      className={`px-3 py-1 rounded-lg text-sm transition-colors font-body ${
                         range === opt 
                           ? 'bg-brand-brown text-white' 
                           : 'bg-brand-brown/10 text-brand-dark hover:bg-brand-brown/20'
@@ -154,10 +154,10 @@ const Dashboard: React.FC = () => {
               {/* Reaction Time Stats Tiles */}
               {slice.loading ? (
                 <div className="text-center py-8">
-                  <div className="text-brand-dark/70 font-body">Loading metrics...</div>
+                  <div className="text-brand-dark font-body">Loading metrics...</div>
                 </div>
               ) : slice.data ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div className="grid grid-cols-2 gap-4 mb-8">
                   <StatTile 
                     label="Avg RT" 
                     value={`${slice.data.avgRT} ms`} 
@@ -181,7 +181,7 @@ const Dashboard: React.FC = () => {
                 </div>
               ) : (
                 <div className="text-center py-8">
-                  <div className="text-brand-dark/70 font-body">No reaction time data available</div>
+                  <div className="text-brand-dark font-body">No reaction time data available</div>
                 </div>
               )}
 

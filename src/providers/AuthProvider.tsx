@@ -1,6 +1,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { API } from '../lib/api';
+import { supabase } from '@/integrations/supabase/client';
 
 interface AuthContextType {
   user: any | null;
@@ -15,6 +16,7 @@ interface AuthContextType {
   checkSession: () => Promise<void>;
   signOut: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<any>;
+  signInWithGoogle: () => Promise<void>;
   signUp: (email: string, password: string, userData?: any) => Promise<any>;
   setPhoneVerifyModalOpen: (isOpen: boolean) => void;
   linkPhone: (phone: string) => Promise<boolean>;
@@ -37,19 +39,63 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     checkSession();
   }, []);
+
+  // Listen for auth state changes
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        try {
+          // Sign in to ThingsBoard when Supabase user signs in
+          const { token, refreshToken } = await API.signIn(session.user.email!, '<service-password>');
+          localStorage.setItem('tb_access', token);
+          localStorage.setItem('tb_refresh', refreshToken);
+        } catch (error) {
+          console.error('Failed to sign in to ThingsBoard:', error);
+        }
+        
+        setUser(session.user);
+        setSession(session);
+        setHasVerifiedPhone(!!session.user?.phone);
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setSession(null);
+        setHasVerifiedPhone(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
   
   const checkSession = async () => {
     setLoading(true);
     
     try {
-      // Check if we have a stored session
-      const storedSession = localStorage.getItem('authSession');
+      // Check Supabase session first
+      const { data: { session } } = await supabase.auth.getSession();
       
-      if (storedSession) {
-        const sessionData = JSON.parse(storedSession);
-        setUser(sessionData.user);
-        setSession(sessionData);
-        setHasVerifiedPhone(!!sessionData.user?.phone);
+      if (session?.user) {
+        // If we have a Supabase session, also sign in to ThingsBoard
+        try {
+          const { token, refreshToken } = await API.signIn(session.user.email!, '<service-password>');
+          localStorage.setItem('tb_access', token);
+          localStorage.setItem('tb_refresh', refreshToken);
+        } catch (error) {
+          console.error('Failed to sign in to ThingsBoard:', error);
+        }
+        
+        setUser(session.user);
+        setSession(session);
+        setHasVerifiedPhone(!!session.user?.phone);
+      } else {
+        // Fallback to stored session
+        const storedSession = localStorage.getItem('authSession');
+        
+        if (storedSession) {
+          const sessionData = JSON.parse(storedSession);
+          setUser(sessionData.user);
+          setSession(sessionData);
+          setHasVerifiedPhone(!!sessionData.user?.phone);
+        }
       }
       
       setLoading(false);
@@ -61,21 +107,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   
   const signIn = async (email: string, password: string) => {
     try {
+      // Sign in with Supabase first
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      
+      // Then sign in to ThingsBoard
       const response = await API.signIn(email, password);
       
-      // Create a session-like object
+      // Store ThingsBoard tokens
+      localStorage.setItem('tb_access', response.token);
+      localStorage.setItem('tb_refresh', response.refreshToken);
+      
+      // Create a session-like object for compatibility
       const sessionData = {
-        user: response.user,
-        access_token: `mock_token_${Date.now()}`,
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        user: data.user,
+        access_token: data.session?.access_token,
+        expires_at: data.session?.expires_at
       };
       
       // Store in localStorage
       localStorage.setItem('authSession', JSON.stringify(sessionData));
       
-      setUser(response.user);
-      setSession(sessionData);
-      setHasVerifiedPhone(!!response.user?.phone);
+      setUser(data.user);
+      setSession(data.session);
+      setHasVerifiedPhone(!!data.user?.phone);
       
       return response;
     } catch (error) {
@@ -86,6 +141,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   
   const signUp = async (email: string, password: string, userData?: any) => {
     try {
+      // Sign up with Supabase first
+      const { data, error } = await supabase.auth.signUp({ 
+        email, 
+        password,
+        options: {
+          data: userData
+        }
+      });
+      if (error) throw error;
+      
+      // Then sign up with ThingsBoard (if needed)
       const response = await API.signUp(email, password, userData);
       
       // For simplicity in our static demo, auto sign in after signup
@@ -98,6 +164,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   
   const signOut = async () => {
     try {
+      // Sign out from Supabase
+      await supabase.auth.signOut();
+      
+      // Sign out from ThingsBoard
       await API.signOut();
       
       // Clear localStorage session
@@ -181,6 +251,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
   
+  const signInWithGoogle = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin + '/auth/callback' },
+    });
+    if (error) throw error;
+  };
+
   const resetPhoneVerification = () => {
     setPhoneVerificationStep('input');
     setPhoneVerificationError(null);
@@ -197,6 +275,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     checkSession,
     signOut,
     signIn,
+    signInWithGoogle,
     signUp,
     setPhoneVerifyModalOpen,
     linkPhone,

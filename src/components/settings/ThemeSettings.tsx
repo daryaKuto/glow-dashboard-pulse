@@ -7,21 +7,21 @@ import { Label } from '@/components/ui/label';
 
 const ThemeSettings = () => {
   return (
-    <Card className="bg-brand-surface border-brand-lavender/30">
+    <Card className="bg-white border-brand-brown/20 shadow-sm">
       <CardHeader>
-        <CardTitle className="text-white flex items-center gap-2">
-          <Moon className="h-5 w-5" />
+        <CardTitle className="text-brand-dark flex items-center gap-2">
+          <Moon className="h-5 w-5 text-brand-brown" />
           Theme
         </CardTitle>
-        <CardDescription className="text-brand-fg-secondary">
+        <CardDescription className="text-brand-dark/70 font-body">
           Customize the application appearance
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
-            <Label className="text-white">Dark Mode</Label>
-            <p className="text-xs text-brand-fg-secondary">
+            <Label className="text-brand-dark font-body">Dark Mode</Label>
+            <p className="text-xs text-brand-dark/70 font-body">
               Application is currently in dark mode by default
             </p>
           </div>

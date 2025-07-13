@@ -1,95 +1,96 @@
 # Glow Dashboard Pulse
 
-A modern React dashboard application for managing shooting range scenarios, targets, and rooms with real-time telemetry integration.
+A modern React dashboard application for managing shooting range scenarios, targets, and rooms with real-time telemetry integration via ThingsBoard IoT platform.
 
 ## 🚀 Features
 
 ### Core Functionality
 
 #### ✅ **Authentication System**
-- User registration and login
+- User registration and login via Supabase
 - Session management with automatic token refresh
 - Protected routes and authentication state
-- **Status**: Mock data is used for authentication
+- **Status**: ✅ Fully integrated with Supabase
 
 #### ✅ **Dashboard Overview**
-- Real-time statistics display
-- Active targets count
+- Real-time statistics display from ThingsBoard
+- Active targets count with live status
 - Rooms created count
 - Last session score
 - Pending invites
-- **Status**: Mock data is used for statistics
+- **Status**: ✅ Real data from ThingsBoard API
 
 #### ✅ **Target Management**
-- View all targets across rooms
+- View all targets across rooms from ThingsBoard devices
 - Target status monitoring (online/offline/error)
 - Battery level tracking
 - Hit count and accuracy statistics
 - Target renaming and firmware updates
-- **Status**: Mock data is used for target data
+- **Status**: ✅ Real data from ThingsBoard devices
 
 #### ✅ **Room Management**
 - Create, rename, and delete rooms
 - Drag-and-drop room reordering
 - Room capacity tracking (target count)
-- **Status**: Mock data is used for room data
+- Room-target assignment management
+- **Status**: ✅ Real data via ThingsBoard device attributes
 
 #### ✅ **Room Designer**
 - Visual room layout editor
 - Drag-and-drop target placement
 - Target grouping functionality
 - Real-time room preview
-- **Status**: Mock data is used for room layouts
+- **Status**: ✅ Real data integration
 
 #### ✅ **Scenario Templates**
 - Pre-defined scenario templates (Quick Draw, Double Tap, Triple Threat)
 - Scenario configuration (targets, shots, time limits)
 - Room validation before starting scenarios
-- **Status**: Frontend templates only - no backend integration yet
+- **Status**: ✅ Template system ready for execution
 
 #### ✅ **Scenario Runtime**
 - Start scenarios with room validation
 - Real-time scenario status tracking
 - Stop active scenarios
-- **Status**: Mock data is used - API integration pending
+- **Status**: 🚧 Ready for ThingsBoard integration
 
 #### ✅ **Leaderboard**
 - User performance rankings
 - Score tracking and comparison
-- **Status**: Mock data is used for leaderboard
+- **Status**: 🚧 Ready for implementation
 
 #### ✅ **User Profile**
 - User statistics and achievements
 - Recent session history
 - Profile management
-- **Status**: Mock data is used for user data
+- **Status**: 🚧 Ready for implementation
 
 #### ✅ **Settings**
 - Theme customization
 - Notification preferences
 - Account management
-- **Status**: Mock data is used for settings
+- **Status**: ✅ UI ready, backend integration pending
 
 ### Technical Features
 
 #### ✅ **Real-time WebSocket Integration**
-- Live target hit detection
+- Live target hit detection via ThingsBoard telemetry
 - Real-time score updates
 - Connection status monitoring
-- **Status**: Mock WebSocket implementation
+- **Status**: ✅ WebSocket client ready for ThingsBoard
 
 #### ✅ **ThingsBoard Integration**
 - API client with automatic JWT refresh
-- Device management
+- Device management and filtering
 - Telemetry data collection
 - WebSocket connections
-- **Status**: API client ready, but using mock data
+- **Status**: ✅ Fully integrated and working
 
 #### ✅ **Metrics & Analytics**
 - Reaction time calculations
 - Hit pattern analysis
 - Performance statistics
-- **Status**: Mock data is used for metrics
+- **Status**: ✅ Real data processing from ThingsBoard
 
 ## 🛠 Tech Stack
 
@@ -101,29 +102,44 @@ A modern React dashboard application for managing shooting range scenarios, targ
 - **Real-time**: WebSocket API
 - **Build Tool**: Vite
 - **Testing**: Vitest + Testing Library
-- **Backend Integration**: ThingsBoard IoT Platform
+- **Backend Integration**: ThingsBoard IoT Platform + Supabase
+- **Authentication**: Supabase Auth
 
 ## 📁 Project Structure
 
 ```
-src/
-├── components/          # Reusable UI components
-│   ├── ui/             # shadcn/ui components
-│   ├── dashboard/      # Dashboard-specific components
-│   └── scenarios/      # Scenario-related components
-├── pages/              # Page components
-│   ├── dashboard/      # Dashboard pages
-│   └── auth/          # Authentication pages
-├── store/              # Zustand stores
-├── services/           # API services
-│   └── thingsboard.ts  # ThingsBoard integration
-├── lib/                # Utilities and configurations
-│   ├── api.ts         # API client
-│   └── tbClient.ts    # ThingsBoard HTTP client
-├── hooks/              # Custom React hooks
-├── providers/          # React context providers
-└── data/               # Static data and templates
-    └── scenarios.ts    # Scenario templates
+glow-dashboard-pulse/
+├── src/
+│   ├── components/          # Reusable UI components
+│   │   ├── ui/             # shadcn/ui components
+│   │   ├── dashboard/      # Dashboard-specific components
+│   │   └── scenarios/      # Scenario-related components
+│   ├── pages/              # Page components
+│   │   ├── dashboard/      # Dashboard pages
+│   │   └── auth/          # Authentication pages
+│   ├── store/              # Zustand stores
+│   ├── services/           # API services
+│   │   └── thingsboard.ts  # ThingsBoard integration
+│   ├── lib/                # Utilities and configurations
+│   │   ├── api.ts         # API client
+│   │   ├── tbClient.ts    # ThingsBoard HTTP client
+│   │   └── cache.ts       # Caching utilities
+│   ├── hooks/              # Custom React hooks
+│   ├── providers/          # React context providers
+│   ├── integrations/       # External service integrations
+│   │   └── supabase/       # Supabase client and types
+│   └── data/               # Static data and templates
+│       └── scenarios.ts    # Scenario templates
+├── tests/                  # All test files (organized)
+│   ├── lib/               # Library tests
+│   ├── data/              # Data tests
+│   ├── pages/             # Page component tests
+│   ├── services/          # Service tests
+│   └── store/             # Store tests
+├── scripts/               # Utility scripts
+├── postman/               # API testing collections
+├── supabase/              # Database schemas and migrations
+└── docs/                  # Documentation
 ```
 
 ## 🚀 Getting Started
@@ -132,6 +148,8 @@ src/
 
 - Node.js 18+ 
 - npm or yarn
+- ThingsBoard instance (for IoT data)
+- Supabase project (for authentication)
 
 ### Installation
 
@@ -149,9 +167,14 @@ src/
 3. **Environment Setup**
    Create a `.env.local` file:
    ```env
-   VITE_TB_HOST=your-thingsboard-host
-   VITE_TB_PORT=8080
-   VITE_TB_USE_HTTPS=false
+   # ThingsBoard Configuration
+   VITE_TB_BASE_URL=https://your-thingsboard-instance.com
+   VITE_TB_WS_URL=wss://your-thingsboard-instance.com
+   VITE_TB_CONTROLLER_ID=your-controller-id
+   
+   # Supabase Configuration
+   VITE_SUPABASE_URL=your-supabase-url
+   VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
    ```
 
 4. **Start development server**
@@ -168,12 +191,22 @@ src/
 
 ### ThingsBoard Integration
 
-The app is configured to integrate with ThingsBoard IoT platform:
+The app is fully integrated with ThingsBoard IoT platform:
 
 - **API Endpoints**: Configured via environment variables
 - **Authentication**: JWT-based with automatic refresh
 - **WebSocket**: Real-time telemetry streaming
 - **Device Management**: Target device CRUD operations
+- **Device Filtering**: Smart filtering for target devices
+- **Room Management**: Via device attributes
+
+### Supabase Integration
+
+Authentication and user management via Supabase:
+
+- **User Registration/Login**: Email/password authentication
+- **Session Management**: Automatic token refresh
+- **Protected Routes**: Authentication state management
 
 ### Theme Customization
 
@@ -186,35 +219,34 @@ The app uses a custom color scheme defined in `tailwind.config.ts`:
 
 ## 📊 Current Data Sources
 
-### Mock Data (Development)
-- User authentication
-- Target information
-- Room layouts
-- Scenario history
-- Leaderboard rankings
-- User profiles
-- Statistics and metrics
+### Real Data Integration ✅
+- **ThingsBoard Devices**: Target information and status
+- **ThingsBoard Telemetry**: Real-time hit data and metrics
+- **ThingsBoard Attributes**: Room assignments and configurations
+- **Supabase Auth**: User authentication and sessions
 
-### Real API Integration (Ready)
-- ThingsBoard HTTP client
-- WebSocket connections
-- API authentication
-- Device management endpoints
+### Ready for Implementation 🚧
+- User profiles and preferences
+- Leaderboard rankings
+- Advanced analytics
+- Scenario execution history
 
 ## 🔄 API Integration Status
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Authentication | Mock | Ready for ThingsBoard integration |
-| Target Management | Mock | API endpoints ready |
-| Room Management | Mock | CRUD operations ready |
-| Scenario Runtime | Mock | Template system ready |
-| WebSocket | Mock | Real-time ready |
-| Metrics | Mock | Calculation logic ready |
+| Authentication | ✅ Real | Supabase integration complete |
+| Target Management | ✅ Real | ThingsBoard device integration |
+| Room Management | ✅ Real | Via ThingsBoard device attributes |
+| Telemetry Data | ✅ Real | ThingsBoard WebSocket integration |
+| Scenario Templates | ✅ Ready | Template system complete |
+| Scenario Runtime | 🚧 Ready | API integration pending |
+| WebSocket | ✅ Real | ThingsBoard telemetry streaming |
+| Metrics | ✅ Real | Live data from ThingsBoard |
 
 ## 🧪 Testing
 
-The project includes comprehensive testing:
+The project includes comprehensive testing with real data:
 
 ```bash
 # Run all tests
@@ -228,10 +260,17 @@ npm run test:run
 ```
 
 ### Test Coverage
-- Component unit tests
-- Store state management tests
-- API integration tests
-- Scenario template validation
+- ✅ Component unit tests (with real providers)
+- ✅ Store state management tests
+- ✅ API integration tests
+- ✅ ThingsBoard service tests
+- ✅ Scenario template validation
+- ✅ Authentication flow tests
+
+### Test Organization
+- All tests are organized under `/tests` directory
+- Tests use real data and providers (no mocks)
+- Proper test isolation and cleanup
 
 ## 🚧 Development Roadmap
 
@@ -242,26 +281,26 @@ npm run test:run
 - [x] Routing system
 - [x] Authentication flow
 
-### Phase 2: Mock Data & UI ✅
-- [x] Target management interface
-- [x] Room designer
-- [x] Scenario templates
-- [x] Dashboard statistics
-- [x] User profile system
+### Phase 2: Real Data Integration ✅
+- [x] ThingsBoard API integration
+- [x] Device management and filtering
+- [x] Real-time telemetry
+- [x] Room management via device attributes
+- [x] Target status monitoring
 
-### Phase 3: API Integration 🚧
-- [ ] Connect to ThingsBoard API
-- [ ] Real-time WebSocket integration
-- [ ] Live target telemetry
-- [ ] Scenario execution
-- [ ] Performance metrics
+### Phase 3: Advanced Features 🚧
+- [ ] Scenario execution engine
+- [ ] Real-time scenario tracking
+- [ ] Advanced analytics dashboard
+- [ ] User profiles and preferences
+- [ ] Leaderboard system
 
-### Phase 4: Advanced Features 📋
+### Phase 4: Production Features 📋
 - [ ] Multi-user scenarios
-- [ ] Advanced analytics
 - [ ] Mobile optimization
 - [ ] Offline support
 - [ ] Export/import functionality
+- [ ] Performance monitoring
 
 ## 🤝 Contributing
 
@@ -269,7 +308,8 @@ npm run test:run
 2. Create a feature branch
 3. Make your changes
 4. Add tests for new functionality
-5. Submit a pull request
+5. Ensure all tests pass
+6. Submit a pull request
 
 ## 📝 License
 
@@ -284,4 +324,4 @@ For support and questions:
 
 ---
 
-**Note**: This application is currently using mock data for development purposes. Real ThingsBoard integration is ready but requires backend setup and configuration.
+**Note**: This application is fully integrated with ThingsBoard IoT platform and Supabase for real data management. All core features are working with live data from your IoT infrastructure.

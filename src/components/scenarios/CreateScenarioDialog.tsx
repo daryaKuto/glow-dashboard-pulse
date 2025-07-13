@@ -30,7 +30,8 @@ const CreateScenarioDialog: React.FC<CreateScenarioDialogProps> = ({
   const { scenarios, fetchScenarios } = useScenarios();
   const { rooms, fetchRooms } = useRooms();
   const location = useLocation();
-  const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
+  // TODO: Get proper token from auth context
+  const token = ''; // We need to implement proper token handling
   
   useEffect(() => {
     fetchScenarios(token);

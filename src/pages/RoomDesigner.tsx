@@ -30,7 +30,8 @@ const RoomDesigner: React.FC = () => {
     isLoading 
   } = useRoomDesigner();
 
-  const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
+  // TODO: Get proper token from auth context
+  const token = ''; // We need to implement proper token handling
 
   const handleSave = async () => {
     try {

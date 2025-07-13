@@ -1,0 +1,68 @@
+{
+  "devices": [
+    {
+      "name": "Test Device 1",
+      "type": "default",
+      "additionalInfo": {
+        "description": "Test device for API testing",
+        "roomId": 1
+      }
+    },
+    {
+      "name": "Test Device 2",
+      "type": "default",
+      "additionalInfo": {
+        "description": "Another test device",
+        "roomId": 2
+      }
+    }
+  ],
+  "users": [
+    {
+      "email": "testuser1@example.com",
+      "firstName": "Test",
+      "lastName": "User1",
+      "authority": "TENANT_ADMIN",
+      "additionalInfo": {
+        "description": "Test user for API testing"
+      }
+    },
+    {
+      "email": "testuser2@example.com",
+      "firstName": "Test",
+      "lastName": "User2",
+      "authority": "CUSTOMER_USER",
+      "additionalInfo": {
+        "description": "Another test user"
+      }
+    }
+  ],
+  "telemetry": [
+    {
+      "temperature": 25.5,
+      "humidity": 60.0,
+      "battery": 85,
+      "timestamp": "{{$timestamp}}"
+    },
+    {
+      "temperature": 26.2,
+      "humidity": 58.5,
+      "battery": 82,
+      "timestamp": "{{$timestamp}}"
+    }
+  ],
+  "attributes": [
+    {
+      "roomId": 1,
+      "battery": 85,
+      "lastUpdated": "{{$timestamp}}",
+      "description": "Test device attributes"
+    },
+    {
+      "roomId": 2,
+      "battery": 92,
+      "lastUpdated": "{{$timestamp}}",
+      "description": "Another device attributes"
+    }
+  ]
+} 

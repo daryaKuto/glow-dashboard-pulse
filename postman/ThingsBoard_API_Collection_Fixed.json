@@ -1,0 +1,560 @@
+{
+  "info": {
+    "name": "ThingsBoard API Integration (Fixed)",
+    "description": "Complete ThingsBoard API testing collection with correct endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://thingsboard.cloud",
+      "type": "string"
+    },
+    {
+      "key": "username",
+      "value": "andrew.tam@gmail.com",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "dryfire2025",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "customerId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "🔍 Public Endpoints (No Auth)",
+      "item": [
+        {
+          "name": "Test Base URL",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": ["{{baseUrl}}"]
+            }
+          }
+        },
+        {
+          "name": "Test Swagger UI",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/swagger-ui/",
+              "host": ["{{baseUrl}}"],
+              "path": ["swagger-ui", ""]
+            }
+          }
+        },
+        {
+          "name": "Test API Documentation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/docs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "docs"]
+            }
+          }
+        },
+        {
+          "name": "Test Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        },
+        {
+          "name": "Test API Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/info",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "info"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔐 Authentication",
+      "item": [
+        {
+          "name": "Login - Standard",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('accessToken', response.token);",
+                  "    pm.collectionVariables.set('refreshToken', response.refreshToken);",
+                  "    console.log('Login successful - Token saved');",
+                  "    console.log('User ID:', response.userId?.id);",
+                  "    console.log('Scope:', response.scope);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('accessToken', response.token);",
+                  "    pm.collectionVariables.set('refreshToken', response.refreshToken);",
+                  "    console.log('Token refreshed successfully');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/token",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "token"]
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "logout"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "📱 Device Management",
+      "item": [
+        {
+          "name": "Get All Devices",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    const devices = response.data || response;",
+                  "    if (devices.length > 0) {",
+                  "        pm.collectionVariables.set('deviceId', devices[0].id.id);",
+                  "        console.log('Device ID saved:', devices[0].id.id);",
+                  "        console.log('Total devices:', devices.length);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenant/devices?page=0&limit=10&textSearch=",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenant", "devices"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "textSearch",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Device by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/{{deviceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "device", "{{deviceId}}"]
+            }
+          }
+        },
+        {
+          "name": "Create Device",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test Device {{$timestamp}}\",\n  \"type\": \"default\",\n  \"additionalInfo\": {\n    \"description\": \"Test device created via Postman\",\n    \"roomId\": 1\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/device",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "device"]
+            }
+          }
+        },
+        {
+          "name": "Update Device",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Test Device\",\n  \"additionalInfo\": {\n    \"description\": \"Updated test device\",\n    \"roomId\": 2\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/device/{{deviceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "device", "{{deviceId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Device",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/{{deviceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "device", "{{deviceId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "👥 User Management",
+      "item": [
+        {
+          "name": "Get All Users",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    const users = response.data || response;",
+                  "    if (users.length > 0) {",
+                  "        pm.collectionVariables.set('userId', users[0].id.id);",
+                  "        console.log('User ID saved:', users[0].id.id);",
+                  "        console.log('Total users:', users.length);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenant/users?page=0&limit=10&textSearch=",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenant", "users"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "textSearch",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get User by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/user/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "user", "{{userId}}"]
+            }
+          }
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"testuser{{$timestamp}}@example.com\",\n  \"firstName\": \"Test\",\n  \"lastName\": \"User\",\n  \"authority\": \"TENANT_ADMIN\",\n  \"additionalInfo\": {\n    \"description\": \"Test user created via Postman\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/user",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "user"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "📊 Telemetry",
+      "item": [
+        {
+          "name": "Get Latest Telemetry",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/plugins/telemetry/DEVICE/{{deviceId}}/values/timeseries?keys=temperature,humidity,battery",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "plugins", "telemetry", "DEVICE", "{{deviceId}}", "values", "timeseries"],
+              "query": [
+                {
+                  "key": "keys",
+                  "value": "temperature,humidity,battery"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Historical Telemetry",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/plugins/telemetry/DEVICE/{{deviceId}}/values/timeseries?keys=temperature,humidity&startTs={{$timestamp}}-86400000&endTs={{$timestamp}}&limit=100&agg=NONE",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "plugins", "telemetry", "DEVICE", "{{deviceId}}", "values", "timeseries"],
+              "query": [
+                {
+                  "key": "keys",
+                  "value": "temperature,humidity"
+                },
+                {
+                  "key": "startTs",
+                  "value": "{{$timestamp}}-86400000"
+                },
+                {
+                  "key": "endTs",
+                  "value": "{{$timestamp}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "key": "agg",
+                  "value": "NONE"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🏷️ Attributes",
+      "item": [
+        {
+          "name": "Get Device Attributes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/plugins/telemetry/DEVICE/{{deviceId}}/values/attributes/SHARED_SCOPE",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "plugins", "telemetry", "DEVICE", "{{deviceId}}", "values", "attributes", "SHARED_SCOPE"]
+            }
+          }
+        },
+        {
+          "name": "Set Device Attributes",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": 1,\n  \"location\": \"Living Room\",\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/plugins/telemetry/DEVICE/{{deviceId}}/attributes/SHARED_SCOPE",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "plugins", "telemetry", "DEVICE", "{{deviceId}}", "attributes", "SHARED_SCOPE"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+} 

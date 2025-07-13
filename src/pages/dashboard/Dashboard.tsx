@@ -4,7 +4,8 @@ import { useLocation } from 'react-router-dom';
 import { Target, Users, Calendar, Bell, Clock, Zap, Trophy } from 'lucide-react';
 import { useStats } from '@/store/useStats';
 import { useDashboardStats } from '@/store/useDashboardStats';
-import API, { MockWebSocket } from '@/lib/api';
+import { useAuth } from '@/providers/AuthProvider';
+import API from '@/lib/api';
 import { toast } from '@/components/ui/sonner';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
@@ -32,56 +33,105 @@ const Dashboard: React.FC = () => {
     activeTargets, roomsCreated, lastSessionScore, pendingInvites, hitTrend,
     isLoading, fetchStats, updateHit, setWsConnected 
   } = useStats();
-  const [socket, setSocket] = useState<MockWebSocket | null>(null);
+  const [socket, setSocket] = useState<WebSocket | null>(null);
   const [range, setRange] = useState<'latest' | 'week' | 'month' | 'all'>('latest');
   const { slices, refresh } = useDashboardStats();
 
-  // Extract token from URL params (or use stored session token)
-  const sessionToken = localStorage.getItem('authSession') 
-    ? JSON.parse(localStorage.getItem('authSession')!).access_token 
-    : null;
-  const token = new URLSearchParams(location.search).get('token') || sessionToken || 'dummy_token';
+  // Get ThingsBoard token from localStorage
+  const tbToken = localStorage.getItem('tb_access');
+  
+  // Check if user is authenticated
+  const { user, loading } = useAuth();
+  
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col bg-brand-light">
+        <Header />
+        <div className="flex flex-1 items-center justify-center">
+          <div className="text-center">
+            <h2 className="text-2xl font-heading text-brand-dark mb-4">Loading...</h2>
+            <p className="text-brand-dark/70 font-body">Authenticating...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  if (!user || !tbToken) {
+    return (
+      <div className="min-h-screen flex flex-col bg-brand-light">
+        <Header />
+        <div className="flex flex-1 items-center justify-center">
+          <div className="text-center">
+            <h2 className="text-2xl font-heading text-brand-dark mb-4">Authentication Required</h2>
+            <p className="text-brand-dark/70 font-body">Please log in to access the dashboard.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   useEffect(() => {
-    console.log("Dashboard: Fetching stats with token:", token);
-    fetchStats(token);
+    console.log("Dashboard: Fetching stats with token:", tbToken);
+    fetchStats(tbToken);
     refresh(); // Load metrics data
 
-    // Setup WebSocket connection
-    const ws = API.connectWebSocket(token);
-    setSocket(ws);
+    // Temporarily disable WebSocket connection to prevent errors
+    // TODO: Re-enable once WebSocket proxy is properly configured
+    console.log("Dashboard: WebSocket connection temporarily disabled");
+    setWsConnected(false);
+    
+    /*
+    // Setup WebSocket connection only if we have a valid token
+    let ws: WebSocket | null = null;
+    try {
+      // Validate token format before connecting
+      if (tbToken && tbToken.length > 100) {
+        ws = API.connectWebSocket(tbToken);
+        setSocket(ws);
 
-    ws.onopen = () => {
-      console.log("WebSocket connected");
-      setWsConnected(true);
-      // toast.success('Connected to game server'); // Disabled notifications
-    };
+        ws.onopen = () => {
+          console.log("WebSocket connected");
+          setWsConnected(true);
+        };
 
-    ws.onclose = () => {
-      console.log("WebSocket disconnected");
-      setWsConnected(false);
-      // toast.error('Disconnected from game server'); // Disabled notifications
-    };
+        ws.onclose = () => {
+          console.log("WebSocket disconnected");
+          setWsConnected(false);
+        };
 
-    ws.onmessage = (event) => {
-      try {
-        console.log("WebSocket message received:", event.data);
-        const data = JSON.parse(event.data);
-        if (data.type === 'hit') {
-          updateHit(data.targetId.toString(), data.score);
-          // toast.success(`Hit registered! Score: ${data.score}`); // Disabled hit notifications
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
+        ws.onerror = (error) => {
+          console.error("WebSocket error:", error);
+          setWsConnected(false);
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            console.log("WebSocket message received:", event.data);
+            const data = JSON.parse(event.data);
+            if (data.type === 'hit') {
+              updateHit(data.targetId.toString(), data.score);
+            }
+          } catch (error) {
+            console.error('Error parsing WebSocket message:', error);
+          }
+        };
+      } else {
+        console.log("Dashboard: Invalid token format, skipping WebSocket connection");
+        setWsConnected(false);
       }
-    };
+    } catch (error) {
+      console.error('Error setting up WebSocket:', error);
+      setWsConnected(false);
+    }
 
     return () => {
-      if (socket) {
-        socket.close();
+      if (ws) {
+        ws.close();
       }
     };
-  }, [token, fetchStats, setWsConnected, updateHit, refresh]);
+    */
+  }, [tbToken]); // Only depend on tbToken to prevent infinite loops
 
   const slice = slices[range];
 
@@ -95,7 +145,9 @@ const Dashboard: React.FC = () => {
         
         <main className="flex-1 overflow-y-auto">
           <div className="container mx-auto p-4 md:p-6 lg:p-8">
-            <h2 className="text-3xl font-heading text-brand-dark mb-8">Game Stats</h2>
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-3xl font-heading text-brand-dark">Game Stats</h2>
+            </div>
             
             {/* Original Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">

@@ -8,11 +8,117 @@ import {
 } from '@/services/thingsboard';
 import tbClient from './tbClient';
 import { cache, CACHE_KEYS } from './cache';
+import { supabase } from '@/integrations/supabase/client';
+
 
 const controllerId = import.meta.env.VITE_TB_CONTROLLER_ID as string;
 
 // Export the WebSocket type for compatibility
 export type MockWebSocket = ReturnType<typeof openTelemetryWS>;
+
+// Helper function to map ThingsBoard devices to room assignments from our database
+async function mapDevicesToRooms(devices: any[]) {
+  try {
+    console.log('Mapping devices to rooms. Total devices:', devices.length);
+    
+    // Map devices and fetch additional data
+    const mappedDevices = await Promise.all(devices.map(async (device) => {
+      const deviceId = device.id?.id || device.id;
+      // Get roomId directly from device additionalInfo (ThingsBoard approach)
+      const roomId = device.additionalInfo?.roomId || null;
+      
+      console.log('Mapping device:', { 
+        name: device.name, 
+        deviceId,
+        roomId, 
+        additionalInfo: device.additionalInfo 
+      });
+      
+      // Fetch latest telemetry data for this device
+      let telemetryData = {};
+      try {
+        const thingsBoardService = (await import('@/services/thingsboard')).default;
+        if (thingsBoardService.isAuthenticated()) {
+          const telemetry = await thingsBoardService.getLatestTelemetry(deviceId, [
+            'event', 'gameId', 'game_name', 'hits', 'device_name', 'created_at', 'method', 'params'
+          ]);
+          
+          // Extract the latest values
+          Object.entries(telemetry).forEach(([key, values]) => {
+            if (values && values.length > 0) {
+              telemetryData[key] = values[values.length - 1].value;
+            }
+          });
+        }
+      } catch (error) {
+        console.log(`Could not fetch telemetry for device ${deviceId}:`, error.message);
+      }
+
+      return {
+        ...device,
+        roomId,
+        telemetry: telemetryData,
+        // Extract useful telemetry data
+        lastEvent: telemetryData.event || null,
+        lastGameId: telemetryData.gameId || telemetryData.game_id || null,
+        lastGameName: telemetryData.game_name || null,
+        lastHits: telemetryData.hits ? parseInt(telemetryData.hits) : null,
+        lastActivity: telemetryData.created_at || null,
+        deviceName: telemetryData.device_name || device.name,
+        // Additional metadata
+        deviceType: device.type,
+        createdTime: device.createdTime,
+        additionalInfo: device.additionalInfo || {},
+      };
+    }));
+
+    console.log('Mapped devices with room info:', mappedDevices.map(d => ({ 
+      name: d.name, 
+      roomId: d.roomId, 
+      roomName: d.additionalInfo?.roomName 
+    })));
+    
+    return mappedDevices;
+  } catch (error) {
+    console.error('Error mapping devices to rooms:', error);
+    return devices;
+  }
+}
+
+// Helper function to update room target count (ThingsBoard approach)
+async function updateRoomTargetCount(roomId: string) {
+  try {
+    // Get all devices and count those assigned to this room
+    const thingsBoardService = (await import('@/services/thingsboard')).default;
+    if (!thingsBoardService.isAuthenticated()) {
+      return;
+    }
+    
+    const devicesResponse = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/tenant/devices?pageSize=100&page=0`, {
+      headers: {
+        'Authorization': `Bearer ${thingsBoardService.getAccessToken()}`,
+      },
+    });
+
+    if (!devicesResponse.ok) {
+      console.error('Error fetching devices for room count:', devicesResponse.status);
+      return;
+    }
+
+    const devicesData = await devicesResponse.json();
+    const devices = devicesData.data || devicesData;
+    
+    // Count devices assigned to this room
+    const targetCount = devices.filter((device: any) => 
+      device.additionalInfo?.roomId === parseInt(roomId)
+    ).length;
+    
+    console.log(`Room ${roomId} has ${targetCount} targets`);
+    return targetCount;
+  } catch (error) {
+    console.error('Error updating room target count:', error);
+  }
+}
 
 /* ----------  AUTH  ---------- */
 export const API = {
@@ -34,7 +140,7 @@ export const API = {
     // Check cache first
     const cached = cache.get(CACHE_KEYS.TARGETS);
     if (cached) {
-      console.log('Using cached targets data');
+      console.log('Using cached targets data:', cached);
       return cached;
     }
 
@@ -42,32 +148,71 @@ export const API = {
       // Check if ThingsBoard is properly configured
       const tbBaseUrl = import.meta.env.VITE_TB_BASE_URL;
       if (!tbBaseUrl) {
-        // Fallback to mock data when ThingsBoard is not configured
-        console.log('ThingsBoard not configured, using mock targets');
-        const mockTargets = [
-          { id: { id: '1' }, name: 'Target Alpha', status: 'online', battery: 95, roomId: 1 },
-          { id: { id: '2' }, name: 'Target Beta', status: 'online', battery: 78, roomId: 1 },
-          { id: { id: '3' }, name: 'Target Gamma', status: 'offline', battery: 12, roomId: 2 },
-          { id: { id: '4' }, name: 'Target Delta', status: 'online', battery: 65, roomId: null },
-        ];
-        cache.set(CACHE_KEYS.TARGETS, mockTargets, 30000); // Cache for 30 seconds
-        return mockTargets;
+        throw new Error('ThingsBoard not configured. Please set VITE_TB_BASE_URL in .env');
       }
       
+      // First, authenticate with ThingsBoard if not already authenticated
+      const thingsBoardService = (await import('@/services/thingsboard')).default;
+      if (!thingsBoardService.isAuthenticated()) {
+        console.log('Authenticating with ThingsBoard...');
+        const credentials = {
+          username: 'andrew.tam@gmail.com',
+          password: 'dryfire2025'
+        };
+        await thingsBoardService.login(credentials.username, credentials.password);
+        console.log('ThingsBoard authentication successful');
+      }
+      
+      // Fetch devices from ThingsBoard
       const devices = await listDevices();
-      cache.set(CACHE_KEYS.TARGETS, devices, 30000); // Cache for 30 seconds
-      return devices;
+      console.log('Fetched devices from ThingsBoard:', devices);
+      
+      // Filter to show legitimate target devices (exclude test devices and system devices)
+      const targetDevices = devices.filter(device => {
+        // Include devices that are clearly targets
+        const isTargetDevice = 
+          device.name.startsWith('Dryfire-') || 
+          device.name === 'GAME-MANAGER' ||
+          device.name === 'GAME-HISTORY' ||
+          device.type === 'dryfire-provision' ||
+          (device.additionalInfo && device.additionalInfo.roomId);
+        
+        // Exclude test devices and temporary devices
+        const isTestDevice = 
+          device.name.includes('TestDevice_') ||
+          device.name.includes('Telemetry-test');
+        
+        // Special case: "Test Device {{$timestamp}}" should be included if it has roomId
+        const isSpecialTestDevice = device.name.includes('Test Device') && 
+          (!device.additionalInfo || !device.additionalInfo.roomId);
+        
+        const shouldInclude = isTargetDevice && !isTestDevice && !isSpecialTestDevice;
+        
+        if (shouldInclude) {
+          console.log('Including device:', { 
+            name: device.name, 
+            type: device.type, 
+            roomId: device.additionalInfo?.roomId,
+            isTargetDevice,
+            isTestDevice,
+            isSpecialTestDevice
+          });
+        }
+        
+        return shouldInclude;
+      });
+      
+      console.log('Filtered target devices:', targetDevices.map(d => ({ name: d.name, type: d.type, roomId: d.additionalInfo?.roomId })));
+      
+      // Map the devices to include room information from our database
+      const mappedDevices = await mapDevicesToRooms(targetDevices);
+      console.log('Mapped devices with room info:', mappedDevices);
+      
+      cache.set(CACHE_KEYS.TARGETS, mappedDevices, 30000);
+      return mappedDevices;
     } catch (error) {
-      console.error('Error fetching targets from ThingsBoard, using mock data:', error);
-      // Fallback to mock data on error
-      const mockTargets = [
-        { id: { id: '1' }, name: 'Target Alpha', status: 'online', battery: 95, roomId: 1 },
-        { id: { id: '2' }, name: 'Target Beta', status: 'online', battery: 78, roomId: 1 },
-        { id: { id: '3' }, name: 'Target Gamma', status: 'offline', battery: 12, roomId: 2 },
-        { id: { id: '4' }, name: 'Target Delta', status: 'online', battery: 65, roomId: null },
-      ];
-      cache.set(CACHE_KEYS.TARGETS, mockTargets, 30000); // Cache for 30 seconds
-      return mockTargets;
+      console.error('Error fetching targets from ThingsBoard:', error);
+      throw error;
     }
   },
 
@@ -76,79 +221,512 @@ export const API = {
 
   /* ----------  TARGET MANAGEMENT  ---------- */
   createTarget: async (name: string, roomId: number | null) => {
-    // TODO: Implement with ThingsBoard device creation
-    throw new Error('createTarget → not implemented with ThingsBoard yet');
+    throw new Error('Target creation not implemented yet');
   },
   
   renameTarget: async (id: number, name: string) => {
-    // TODO: Implement with ThingsBoard device update
-    throw new Error('renameTarget → not implemented with ThingsBoard yet');
+    try {
+      
+      // Get the ThingsBoard service
+      const thingsBoardService = (await import('@/services/thingsboard')).default;
+      
+      // Ensure we're authenticated
+      if (!thingsBoardService.isAuthenticated()) {
+        const credentials = {
+          username: 'andrew.tam@gmail.com',
+          password: 'dryfire2025'
+        };
+        await thingsBoardService.login(credentials.username, credentials.password);
+      }
+      
+      // Convert numeric ID to string (ThingsBoard uses string IDs)
+      const deviceId = id.toString();
+      
+      // Update the device name in ThingsBoard
+      await thingsBoardService.updateDevice(deviceId, { name });
+      
+      // Clear the cache to force refresh
+      clearTargetsCache();
+      
+      console.log(`Successfully renamed device ${deviceId} to "${name}"`);
+      return { success: true };
+    } catch (error) {
+      console.error('Error renaming target:', error);
+      throw new Error(`Failed to rename target: ${error.message}`);
+    }
   },
   
   deleteTarget: async (id: number) => {
-    // TODO: Implement with ThingsBoard device deletion
-    throw new Error('deleteTarget → not implemented with ThingsBoard yet');
+    throw new Error('Target deletion not implemented yet');
   },
   
   assignRoom: async (targetId: number, roomId: number | null) => {
-    // TODO: Implement with ThingsBoard device attributes
-    throw new Error('assignRoom → not implemented with ThingsBoard yet');
+    throw new Error('Room assignment not implemented yet');
   },
   
   updateFirmware: async (id: number) => {
-    // TODO: Implement with ThingsBoard device firmware update
-    throw new Error('updateFirmware → not implemented with ThingsBoard yet');
+    throw new Error('Firmware updates not implemented yet');
   },
 
   /* ----------  ROOM MANAGEMENT  ---------- */
   getRooms: async () => {
-    // TODO: Implement with ThingsBoard device groups or custom entities
-    throw new Error('getRooms → not implemented with ThingsBoard yet');
+    try {
+      
+      // Get the ThingsBoard service
+      const thingsBoardService = (await import('@/services/thingsboard')).default;
+      
+      // Ensure we're authenticated
+      if (!thingsBoardService.isAuthenticated()) {
+        const credentials = {
+          username: 'andrew.tam@gmail.com',
+          password: 'dryfire2025'
+        };
+        await thingsBoardService.login(credentials.username, credentials.password);
+      }
+      
+      // Fetch all devices from ThingsBoard
+      const devicesResponse = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/tenant/devices?pageSize=100&page=0`, {
+        headers: {
+          'Authorization': `Bearer ${thingsBoardService.getAccessToken()}`,
+        },
+      });
+
+      if (!devicesResponse.ok) {
+        throw new Error(`Failed to fetch devices: ${devicesResponse.status}`);
+      }
+
+      const devicesData = await devicesResponse.json();
+      const devices = devicesData.data || devicesData;
+      
+      console.log('All devices from ThingsBoard:', devices.map((d: any) => ({ 
+        name: d.name, 
+        roomId: d.additionalInfo?.roomId, 
+        roomName: d.additionalInfo?.roomName 
+      })));
+      
+      // Extract unique roomIds from devices
+      const roomIds = new Set<number>();
+      devices.forEach((device: any) => {
+        if (device.additionalInfo?.roomId) {
+          roomIds.add(device.additionalInfo.roomId);
+        }
+      });
+      
+      console.log('Found roomIds in devices:', Array.from(roomIds));
+      
+      // Create rooms based on roomIds found in devices
+      const rooms = Array.from(roomIds).map((roomId, index) => {
+        // Find a device with this roomId to get the room name
+        const roomDevice = devices.find((device: any) => device.additionalInfo?.roomId === roomId);
+        const roomName = roomDevice?.additionalInfo?.roomName || `Room ${roomId}`;
+        const targetCount = devices.filter((device: any) => device.additionalInfo?.roomId === roomId).length;
+        
+        console.log(`Room ${roomId} (${roomName}) has ${targetCount} targets`);
+        
+        return {
+          id: roomId,
+          name: roomName,
+          order: index + 1,
+          targetCount,
+          icon: 'home',
+          thingsBoardId: roomId.toString()
+        };
+      });
+      
+      // If no rooms found, create a default room
+      if (rooms.length === 0) {
+        rooms.push({
+          id: 1,
+          name: 'Default Room',
+          order: 1,
+          targetCount: devices.length,
+          icon: 'home',
+          thingsBoardId: '1'
+        });
+      }
+
+      console.log('Fetched rooms from ThingsBoard devices:', rooms);
+      return rooms;
+    } catch (error) {
+      console.error('Error fetching rooms from ThingsBoard:', error);
+      throw error;
+    }
   },
   
   createRoom: async (name: string, icon: string = 'home') => {
-    // TODO: Implement with ThingsBoard device groups
-    throw new Error('createRoom → not implemented with ThingsBoard yet');
+    try {
+      
+      // Get the ThingsBoard service
+      const thingsBoardService = (await import('@/services/thingsboard')).default;
+      
+      // Ensure we're authenticated
+      if (!thingsBoardService.isAuthenticated()) {
+        const credentials = {
+          username: 'andrew.tam@gmail.com',
+          password: 'dryfire2025'
+        };
+        await thingsBoardService.login(credentials.username, credentials.password);
+      }
+      
+      // Get existing rooms to determine new room ID
+      const existingRooms = await API.getRooms();
+      const newRoomId = Math.max(...existingRooms.map(r => r.id), 0) + 1;
+      
+      // Create a new room by creating a placeholder device with the roomId
+      const response = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/device`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${thingsBoardService.getAccessToken()}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: `Room-${newRoomId}-${name}`,
+          type: 'default',
+          additionalInfo: {
+            roomId: newRoomId,
+            roomName: name,
+            icon: icon,
+            isRoomPlaceholder: true
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to create room: ${response.status}`);
+      }
+
+      const newRoom = {
+        id: newRoomId,
+        name: name,
+        order: existingRooms.length + 1,
+        targetCount: 0,
+        icon: icon,
+        thingsBoardId: newRoomId.toString()
+      };
+      
+      console.log('Created room in ThingsBoard:', newRoom);
+      return newRoom;
+    } catch (error) {
+      console.error('Error creating room:', error);
+      throw error;
+    }
   },
   
   updateRoom: async (id: number, name: string) => {
-    // TODO: Implement with ThingsBoard device groups
-    throw new Error('updateRoom → not implemented with ThingsBoard yet');
+    try {
+      
+      // Get the ThingsBoard service
+      const thingsBoardService = (await import('@/services/thingsboard')).default;
+      
+      // Ensure we're authenticated
+      if (!thingsBoardService.isAuthenticated()) {
+        const credentials = {
+          username: 'andrew.tam@gmail.com',
+          password: 'dryfire2025'
+        };
+        await thingsBoardService.login(credentials.username, credentials.password);
+      }
+      
+      // Find all devices that belong to this room and update their roomName attribute
+      const devicesResponse = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/tenant/devices?pageSize=100&page=0`, {
+        headers: {
+          'Authorization': `Bearer ${thingsBoardService.getAccessToken()}`,
+        },
+      });
+
+      if (!devicesResponse.ok) {
+        throw new Error(`Failed to fetch devices: ${devicesResponse.status}`);
+      }
+
+      const devicesData = await devicesResponse.json();
+      const devices = devicesData.data || devicesData;
+      
+      // Find devices that belong to this room
+      const roomDevices = devices.filter((device: any) => device.additionalInfo?.roomId === id);
+      
+      // Update each device's roomName attribute
+      for (const device of roomDevices) {
+        const updateResponse = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/device/${device.id.id}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${thingsBoardService.getAccessToken()}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...device,
+            additionalInfo: {
+              ...device.additionalInfo,
+              roomName: name
+            }
+          }),
+        });
+        
+        if (!updateResponse.ok) {
+          console.error(`Failed to update device ${device.name}: ${updateResponse.status}`);
+        }
+      }
+
+      console.log('Updated room in ThingsBoard:', name);
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating room:', error);
+      throw error;
+    }
   },
   
   deleteRoom: async (id: number) => {
-    // TODO: Implement with ThingsBoard device groups
-    throw new Error('deleteRoom → not implemented with ThingsBoard yet');
+    try {
+      
+      // Get the ThingsBoard service
+      const thingsBoardService = (await import('@/services/thingsboard')).default;
+      
+      // Ensure we're authenticated
+      if (!thingsBoardService.isAuthenticated()) {
+        const credentials = {
+          username: 'andrew.tam@gmail.com',
+          password: 'dryfire2025'
+        };
+        await thingsBoardService.login(credentials.username, credentials.password);
+      }
+      
+      // Find all devices that belong to this room and remove their roomId
+      const devicesResponse = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/tenant/devices?pageSize=100&page=0`, {
+        headers: {
+          'Authorization': `Bearer ${thingsBoardService.getAccessToken()}`,
+        },
+      });
+
+      if (!devicesResponse.ok) {
+        throw new Error(`Failed to fetch devices: ${devicesResponse.status}`);
+      }
+
+      const devicesData = await devicesResponse.json();
+      const devices = devicesData.data || devicesData;
+      
+      // Find devices that belong to this room
+      const roomDevices = devices.filter((device: any) => device.additionalInfo?.roomId === id);
+      
+      // Remove roomId from each device
+      for (const device of roomDevices) {
+        const { roomId, roomName, ...additionalInfo } = device.additionalInfo || {};
+        const updateResponse = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/device/${device.id.id}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${thingsBoardService.getAccessToken()}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...device,
+            additionalInfo
+          }),
+        });
+        
+        if (!updateResponse.ok) {
+          console.error(`Failed to update device ${device.name}: ${updateResponse.status}`);
+        }
+      }
+
+      console.log('Deleted room from ThingsBoard devices:', id);
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting room:', error);
+      throw error;
+    }
   },
   
-  updateRoomOrder: async (order: any) => {
-    // TODO: Implement with ThingsBoard device groups
-    throw new Error('updateRoomOrder → not implemented with ThingsBoard yet');
+  updateRoomOrder: async (order: { id: number, order: number }[]) => {
+    try {
+      
+      // Get the ThingsBoard service
+      const thingsBoardService = (await import('@/services/thingsboard')).default;
+      
+      // Ensure we're authenticated
+      if (!thingsBoardService.isAuthenticated()) {
+        const credentials = {
+          username: 'andrew.tam@gmail.com',
+          password: 'dryfire2025'
+        };
+        await thingsBoardService.login(credentials.username, credentials.password);
+      }
+      
+      // Update order in ThingsBoard device groups
+      // Note: ThingsBoard doesn't have built-in ordering, so we'll store it in additionalInfo
+      for (const roomOrder of order) {
+        const rooms = await API.getRooms();
+        const room = rooms.find(r => r.id === roomOrder.id);
+        
+        if (room) {
+          const response = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/entityGroup/${room.thingsBoardId}`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${thingsBoardService.getAccessToken()}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: room.name,
+              additionalInfo: {
+                ...room.additionalInfo,
+                order: roomOrder.order
+              }
+            }),
+          });
+
+          if (!response.ok) {
+            console.error(`Failed to update room order for ${room.name}: ${response.status}`);
+          }
+        }
+      }
+      
+      console.log('Updated room order in ThingsBoard');
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating room order:', error);
+      throw error;
+    }
+  },
+  
+  assignTargetToRoom: async (targetId: string, roomId: string | null) => {
+    try {
+      // Get the ThingsBoard service
+      const thingsBoardService = (await import('@/services/thingsboard')).default;
+      
+      // Ensure we're authenticated
+      if (!thingsBoardService.isAuthenticated()) {
+        const credentials = {
+          username: 'andrew.tam@gmail.com',
+          password: 'dryfire2025'
+        };
+        await thingsBoardService.login(credentials.username, credentials.password);
+      }
+      
+      // First, get the current device to preserve existing additionalInfo
+      const deviceResponse = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/device/${targetId}`, {
+        headers: {
+          'Authorization': `Bearer ${thingsBoardService.getAccessToken()}`,
+        },
+      });
+
+      if (!deviceResponse.ok) {
+        throw new Error(`Failed to get device: ${deviceResponse.status}`);
+      }
+
+      const device = await deviceResponse.json();
+      const currentAdditionalInfo = device.additionalInfo || {};
+      
+      if (roomId === null) {
+        // Unassign target from all rooms by updating device attributes
+        const { roomId: _, roomName: __, ...updatedAdditionalInfo } = currentAdditionalInfo;
+        
+        const response = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/device/${targetId}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${thingsBoardService.getAccessToken()}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...device,
+            additionalInfo: updatedAdditionalInfo
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to unassign target from room: ${response.status}`);
+        }
+
+        console.log(`Unassigned target ${targetId} from all rooms in ThingsBoard`);
+        return { success: true };
+      } else {
+        // Assign target to room by updating device attributes
+        const updatedAdditionalInfo = {
+          ...currentAdditionalInfo,
+          roomId: parseInt(roomId),
+          roomName: `Room ${roomId}`
+        };
+        
+        const response = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/device/${targetId}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${thingsBoardService.getAccessToken()}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...device,
+            additionalInfo: updatedAdditionalInfo
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to assign target to room: ${response.status}`);
+        }
+
+        console.log(`Assigned target ${targetId} to room ${roomId} in ThingsBoard`);
+        return { success: true };
+      }
+    } catch (error) {
+      console.error('Error assigning/unassigning target to room:', error);
+      throw error;
+    }
+  },
+  
+  getRoomTargets: async (roomId: string) => {
+    try {
+      // Get the ThingsBoard service
+      const thingsBoardService = (await import('@/services/thingsboard')).default;
+      
+      // Ensure we're authenticated
+      if (!thingsBoardService.isAuthenticated()) {
+        const credentials = {
+          username: 'andrew.tam@gmail.com',
+          password: 'dryfire2025'
+        };
+        await thingsBoardService.login(credentials.username, credentials.password);
+      }
+      
+      // Get all devices and filter by roomId
+      const devicesResponse = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/tenant/devices?pageSize=100&page=0`, {
+        headers: {
+          'Authorization': `Bearer ${thingsBoardService.getAccessToken()}`,
+        },
+      });
+
+      if (!devicesResponse.ok) {
+        throw new Error(`Failed to get devices: ${devicesResponse.status}`);
+      }
+
+      const devicesData = await devicesResponse.json();
+      const devices = devicesData.data || devicesData;
+      
+      // Filter devices that belong to this room
+      const roomDevices = devices.filter((device: any) => 
+        device.additionalInfo?.roomId === parseInt(roomId)
+      );
+      
+      console.log(`Fetched ${roomDevices.length} targets for room ${roomId}`);
+      return roomDevices;
+    } catch (error) {
+      console.error('Error fetching room targets:', error);
+      throw error;
+    }
   },
   
   getRoomLayout: async (roomId: number) => {
-    // TODO: Implement with ThingsBoard device attributes
-    throw new Error('getRoomLayout → not implemented with ThingsBoard yet');
+    throw new Error('Room layout not implemented yet');
   },
   
   saveRoomLayout: async (roomId: number, targets: any[], groups: any[]) => {
-    // TODO: Implement with ThingsBoard device attributes
-    throw new Error('saveRoomLayout → not implemented with ThingsBoard yet');
+    throw new Error('Room layout saving not implemented yet');
   },
   
   createGroup: async (roomId: number, groupData: any) => {
-    // TODO: Implement with ThingsBoard device groups
-    throw new Error('createGroup → not implemented with ThingsBoard yet');
+    throw new Error('Group creation not implemented yet');
   },
   
   updateGroup: async (roomId: number, groupData: any) => {
-    // TODO: Implement with ThingsBoard device groups
-    throw new Error('updateGroup → not implemented with ThingsBoard yet');
+    throw new Error('Group updates not implemented yet');
   },
   
   deleteGroup: async (roomId: number, groupData: any) => {
-    // TODO: Implement with ThingsBoard device groups
-    throw new Error('deleteGroup → not implemented with ThingsBoard yet');
+    throw new Error('Group deletion not implemented yet');
   },
 
   /* ----------  SCENARIO RUNTIME  ---------- */
@@ -171,27 +749,22 @@ export const API = {
 
   /* ----------  PLACE-HOLDERS (not yet mapped) ---------- */
   getSessions: async () => {
-    // TODO: Implement with ThingsBoard custom entities
-    throw new Error('getSessions → not implemented with ThingsBoard yet');
+    throw new Error('Sessions not implemented yet');
   },
   
   getFriends: async () => {
-    // TODO: Implement with ThingsBoard custom entities
-    throw new Error('getFriends → not implemented with ThingsBoard yet');
+    throw new Error('Friends not implemented yet');
   },
   
   getLeaderboard: async () => {
-    // TODO: Implement with ThingsBoard custom entities
-    throw new Error('getLeaderboard → not implemented with ThingsBoard yet');
+    throw new Error('Leaderboard not implemented yet');
   },
   
   getInvites: async () => {
-    // TODO: Implement with ThingsBoard custom entities
-    throw new Error('getInvites → not implemented with ThingsBoard yet');
+    throw new Error('Invites not implemented yet');
   },
   
   listScenarios: async () => {
-    // TODO: Implement with ThingsBoard custom entities
     return [] as { id: string; name: string; targetCount: number }[];
   },
 
@@ -208,38 +781,30 @@ export const API = {
       // Check if ThingsBoard is properly configured
       const tbBaseUrl = import.meta.env.VITE_TB_BASE_URL;
       if (!tbBaseUrl) {
-        // Fallback to mock data when ThingsBoard is not configured
-        console.log('ThingsBoard not configured, using mock stats');
-        const mockStats = {
-          targets: { online: 3, total: 4 }, // Mock data from handlers.ts
-          rooms: { count: 3 },
-          sessions: { latest: { score: 920 } },
-          invites: [],
-        };
-        cache.set(CACHE_KEYS.STATS, mockStats, 15000); // Cache for 15 seconds
-        return mockStats;
+        throw new Error('ThingsBoard not configured. Please set VITE_TB_BASE_URL in .env');
       }
       
-      const devices = await listDevices();
+      // Get the current user's targets (same as getTargets function)
+      const targets = await API.getTargets();
+      console.log('User targets for stats:', targets.length);
+      
+      // Get rooms for the current user
+      const rooms = await API.getRooms();
+      console.log('User rooms for stats:', rooms.length);
+      
       const stats = {
-        targets: { online: devices.length },
-        rooms: { count: 0 },
+        targets: { online: targets.length },
+        rooms: { count: rooms.length },
         sessions: { latest: { score: 0 } },
         invites: [],
       };
+      
+      console.log('Stats calculated for current user:', stats);
       cache.set(CACHE_KEYS.STATS, stats, 15000); // Cache for 15 seconds
       return stats;
     } catch (error) {
-      console.error('Error fetching stats from ThingsBoard, using mock data:', error);
-      // Fallback to mock data on error
-      const mockStats = {
-        targets: { online: 3, total: 4 },
-        rooms: { count: 3 },
-        sessions: { latest: { score: 920 } },
-        invites: [],
-      };
-      cache.set(CACHE_KEYS.STATS, mockStats, 15000); // Cache for 15 seconds
-      return mockStats;
+      console.error('Error fetching stats from ThingsBoard:', error);
+      throw error;
     }
   },
   /** 7-day hit trend – stub empty array until we wire TB aggregate API */
@@ -251,10 +816,14 @@ export default API;
 // Cache management functions
 export const clearCache = () => {
   cache.clear();
-  console.log('Cache cleared');
 };
 
 export const invalidateCache = (key: string) => {
   cache.delete(key);
-  console.log(`Cache invalidated for key: ${key}`);
+};
+
+// Specific function to clear targets cache
+export const clearTargetsCache = () => {
+  cache.delete(CACHE_KEYS.TARGETS);
+  console.log('Targets cache cleared');
 };

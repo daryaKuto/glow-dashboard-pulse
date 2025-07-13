@@ -27,16 +27,10 @@ const Leaderboard: React.FC = () => {
   const [timeframe, setTimeframe] = useState('week');
   const [activeTab, setActiveTab] = useState('score');
 
-  const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
-
-  // Mock leaderboard data
-  const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntry[]>([
-    { id: 1, name: 'John Doe', score: 95, hits: 48, accuracy: 96, rank: 1 },
-    { id: 2, name: 'Jane Smith', score: 92, hits: 46, accuracy: 92, rank: 2 },
-    { id: 3, name: 'Mike Johnson', score: 88, hits: 44, accuracy: 88, rank: 3 },
-    { id: 4, name: 'Sarah Wilson', score: 85, hits: 42, accuracy: 85, rank: 4 },
-    { id: 5, name: 'Tom Brown', score: 82, hits: 41, accuracy: 82, rank: 5 },
-  ]);
+  // Get token from localStorage
+  const token = localStorage.getItem('tb_access');
+  // Instead, get token from session or context (implement as needed)
+  // REMOVE: useState with mock leaderboard data
 
   useEffect(() => {
     // Fetch leaderboard data based on timeframe
@@ -103,65 +97,65 @@ const Leaderboard: React.FC = () => {
                   </TabsList>
                   
                   <TabsContent value="score" className="space-y-4">
-                    {leaderboardData.map((entry) => (
-                      <div key={entry.id} className="flex items-center justify-between p-4 bg-brand-brown/5 rounded-lg border border-brand-brown/10">
+                    {/* leaderboardData.map((entry) => ( */}
+                      <div key={1} className="flex items-center justify-between p-4 bg-brand-brown/5 rounded-lg border border-brand-brown/10">
                         <div className="flex items-center gap-4">
-                          <div className="text-2xl font-bold text-brand-brown">{getRankIcon(entry.rank)}</div>
+                          <div className="text-2xl font-bold text-brand-brown">{getRankIcon(1)}</div>
                           <div>
-                            <div className="font-medium text-brand-dark font-body">{entry.name}</div>
-                            <div className="text-sm text-brand-dark/70 font-body">Score: {entry.score}</div>
+                            <div className="font-medium text-brand-dark font-body">John Doe</div>
+                            <div className="text-sm text-brand-dark/70 font-body">Score: 95</div>
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-xl font-heading text-brand-dark">{entry.score}</div>
+                          <div className="text-xl font-heading text-brand-dark">95</div>
                           <div className="text-sm text-brand-dark/70 font-body">points</div>
                         </div>
                       </div>
-                    ))}
+                    {/* ))} */}
                   </TabsContent>
                   
                   <TabsContent value="hits" className="space-y-4">
-                    {leaderboardData.map((entry) => (
-                      <div key={entry.id} className="flex items-center justify-between p-4 bg-brand-brown/5 rounded-lg border border-brand-brown/10">
+                    {/* leaderboardData.map((entry) => ( */}
+                      <div key={1} className="flex items-center justify-between p-4 bg-brand-brown/5 rounded-lg border border-brand-brown/10">
                         <div className="flex items-center gap-4">
-                          <div className="text-2xl font-bold text-brand-brown">{getRankIcon(entry.rank)}</div>
+                          <div className="text-2xl font-bold text-brand-brown">{getRankIcon(1)}</div>
                           <div>
-                            <div className="font-medium text-brand-dark font-body">{entry.name}</div>
-                            <div className="text-sm text-brand-dark/70 font-body">Hits: {entry.hits}</div>
+                            <div className="font-medium text-brand-dark font-body">John Doe</div>
+                            <div className="text-sm text-brand-dark/70 font-body">Hits: 48</div>
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-xl font-heading text-brand-dark">{entry.hits}</div>
+                          <div className="text-xl font-heading text-brand-dark">48</div>
                           <div className="text-sm text-brand-dark/70 font-body">hits</div>
                         </div>
                       </div>
-                    ))}
+                    {/* ))} */}
                   </TabsContent>
                   
                   <TabsContent value="accuracy" className="space-y-4">
-                    {leaderboardData.map((entry) => (
-                      <div key={entry.id} className="flex items-center justify-between p-4 bg-brand-brown/5 rounded-lg border border-brand-brown/10">
+                    {/* leaderboardData.map((entry) => ( */}
+                      <div key={1} className="flex items-center justify-between p-4 bg-brand-brown/5 rounded-lg border border-brand-brown/10">
                         <div className="flex items-center gap-4">
-                          <div className="text-2xl font-bold text-brand-brown">{getRankIcon(entry.rank)}</div>
+                          <div className="text-2xl font-bold text-brand-brown">{getRankIcon(1)}</div>
                           <div>
-                            <div className="font-medium text-brand-dark font-body">{entry.name}</div>
-                            <div className="text-sm text-brand-dark/70 font-body">Accuracy: {entry.accuracy}%</div>
+                            <div className="font-medium text-brand-dark font-body">John Doe</div>
+                            <div className="text-sm text-brand-dark/70 font-body">Accuracy: 96%</div>
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-xl font-heading text-brand-dark">{entry.accuracy}%</div>
+                          <div className="text-xl font-heading text-brand-dark">96%</div>
                           <div className="text-sm text-brand-dark/70 font-body">accuracy</div>
                         </div>
                       </div>
-                    ))}
+                    {/* ))} */}
                   </TabsContent>
                 </Tabs>
                 
-                {leaderboardData.length === 0 && (
+                {/* leaderboardData.length === 0 && ( */}
                   <div className="text-center py-8 text-brand-dark/70 font-body">
                     No leaderboard data available
                   </div>
-                )}
+                {/* ) */}
               </CardContent>
             </Card>
           </div>

@@ -16,19 +16,13 @@ import { toast } from '@/components/ui/sonner';
 import { UserRound, Settings, LogOut, Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-const devUser = {
-  name: 'Dev User',
-  avatarUrl: 'https://github.com/shadcn.png',
-  email: 'dev@ailith.co',
-};
-
 const Header: React.FC = () => {
   const { wsConnected } = useStats();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
 
-  // Use dev user in development if user is null
-  const displayUser = user || (import.meta.env.DEV ? devUser : null);
+  // Only show user if authenticated
+  const displayUser = user;
 
   const handleSignOut = async () => {
     try {
@@ -56,19 +50,16 @@ const Header: React.FC = () => {
         <Link to="/dashboard" className="flex items-center gap-2 h-full">
           <img src="/LogoFinal.png" alt="Ailith Logo" className="h-full max-h-16 w-auto object-contain" />
         </Link>
-        {import.meta.env.DEV && (
-          <span className="ml-2 px-2 py-1 rounded bg-brand-brown text-white text-xs font-bold">DEV MODE</span>
-        )}
       </div>
       <div className="flex items-center gap-4">
-        {(displayUser || import.meta.env.DEV) ? (
+        {displayUser ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                 <Avatar className="h-8 w-8">
-                  <AvatarImage src={displayUser?.avatarUrl || 'https://github.com/shadcn.png'} alt={displayUser?.name || 'Dev'} />
+                  <AvatarImage src={displayUser?.avatarUrl || 'https://github.com/shadcn.png'} alt={displayUser?.name || 'User'} />
                   <AvatarFallback className="bg-brand-brown text-white text-sm font-heading">
-                    {getInitials(displayUser?.name || 'Dev')}
+                    {getInitials(displayUser?.name || 'User')}
                   </AvatarFallback>
                 </Avatar>
               </Button>
@@ -76,8 +67,8 @@ const Header: React.FC = () => {
             <DropdownMenuContent className="bg-white text-brand-dark border border-brand-brown/20 w-56 shadow-lg">
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none text-brand-dark">{displayUser?.name || 'Development Mode'}</p>
-                  <p className="text-xs leading-none text-brand-dark/70">{displayUser?.email || 'No authentication required'}</p>
+                  <p className="text-sm font-medium leading-none text-brand-dark">{displayUser?.name || 'User'}</p>
+                  <p className="text-xs leading-none text-brand-dark/70">{displayUser?.email || 'user@example.com'}</p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-brand-brown/20" />

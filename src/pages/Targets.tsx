@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Plus,
+  RefreshCw,
   Sofa,
   Utensils,
   ChefHat,
@@ -31,6 +32,7 @@ import {
   Music,
   BookOpen
 } from 'lucide-react';
+import API from '@/lib/api';
 
 // Group targets by room for better organization
 const groupTargetsByRoom = (targets: any[], roomId?: number) => {
@@ -53,7 +55,7 @@ const groupTargetsByRoom = (targets: any[], roomId?: number) => {
 const Targets: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
-  const { targets, isLoading, refresh } = useTargets();
+  const { targets, isLoading, refresh, clearCache } = useTargets();
   const { rooms, isLoading: roomsLoading, fetchRooms } = useRooms();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -62,7 +64,8 @@ const Targets: React.FC = () => {
 
   // Extract token and optional roomId filter from URL params
   const params = new URLSearchParams(location.search);
-  const token = params.get('token') || 'dummy_token';
+  // TODO: Get proper token from auth context
+  const token = ''; // We need to implement proper token handling
   const roomIdParam = params.get('roomId');
   const roomId = roomIdParam ? Number(roomIdParam) : undefined;
 
@@ -70,6 +73,13 @@ const Targets: React.FC = () => {
     refresh();
     fetchRooms(token);
   }, [refresh, token, fetchRooms]);
+
+  // Handle refresh with cache clearing
+  const handleRefresh = async () => {
+    clearCache();
+    await refresh();
+    toast.success('Targets refreshed from ThingsBoard');
+  };
 
   // Filter targets by search term
   const filteredTargets = targets.filter(target => 
@@ -128,9 +138,22 @@ const Targets: React.FC = () => {
     setIsAddDialogOpen(false);
   };
   
-  const handleRenameTarget = (id: string, name: string) => {
-    // TODO: Implement with ThingsBoard API
-    toast.error('Rename target not implemented with ThingsBoard yet');
+  const handleRenameTarget = async (id: string, name: string) => {
+    try {
+      // Convert string ID to number for the API
+      const numericId = parseInt(id, 10);
+      
+      // Call the API to rename the target
+      await API.renameTarget(numericId, name);
+      
+      // Refresh the targets to show the updated name
+      await refresh();
+      
+      toast.success(`Target renamed to "${name}"`);
+    } catch (error) {
+      console.error('Error renaming target:', error);
+      toast.error(`Failed to rename target: ${error.message}`);
+    }
   };
   
   const handleLocateTarget = (id: string) => {
@@ -162,59 +185,65 @@ const Targets: React.FC = () => {
           <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-3xl font-heading text-brand-dark">Targets</h2>
-              <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button className="bg-brand-brown hover:bg-brand-dark text-white">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Target
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px]">
-                  <DialogHeader>
-                    <DialogTitle>Add New Target</DialogTitle>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="target-name">Target Name</Label>
-                      <Input
-                        id="target-name"
-                        value={newTargetName}
-                        onChange={(e) => setNewTargetName(e.target.value)}
-                        placeholder="Enter target name"
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="target-room">Room (Optional)</Label>
-                      <Select value={newTargetRoomId} onValueChange={setNewTargetRoomId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a room" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">No Room</SelectItem>
-                          {rooms.map(room => (
-                            <SelectItem key={room.id} value={room.id.toString()}>
-                              <div className="flex items-center gap-2">
-                                <div className="p-1 bg-brand-brown/10 rounded">
-                                  {getRoomIcon(room.icon)}
+              <div className="flex gap-2">
+                <Button onClick={handleRefresh} variant="outline" className="border-brand-brown/30 text-brand-dark hover:bg-brand-brown hover:text-white transition-colors">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh
+                </Button>
+                <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="bg-brand-brown hover:bg-brand-dark text-white">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Target
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                      <DialogTitle>Add New Target</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="target-name">Target Name</Label>
+                        <Input
+                          id="target-name"
+                          value={newTargetName}
+                          onChange={(e) => setNewTargetName(e.target.value)}
+                          placeholder="Enter target name"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="target-room">Room (Optional)</Label>
+                        <Select value={newTargetRoomId} onValueChange={setNewTargetRoomId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a room" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No Room</SelectItem>
+                            {rooms.map(room => (
+                              <SelectItem key={room.id} value={room.id.toString()}>
+                                <div className="flex items-center gap-2">
+                                  <div className="p-1 bg-brand-brown/10 rounded">
+                                    {getRoomIcon(room.icon)}
+                                  </div>
+                                  <span>{room.name}</span>
                                 </div>
-                                <span>{room.name}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => setIsAddDialogOpen(false)} className="border-brand-brown/30 text-brand-dark hover:bg-brand-brown hover:text-white transition-colors">
-                      Cancel
-                    </Button>
-                    <Button onClick={handleCreateTarget} className="bg-brand-brown hover:bg-brand-dark">
-                      Create Target
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => setIsAddDialogOpen(false)} className="border-brand-brown/30 text-brand-dark hover:bg-brand-brown hover:text-white transition-colors">
+                        Cancel
+                      </Button>
+                      <Button onClick={handleCreateTarget} className="bg-brand-brown hover:bg-brand-dark">
+                        Create Target
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
             </div>
             
             <div className="flex flex-col md:flex-row gap-4 mb-6">

@@ -29,7 +29,9 @@ const Settings = () => {
     email_target_offline: true,
   });
 
-  const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
+  // Get token from localStorage
+  const token = localStorage.getItem('tb_access');
+  // Instead, get token from session or context (implement as needed)
 
   useEffect(() => {
     const checkUser = async () => {
@@ -38,16 +40,10 @@ const Settings = () => {
         if (user) {
           setUserId(user.id);
           // Load user settings here
-        } else if (import.meta.env.DEV) {
-          // In development mode, set a dummy user ID
-          setUserId('dev-user-id');
         }
       } catch (error) {
         console.error('Error checking user:', error);
-        if (import.meta.env.DEV) {
-          // In development mode, set a dummy user ID even if there's an error
-          setUserId('dev-user-id');
-        }
+        // toast.error('Failed to load settings'); // Disabled notifications
       } finally {
         setIsLoading(false);
       }

@@ -1,68 +1,67 @@
 
-import React, { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { format } from 'date-fns';
+import { useAuth } from '@/providers/AuthProvider';
+import { useScenarios } from '@/store/useScenarios';
+import { useRooms } from '@/store/useRooms';
+import { useUserPrefs } from '@/store/useUserPrefs';
+import { updateSharedAttributes } from '@/services/thingsboard';
+import { useIsMobile } from '@/hooks/use-mobile';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import MobileDrawer from '@/components/MobileDrawer';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { 
-  Edit, 
-  Save, 
-  Target,
-  Sofa,
-  Utensils,
-  ChefHat,
-  Bed,
-  Briefcase,
-  Home,
-  Building,
-  Car,
-  TreePine,
-  Gamepad2,
-  Dumbbell,
-  Music,
-  BookOpen
-} from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useScenarios } from '@/store/useScenarios';
-import { useRooms } from '@/store/useRooms';
-import { useUserPrefs, type UserPreferences } from '@/store/useUserPrefs';
-import { updateSharedAttributes } from '@/services/thingsboard';
-import { format } from 'date-fns';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import TargetPreferencesSkeleton from '@/components/TargetPreferencesSkeleton';
+import { 
+  Target, 
+  Edit, 
+  Sofa, 
+  Utensils, 
+  ChefHat, 
+  Bed, 
+  Briefcase, 
+  Home, 
+  Building, 
+  Car, 
+  TreePine, 
+  Gamepad2, 
+  Dumbbell, 
+  Music, 
+  BookOpen,
+  Wifi,
+  WifiOff,
+  Save
+} from 'lucide-react';
+import type { UserPreferences } from '@/lib/types';
 
 const Profile: React.FC = () => {
-  const location = useLocation();
   const isMobile = useIsMobile();
+  const { user: authUser } = useAuth();
   const { scenarioHistory, fetchScenarios } = useScenarios();
   const { rooms, fetchRooms } = useRooms();
   const { prefs, loading: prefsLoading, load: loadPrefs, save: savePrefs, updateHouseWifi } = useUserPrefs();
   const [isLoading, setIsLoading] = useState(true);
   const [formPrefs, setFormPrefs] = useState<UserPreferences>({});
   
-  const [user, setUser] = useState({
-    name: 'Test User',
-    email: 'test_user@example.com',
-    avatarUrl: 'https://github.com/shadcn.png',
-    totalHits: 1248,
-    bestScore: 95,
-  });
+  // Use real user data from auth context
+  const user = {
+    name: authUser?.user_metadata?.name || authUser?.email?.split('@')[0] || 'User',
+    email: authUser?.email || 'No email',
+    avatarUrl: authUser?.user_metadata?.avatar_url || 'https://github.com/shadcn.png',
+    totalHits: 1248, // This should come from real data
+    bestScore: 95, // This should come from real data
+  };
 
-  // Get token from URL or localStorage
-  const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
+  // Get token from localStorage
+  const token = localStorage.getItem('tb_access');
 
   // Fetch data when component mounts
   useEffect(() => {

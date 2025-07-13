@@ -1,56 +1,60 @@
 
-import { MockWebSocket } from './types';
-import { staticDb } from './staticDb';
+// WebSocket connection for ThingsBoard telemetry
 
-// WebSocket connection helper now uses our mock events
-export const connectWebSocket = (token: string): MockWebSocket => {
-  // Create a fake WebSocket-like object backed by our mock events
-  const fakeSocket: MockWebSocket = {
-    onopen: null,
-    onmessage: null,
-    onclose: null,
-    onerror: null,
+export const openTelemetryWS = (token: string): WebSocket => {
+  const wsUrl = `${import.meta.env.VITE_TB_BASE_URL?.replace('https://', 'wss://').replace('http://', 'ws://')}/api/ws/plugins/telemetry?token=${token}`;
+  
+  console.log('Connecting to WebSocket:', wsUrl);
+  
+  try {
+    const ws = new WebSocket(wsUrl);
     
-    send: (data: string) => {
-      console.log('Mock WebSocket message sent:', data);
-    },
+    // Add error handling
+    ws.onerror = (error) => {
+      console.error('WebSocket connection error:', error);
+    };
     
-    close: () => {
-      staticDb.off('hit', handleHit);
-      staticDb.off('connectionStatus', handleConnection);
-      if (fakeSocket.onclose) fakeSocket.onclose({} as any);
-    }
-  };
-  
-  // Set up event handlers
-  const handleHit = (event: { targetId: number; score: number }) => {
-    if (fakeSocket.onmessage) {
-      fakeSocket.onmessage({
-        data: JSON.stringify({
-          type: 'hit',
-          targetId: event.targetId,
-          score: event.score
-        })
-      } as any);
-    }
-  };
-  
-  const handleConnection = (event: { connected: boolean }) => {
-    if (event.connected) {
-      if (fakeSocket.onopen) fakeSocket.onopen({} as any);
-    } else {
-      if (fakeSocket.onclose) fakeSocket.onclose({} as any);
-    }
-  };
-  
-  // Register event handlers
-  staticDb.on('hit', handleHit);
-  staticDb.on('connectionStatus', handleConnection);
-  
-  // Trigger initial connection status
-  setTimeout(() => {
-    if (fakeSocket.onopen) fakeSocket.onopen({} as any);
-  }, 100);
-  
-  return fakeSocket;
+    // Add connection timeout
+    const timeout = setTimeout(() => {
+      if (ws.readyState === WebSocket.CONNECTING) {
+        console.warn('WebSocket connection timeout');
+        ws.close();
+      }
+    }, 10000); // 10 second timeout
+    
+    ws.onopen = () => {
+      clearTimeout(timeout);
+      console.log('WebSocket connected successfully');
+    };
+    
+    ws.onclose = (event) => {
+      clearTimeout(timeout);
+      console.log('WebSocket closed:', event.code, event.reason);
+    };
+    
+    return ws;
+  } catch (error) {
+    console.error('Error creating WebSocket:', error);
+    // Return a mock WebSocket that does nothing
+    return {
+      readyState: WebSocket.CLOSED,
+      onopen: null,
+      onclose: null,
+      onmessage: null,
+      onerror: null,
+      send: () => {},
+      close: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+      url: '',
+      protocol: '',
+      extensions: '',
+      bufferedAmount: 0,
+      CONNECTING: 0,
+      OPEN: 1,
+      CLOSING: 2,
+      CLOSED: 3,
+    } as WebSocket;
+  }
 };

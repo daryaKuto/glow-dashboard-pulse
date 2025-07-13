@@ -19,7 +19,8 @@ const Scenarios: React.FC = () => {
   const { active, current, error, start, stop } = useScenarioRun();
   const [selectedRoomId, setSelectedRoomId] = useState<string>('');
 
-  const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
+  // Get token from localStorage
+  const token = localStorage.getItem('tb_access');
 
   // Auto-select first room if available
   React.useEffect(() => {

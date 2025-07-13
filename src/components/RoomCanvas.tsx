@@ -19,7 +19,8 @@ import GroupBox from './GroupBox';
 
 const RoomCanvas: React.FC = () => {
   const location = useLocation();
-  const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
+  // TODO: Get proper token from auth context
+  const token = ''; // We need to implement proper token handling
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
   

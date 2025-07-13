@@ -11,7 +11,8 @@ interface PalettePanelProps {
 
 const PalettePanel: React.FC<PalettePanelProps> = ({ targets }) => {
   const location = useLocation();
-  const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
+  // TODO: Get proper token from auth context
+  const token = ''; // We need to implement proper token handling
   const { layout, moveTarget } = useRoomDesigner();
   
   // Filter targets that are not placed on the canvas

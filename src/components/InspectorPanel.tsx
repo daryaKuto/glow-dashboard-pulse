@@ -11,7 +11,8 @@ import { toast } from '@/components/ui/sonner';
 
 const InspectorPanel: React.FC = () => {
   const location = useLocation();
-  const token = new URLSearchParams(location.search).get('token') || 'dummy_token';
+  // TODO: Get proper token from auth context
+  const token = ''; // We need to implement proper token handling
   
   const { 
     selectedIds,

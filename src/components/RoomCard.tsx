@@ -25,7 +25,9 @@ import {
   Gamepad2,
   Dumbbell,
   Music,
-  BookOpen
+  BookOpen,
+  Target,
+  Eye
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Room } from '@/store/useRooms';
@@ -35,41 +37,52 @@ interface RoomCardProps {
   isDragging?: boolean;
   onRename: (id: number, name: string) => void;
   onDelete: (id: number) => void;
+  onAssignTargets: () => void;
+  onViewDetails: () => void;
 }
 
-const RoomCard: React.FC<RoomCardProps> = ({
-  room,
-  isDragging = false,
-  onRename,
-  onDelete
+const RoomCard: React.FC<RoomCardProps> = ({ 
+  room, 
+  isDragging, 
+  onRename, 
+  onDelete,
+  onAssignTargets,
+  onViewDetails
 }) => {
-  // Handle rename with a simple inline prompt
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(room.name);
+
   const handleRename = () => {
-    const newName = window.prompt('Rename room:', room.name);
-    if (newName && newName.trim() !== '' && newName !== room.name) {
-      onRename(room.id, newName);
+    if (isEditing) {
+      onRename(room.id, editName);
+      setIsEditing(false);
+    } else {
+      setIsEditing(true);
     }
   };
 
-  // Get icon component based on icon name
-  const getRoomIcon = (iconName?: string) => {
-    switch (iconName) {
-      case 'sofa': return <Sofa className="h-6 w-6" />;
-      case 'utensils': return <Utensils className="h-6 w-6" />;
-      case 'chef-hat': return <ChefHat className="h-6 w-6" />;
-      case 'bed': return <Bed className="h-6 w-6" />;
-      case 'briefcase': return <Briefcase className="h-6 w-6" />;
-      case 'home': return <Home className="h-6 w-6" />;
-      case 'building': return <Building className="h-6 w-6" />;
-      case 'car': return <Car className="h-6 w-6" />;
-      case 'tree-pine': return <TreePine className="h-6 w-6" />;
-      case 'gamepad2': return <Gamepad2 className="h-6 w-6" />;
-      case 'dumbbell': return <Dumbbell className="h-6 w-6" />;
-      case 'music': return <Music className="h-6 w-6" />;
-      case 'book-open': return <BookOpen className="h-6 w-6" />;
-      case 'basement': return <Building className="h-6 w-6" />;
-      default: return <Home className="h-6 w-6" />;
-    }
+  const handleCancel = () => {
+    setEditName(room.name);
+    setIsEditing(false);
+  };
+
+  const getRoomIcon = (icon?: string) => {
+    const iconMap: { [key: string]: React.ReactNode } = {
+      'home': <Home className="h-5 w-5" />,
+      'sofa': <Sofa className="h-5 w-5" />,
+      'utensils': <Utensils className="h-5 w-5" />,
+      'chef-hat': <ChefHat className="h-5 w-5" />,
+      'bed': <Bed className="h-5 w-5" />,
+      'briefcase': <Briefcase className="h-5 w-5" />,
+      'building': <Building className="h-5 w-5" />,
+      'car': <Car className="h-5 w-5" />,
+      'tree-pine': <TreePine className="h-5 w-5" />,
+      'gamepad2': <Gamepad2 className="h-5 w-5" />,
+      'dumbbell': <Dumbbell className="h-5 w-5" />,
+      'music': <Music className="h-5 w-5" />,
+      'book-open': <BookOpen className="h-5 w-5" />
+    };
+    return iconMap[icon || 'home'] || <Home className="h-5 w-5" />;
   };
 
   return (
@@ -101,6 +114,15 @@ const RoomCard: React.FC<RoomCardProps> = ({
             <Button
               variant="ghost"
               size="sm"
+              onClick={onAssignTargets}
+              className="text-brand-brown hover:text-brand-dark hover:bg-brand-brown/10"
+              title="Assign targets to this room"
+            >
+              <Target className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={handleRename}
               className="text-brand-brown hover:text-brand-dark hover:bg-brand-brown/10"
             >
@@ -118,25 +140,61 @@ const RoomCard: React.FC<RoomCardProps> = ({
         </div>
       </CardHeader>
       
-      <CardContent className="space-y-4">
-        {/* Stats */}
-        <div className="grid grid-cols-1 gap-4">
-          <div className="text-center p-3 bg-brand-brown/5 rounded-lg">
-            <div className="text-2xl font-heading text-brand-dark">{room.targetCount}</div>
-            <div className="text-sm text-brand-dark/70 font-body">Targets</div>
+      {isEditing && (
+        <CardContent className="pt-0">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              className="flex-1 px-3 py-2 border border-brand-brown/30 rounded-md text-brand-dark bg-white"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleRename();
+                } else if (e.key === 'Escape') {
+                  handleCancel();
+                }
+              }}
+              autoFocus
+            />
+            <Button
+              size="sm"
+              onClick={handleRename}
+              className="bg-brand-brown hover:bg-brand-dark text-white"
+            >
+              Save
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleCancel}
+              className="border-brand-brown/30 text-brand-dark"
+            >
+              Cancel
+            </Button>
           </div>
-        </div>
-      </CardContent>
+        </CardContent>
+      )}
       
-      <CardFooter className="pt-0">
-        <Link to={`/targets?roomId=${room.id}`} className="w-full">
-          <Button 
-            variant="outline" 
-            className="w-full border-brand-brown text-brand-brown hover:bg-brand-brown hover:text-white transition-colors duration-200 rounded-lg"
+      <CardFooter className="pt-3">
+        <div className="flex items-center justify-between w-full">
+          <div className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-brand-brown" />
+            <span className="text-sm text-brand-dark/70 font-body">
+              {room.targetCount} target{room.targetCount !== 1 ? 's' : ''} assigned
+            </span>
+          </div>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onViewDetails}
+            className="border-brand-brown/30 text-brand-dark hover:bg-brand-brown/10"
           >
-            View Targets
+            <Eye className="h-4 w-4 mr-2" />
+            View Details
           </Button>
-        </Link>
+        </div>
       </CardFooter>
     </Card>
   );

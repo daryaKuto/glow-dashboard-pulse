@@ -1,0 +1,55 @@
+{
+  "id": "thingsboard-env-id",
+  "name": "ThingsBoard Environment",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "https://thingsboard.cloud",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "username",
+      "value": "andrew.tam@gmail.com",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "password",
+      "value": "dryfire2025",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "deviceId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "customerId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment"
+} 

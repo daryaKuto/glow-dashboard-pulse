@@ -1,380 +1,205 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import API from '@/lib/api';
+import type { User, Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
-  user: any | null;
-  session: any | null;
+  user: User | null;
+  session: Session | null;
   loading: boolean;
-  phoneVerifyModalOpen: boolean;
-  hasVerifiedPhone: boolean;
-  phoneVerificationStep: 'input' | 'verify' | 'complete';
-  phoneVerificationError: string | null;
   
   // Methods
   checkSession: () => Promise<void>;
   autoLoginDev: () => Promise<void>;
   signOut: () => Promise<void>;
-  signIn: (email: string, password: string) => Promise<any>;
+  signIn: (email: string, password: string) => Promise<{ token: string; refreshToken: string }>;
   signInWithGoogle: () => Promise<void>;
-  signUp: (email: string, password: string, userData?: any) => Promise<any>;
-  setPhoneVerifyModalOpen: (isOpen: boolean) => void;
-  linkPhone: (phone: string) => Promise<boolean>;
-  verifyPhoneOtp: (phone: string, otp: string) => Promise<boolean>;
-  resetPhoneVerification: () => void;
+  signUp: (email: string, password: string, userData?: Record<string, unknown>) => Promise<{ token: string; refreshToken: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<any | null>(null);
-  const [session, setSession] = useState<any | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [phoneVerifyModalOpen, setPhoneVerifyModalOpenState] = useState(false);
-  const [hasVerifiedPhone, setHasVerifiedPhone] = useState(false);
-  const [phoneVerificationStep, setPhoneVerificationStep] = useState<'input' | 'verify' | 'complete'>('input');
-  const [phoneVerificationError, setPhoneVerificationError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [hasAttemptedAutoLogin, setHasAttemptedAutoLogin] = useState(false);
   const [hasCheckedSession, setHasCheckedSession] = useState(false);
   
-  // Check if user is already logged in from localStorage - only once
-  useEffect(() => {
-    if (!hasCheckedSession) {
-      setHasCheckedSession(true);
-      checkSession();
-    }
-  }, [hasCheckedSession]);
-
-  // Auto-login for development environment - only once and with better conditions
-  useEffect(() => {
+  // Auto-login for development mode
+  const autoLoginDev = useCallback(async () => {
     const isDevelopment = import.meta.env.DEV;
-    if (isDevelopment && !user && !loading && !isLoggingIn && !hasAttemptedAutoLogin && hasCheckedSession) {
-      console.log('[AuthProvider] Development mode detected - auto-login with andrew.tam');
-      setHasAttemptedAutoLogin(true);
-      // Add a longer delay to prevent rapid attempts and rate limiting
-      setTimeout(() => {
-        autoLoginDev();
-      }, 5000); // 5 second delay to avoid rate limiting
-    }
-  }, [user, loading, isLoggingIn, hasAttemptedAutoLogin, hasCheckedSession]);
+    if (!isDevelopment) return;
 
-  // Listen for auth state changes
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        // ThingsBoard login is handled in checkSession and autoLoginDev
-        setUser(session.user);
-        setSession(session);
-        setHasVerifiedPhone(!!session.user?.phone);
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setSession(null);
-        setHasVerifiedPhone(false);
+    try {
+      console.log('[AuthProvider] Auto-login to ThingsBoard for development...');
+      
+      // Auto-login to ThingsBoard
+      const response = await API.signIn('andrew.tam@gmail.com', 'password123');
+      
+      if (response.token) {
+        console.log('[AuthProvider] ThingsBoard login complete for development');
+        // Set a mock user for development
+        setUser({
+          id: 'dev-user',
+          email: 'andrew.tam@gmail.com',
+          app_metadata: {},
+          aud: 'authenticated',
+          created_at: new Date().toISOString(),
+          user_metadata: {
+            name: 'Development User'
+          }
+        } as User);
+        setLoading(false);
       }
-    });
-
-    return () => subscription.unsubscribe();
+    } catch (error) {
+      console.error('[AuthProvider] Development auto-login failed:', error);
+      setLoading(false);
+    }
   }, []);
-  
-  // Wrap checkSession in useCallback to prevent infinite re-renders
+
+  // Check if user is authenticated
   const checkSession = useCallback(async () => {
     console.log('[AuthProvider] checkSession: start');
-    if (isLoggingIn) {
-      console.log('[AuthProvider] Login already in progress, skipping checkSession');
-      return;
-    }
-    
     setLoading(true);
     
     try {
       console.log('[AuthProvider] Checking Supabase session...');
-      const { data: { session } } = await supabase.auth.getSession();
-      console.log('[AuthProvider] Supabase session:', session);
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      console.log('[AuthProvider] Supabase session:', session?.user?.id);
+      
+      if (error) {
+        console.error('[AuthProvider] Session error:', error);
+        setUser(null);
+        setSession(null);
+        setLoading(false);
+        return;
+      }
       
       if (session?.user) {
-        // Check if we have a valid ThingsBoard token
-        const existingToken = localStorage.getItem('tb_access');
-        console.log('[AuthProvider] Existing ThingsBoard token:', existingToken ? 'exists' : 'none');
-        
-        if (!existingToken && !isLoggingIn) {
-          try {
-            console.log('[AuthProvider] Signing in to ThingsBoard...');
-            setIsLoggingIn(true);
-            // Use the real password for the known user
-            const password = session.user.email === 'andrew.tam@gmail.com' ? 'dryfire2025' : '<service-password>';
-            console.log('[AuthProvider] Attempting ThingsBoard login with:', session.user.email, 'password length:', password.length);
-            const { token, refreshToken } = await API.signIn(session.user.email!, password);
-            localStorage.setItem('tb_access', token);
-            localStorage.setItem('tb_refresh', refreshToken);
-            console.log('[AuthProvider] ThingsBoard login complete');
-          } catch (error) {
-            console.error('[AuthProvider] Failed to sign in to ThingsBoard:', error);
-            // Clear old tokens on failure
-            localStorage.removeItem('tb_access');
-            localStorage.removeItem('tb_refresh');
-            console.log('[AuthProvider] Cleared old tokens due to login failure');
-          } finally {
-            setIsLoggingIn(false);
-          }
-        } else if (existingToken && !isLoggingIn) {
-          console.log('[AuthProvider] ThingsBoard token already exists or login in progress, skipping...');
-        }
-        
         setUser(session.user);
+        setSession(session);
+        console.log('[AuthProvider] User authenticated:', session.user.email);
       } else {
         setUser(null);
+        setSession(null);
+        console.log('[AuthProvider] No active session');
       }
     } catch (error) {
-      console.error('[AuthProvider] Error checking session:', error);
+      console.error('[AuthProvider] Session check error:', error);
       setUser(null);
+      setSession(null);
     } finally {
       setLoading(false);
       console.log('[AuthProvider] checkSession: done');
     }
-  }, [isLoggingIn]);
+  }, []);
 
-  // Wrap autoLoginDev in useCallback
-  const autoLoginDev = useCallback(async () => {
-    if (isLoggingIn) {
-      console.log('[AuthProvider] Auto-login already in progress, skipping...');
-      return;
+  // Development mode: Skip authentication entirely
+  useEffect(() => {
+    const isDevelopment = import.meta.env.DEV;
+    if (isDevelopment && !user && !loading && !isLoggingIn && !hasAttemptedAutoLogin) {
+      console.log('[AuthProvider] Development mode - bypassing authentication');
+      setHasAttemptedAutoLogin(true);
+      
+      // Auto-login to ThingsBoard for development
+      autoLoginDev();
     }
-    
-    console.log('[AuthProvider] autoLoginDev: start');
-    setIsLoggingIn(true);
-    setLoading(true);
-    
+  }, [user, loading, isLoggingIn, hasAttemptedAutoLogin, autoLoginDev]);
+
+  // Check session on mount
+  useEffect(() => {
+    if (!hasCheckedSession) {
+      checkSession();
+      setHasCheckedSession(true);
+    }
+  }, [hasCheckedSession, checkSession]);
+
+  // Sign out
+  const signOut = useCallback(async () => {
     try {
-      // Auto-login to Supabase with andrew.tam credentials
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: 'andrew.tam@gmail.com',
-        password: 'dryfire2025'
-      });
-      
-      if (error) {
-        console.error('[AuthProvider] Auto-login Supabase error:', error);
-        setLoading(false);
-        setIsLoggingIn(false);
-        setHasAttemptedAutoLogin(false);
-        return;
-      }
-      
-      console.log('[AuthProvider] Auto-login Supabase success:', data.user);
-      
-      // Auto-login to ThingsBoard
-      try {
-        console.log('[AuthProvider] Auto-login to ThingsBoard...');
-        const { token, refreshToken } = await API.signIn('andrew.tam@gmail.com', 'dryfire2025');
-        localStorage.setItem('tb_access', token);
-        localStorage.setItem('tb_refresh', refreshToken);
-        console.log('[AuthProvider] Auto-login ThingsBoard complete');
-      } catch (error) {
-        console.error('[AuthProvider] Auto-login ThingsBoard failed:', error);
-      }
-      
-      setUser(data.user);
-      setSession(data.session);
-      setHasVerifiedPhone(!!data.user?.phone);
-      console.log('[AuthProvider] Auto-login complete, user set:', data.user);
-      
+      await supabase.auth.signOut();
+      setUser(null);
+      setSession(null);
     } catch (error) {
-      console.error('[AuthProvider] Auto-login error:', error);
-      setHasAttemptedAutoLogin(false);
-    } finally {
-      setLoading(false);
-      setIsLoggingIn(false);
+      console.error('[AuthProvider] Sign out error:', error);
     }
-  }, [isLoggingIn]);
-  
-  // Wrap signIn in useCallback
+  }, []);
+
+  // Sign in with email and password
   const signIn = useCallback(async (email: string, password: string) => {
-    console.log('[AuthProvider] signIn: start', email);
     try {
-      // Sign in with Supabase first
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        console.error('[AuthProvider] Supabase signIn error:', error);
-        throw error;
-      }
-      console.log('[AuthProvider] Supabase signIn success:', data.user);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+
+      // Also sign in to ThingsBoard
+      const tbResponse = await API.signIn(email, password);
       
-      // Then sign in to ThingsBoard
-      const response = await API.signIn(email, password);
-      console.log('[AuthProvider] ThingsBoard signIn success');
-      
-      // Store ThingsBoard tokens
-      localStorage.setItem('tb_access', response.token);
-      localStorage.setItem('tb_refresh', response.refreshToken);
-      
-      setUser(data.user);
-      setSession(data.session);
-      setHasVerifiedPhone(!!data.user?.phone);
-      
-      console.log('[AuthProvider] signIn: done', data.user);
-      return response;
+      return {
+        token: data.session?.access_token || '',
+        refreshToken: data.session?.refresh_token || ''
+      };
     } catch (error) {
-      console.error('[AuthProvider] signIn error:', error);
+      console.error('[AuthProvider] Sign in error:', error);
       throw error;
     }
   }, []);
-  
-  // Wrap signUp in useCallback
-  const signUp = useCallback(async (email: string, password: string, userData?: any) => {
+
+  // Sign up with email and password
+  const signUp = useCallback(async (email: string, password: string, userData?: Record<string, unknown>) => {
     try {
-      // Sign up with Supabase first
-      const { data, error } = await supabase.auth.signUp({ 
-        email, 
+      const { data, error } = await supabase.auth.signUp({
+        email,
         password,
         options: {
           data: userData
         }
       });
+
       if (error) throw error;
-      
-      // Then sign up with ThingsBoard (if needed)
-      const response = await API.signUp(email, password, userData);
-      
-      // For simplicity in our static demo, auto sign in after signup
-      return signIn(email, password);
+
+      return {
+        token: data.session?.access_token || '',
+        refreshToken: data.session?.refresh_token || ''
+      };
     } catch (error) {
-      console.error('Sign up error:', error);
+      console.error('[AuthProvider] Sign up error:', error);
       throw error;
     }
-  }, [signIn]);
-  
-  // Wrap signOut in useCallback
-  const signOut = useCallback(async () => {
-    try {
-      // Sign out from Supabase
-      await supabase.auth.signOut();
-      
-      // Sign out from ThingsBoard
-      await API.signOut();
-      
-      // Clear localStorage session
-      localStorage.removeItem('authSession');
-      
-      setUser(null);
-      setSession(null);
-      setHasVerifiedPhone(false);
-      setHasAttemptedAutoLogin(false);
-    } catch (error) {
-      console.error('Sign out error:', error);
-    }
   }, []);
-  
-  // Wrap setPhoneVerifyModalOpen in useCallback
-  const setPhoneVerifyModalOpen = useCallback((isOpen: boolean) => {
-    setPhoneVerifyModalOpenState(isOpen);
-    
-    // Reset state when closing
-    if (!isOpen) {
-      setPhoneVerificationStep('input');
-      setPhoneVerificationError(null);
-    }
-  }, []);
-  
-  // Wrap linkPhone in useCallback
-  const linkPhone = useCallback(async (phone: string): Promise<boolean> => {
-    setPhoneVerificationError(null);
-    
-    try {
-      // In our static demo, we'll simulate OTP verification
-      // In reality, this would send an OTP to the phone
-      
-      // Store the phone temporarily
-      localStorage.setItem('tempPhone', phone);
-      
-      setPhoneVerificationStep('verify');
-      return true;
-    } catch (error: any) {
-      console.error('Phone verification error:', error);
-      setPhoneVerificationError(error.message || 'Failed to send verification code');
-      return false;
-    }
-  }, []);
-  
-  // Wrap verifyPhoneOtp in useCallback
-  const verifyPhoneOtp = useCallback(async (phone: string, otp: string): Promise<boolean> => {
-    setPhoneVerificationError(null);
-    
-    try {
-      // For our static demo, any 6-digit code works
-      if (!/^\d{6}$/.test(otp)) {
-        throw new Error('Invalid verification code. Must be 6 digits.');
-      }
-      
-      if (user) {
-        // Update user data with verified phone
-        const updatedUser = await API.updateUser(user.id, { 
-          phone: phone,
-          phone_verified: true 
-        });
-        
-        // Update session
-        const updatedSession = { ...session, user: updatedUser.user };
-        localStorage.setItem('authSession', JSON.stringify(updatedSession));
-        
-        setUser(updatedUser.user);
-        setSession(updatedSession);
-        setHasVerifiedPhone(true);
-        setPhoneVerificationStep('complete');
-        
-        // Auto-close modal after success
-        setTimeout(() => {
-          setPhoneVerifyModalOpen(false);
-        }, 1500);
-        
-        return true;
-      } else {
-        throw new Error('No user is logged in');
-      }
-    } catch (error: any) {
-      console.error('OTP verification error:', error);
-      setPhoneVerificationError(error.message || 'Invalid verification code');
-      return false;
-    }
-  }, [user, session, setPhoneVerifyModalOpen]);
-  
+
   // Wrap signInWithGoogle in useCallback
   const signInWithGoogle = useCallback(async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin + '/auth/callback' },
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`
+      }
     });
+    
     if (error) throw error;
   }, []);
 
-  // Wrap resetPhoneVerification in useCallback
-  const resetPhoneVerification = useCallback(() => {
-    setPhoneVerificationStep('input');
-    setPhoneVerificationError(null);
-  }, []);
-  
-  const contextValue: AuthContextType = {
+  const value: AuthContextType = {
     user,
     session,
     loading,
-    phoneVerifyModalOpen,
-    hasVerifiedPhone,
-    phoneVerificationStep,
-    phoneVerificationError,
     checkSession,
     autoLoginDev,
     signOut,
     signIn,
     signInWithGoogle,
-    signUp,
-    setPhoneVerifyModalOpen,
-    linkPhone,
-    verifyPhoneOtp,
-    resetPhoneVerification
+    signUp
   };
   
   return (
-    <AuthContext.Provider value={contextValue}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
@@ -382,7 +207,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === null) {
+  if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;

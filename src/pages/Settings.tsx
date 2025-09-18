@@ -21,6 +21,7 @@ const Settings = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettingsType>({
@@ -93,16 +94,19 @@ const Settings = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-brand-light">
-      <Header />
+      <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
       
       <div className="flex flex-1">
         {!isMobile && <Sidebar />}
-        {isMobile && <MobileDrawer />}
+        <MobileDrawer 
+          isOpen={isMobileMenuOpen} 
+          onClose={() => setIsMobileMenuOpen(false)} 
+        />
         
         <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
           <div className="container mx-auto">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-3xl font-heading text-brand-dark">Settings</h2>
+              <h2 className="text-h1 font-heading text-brand-dark">Settings</h2>
             </div>
             
             {isLoading ? (
@@ -118,8 +122,8 @@ const Settings = () => {
               </div>
             ) : (
               <div className="text-center py-8">
-                <div className="bg-white rounded-lg p-8 mx-auto max-w-md shadow-sm border border-brand-brown/20">
-                  <div className="text-brand-brown mb-4 text-xl font-heading">Not logged in</div>
+                <div className="bg-white rounded-lg p-8 mx-auto max-w-md shadow-sm border border-gray-200">
+                  <div className="text-brand-primary mb-4 text-h3 font-heading">Not logged in</div>
                   <p className="text-brand-dark/70 mb-6 font-body">
                     Please log in to access your settings
                   </p>

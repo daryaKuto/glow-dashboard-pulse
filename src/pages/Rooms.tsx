@@ -19,6 +19,7 @@ import { toast } from '@/components/ui/sonner';
 const Rooms: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const { 
     rooms, 
     isLoading, 
@@ -156,20 +157,23 @@ const Rooms: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-brand-light">
-      <Header />
+      <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
       
       <div className="flex flex-1">
         {!isMobile && <Sidebar />}
-        {isMobile && <MobileDrawer />}
+        <MobileDrawer 
+          isOpen={isMobileMenuOpen} 
+          onClose={() => setIsMobileMenuOpen(false)} 
+        />
         
         <main className="flex-1 overflow-y-auto">
-          <div className="container mx-auto p-4 md:p-6 lg:p-8">
+          <div className="container mx-auto p-2 md:p-4 lg:p-6">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-3xl font-heading text-brand-dark">Rooms</h2>
+              <h2 className="text-h1 font-heading text-brand-dark">Rooms</h2>
               <Button 
                 onClick={handleRefresh}
                 variant="outline"
-                className="border-brand-brown/30 text-brand-dark hover:bg-brand-brown/10"
+                className="border-gray-200 text-brand-dark hover:bg-brand-secondary/10"
               >
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Refresh
@@ -178,38 +182,38 @@ const Rooms: React.FC = () => {
             
             {/* Stats Overview */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              <div className="bg-white rounded-lg p-4 shadow-sm border border-brand-brown/20">
+              <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-brand-brown/10 rounded-lg">
-                    <Users className="h-5 w-5 text-brand-brown" />
+                  <div className="p-2 bg-brand-secondary/10 rounded-lg">
+                    <Users className="h-5 w-5 text-brand-primary" />
                   </div>
                   <div>
                     <p className="text-sm text-brand-dark/70 font-body">Total Rooms</p>
-                    <p className="text-2xl font-heading text-brand-dark">{rooms.length}</p>
+                    <p className="text-h2 font-heading text-brand-dark">{rooms.length}</p>
                   </div>
                 </div>
               </div>
               
-              <div className="bg-white rounded-lg p-4 shadow-sm border border-brand-brown/20">
+              <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-brand-brown/10 rounded-lg">
-                    <Target className="h-5 w-5 text-brand-brown" />
+                  <div className="p-2 bg-brand-secondary/10 rounded-lg">
+                    <Target className="h-5 w-5 text-brand-primary" />
                   </div>
                   <div>
                     <p className="text-sm text-brand-dark/70 font-body">Total Targets</p>
-                    <p className="text-2xl font-heading text-brand-dark">{targets.length}</p>
+                    <p className="text-h2 font-heading text-brand-dark">{targets.length}</p>
                   </div>
                 </div>
               </div>
               
-              <div className="bg-white rounded-lg p-4 shadow-sm border border-brand-brown/20">
+              <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-brand-brown/10 rounded-lg">
-                    <Target className="h-5 w-5 text-brand-brown" />
+                  <div className="p-2 bg-brand-secondary/10 rounded-lg">
+                    <Target className="h-5 w-5 text-brand-primary" />
                   </div>
                   <div>
                     <p className="text-sm text-brand-dark/70 font-body">Unassigned</p>
-                    <p className="text-2xl font-heading text-brand-dark">{unassignedTargets.length}</p>
+                    <p className="text-h2 font-heading text-brand-dark">{unassignedTargets.length}</p>
                   </div>
                 </div>
               </div>
@@ -220,17 +224,17 @@ const Rooms: React.FC = () => {
                 placeholder="Room name"
                 value={newRoomName}
                 onChange={(e) => setNewRoomName(e.target.value)}
-                className="bg-white border-brand-brown/30 text-brand-dark flex-1"
+                className="bg-brand-light border-gray-200 text-brand-dark flex-1"
               />
               <Select value={newRoomIcon} onValueChange={setNewRoomIcon}>
-                <SelectTrigger className="w-48 bg-white border-brand-brown/30 text-brand-dark">
+                <SelectTrigger className="w-48 bg-brand-light border-gray-200 text-brand-dark">
                   <SelectValue placeholder="Select icon" />
                 </SelectTrigger>
                 <SelectContent>
                   {roomIcons.map((icon) => (
                     <SelectItem key={icon.value} value={icon.value}>
                       <div className="flex items-center gap-2">
-                        <span className="text-brand-brown">{icon.label}</span>
+                        <span className="text-brand-primary">{icon.label}</span>
                       </div>
                     </SelectItem>
                   ))}
@@ -238,7 +242,7 @@ const Rooms: React.FC = () => {
               </Select>
               <Button 
                 type="submit"
-                className="bg-brand-brown hover:bg-brand-dark text-white whitespace-nowrap"
+                className="bg-brand-secondary hover:bg-brand-secondary/90 text-white whitespace-nowrap"
                 disabled={!newRoomName.trim()}
               >
                 <Plus className="h-4 w-4 mr-2" /> Add Room
@@ -249,12 +253,12 @@ const Rooms: React.FC = () => {
               <div className="text-center py-8 text-brand-dark font-body">Loading rooms...</div>
             ) : rooms.length === 0 ? (
               <div className="text-center py-8">
-                <div className="bg-white rounded-lg p-8 mx-auto max-w-md shadow-sm border border-brand-brown/20">
-                  <div className="text-brand-brown mb-4 text-xl font-heading">No rooms yet</div>
+                <div className="bg-white rounded-lg p-8 mx-auto max-w-md shadow-sm border border-gray-200">
+                  <div className="text-brand-primary mb-4 text-h3 font-heading">No rooms yet</div>
                   <p className="text-brand-dark mb-6 font-body">
                     Create your first room to get started
                   </p>
-                  <Button className="bg-brand-brown hover:bg-dark text-white">
+                  <Button className="bg-brand-secondary hover:bg-dark text-white">
                     <Plus className="h-4 w-4 mr-2" />
                     Create Room
                   </Button>
@@ -328,7 +332,7 @@ const Rooms: React.FC = () => {
               <Button
                 onClick={handleAssignTarget}
                 disabled={!selectedTarget || unassignedTargets.length === 0}
-                className="bg-brand-brown hover:bg-brand-dark text-white"
+                className="bg-brand-secondary hover:bg-brand-secondary/90 text-white"
               >
                 Assign Target
               </Button>
@@ -342,11 +346,11 @@ const Rooms: React.FC = () => {
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
-              <div className="p-2 bg-brand-brown/10 rounded-lg">
-                <Target className="h-5 w-5 text-brand-brown" />
+              <div className="p-2 bg-brand-secondary/10 rounded-lg">
+                <Target className="h-5 w-5 text-brand-primary" />
               </div>
               <div>
-                <div className="text-xl font-heading text-brand-dark">
+                <div className="text-h3 font-heading text-brand-dark">
                   {roomForDetails?.name} - Room Details
                 </div>
                 <div className="text-sm text-brand-dark/70 font-body">
@@ -359,7 +363,7 @@ const Rooms: React.FC = () => {
           {roomForDetails && (
             <div className="space-y-6">
               {/* Room Info */}
-              <div className="bg-brand-brown/5 rounded-lg p-4">
+              <div className="bg-brand-secondary/5 rounded-lg p-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <p className="text-sm text-brand-dark/70 font-body">Room Name</p>
@@ -385,7 +389,7 @@ const Rooms: React.FC = () => {
                       setRoomDetailsOpen(false);
                       openAssignDialog(roomForDetails);
                     }}
-                    className="bg-brand-brown hover:bg-brand-dark text-white"
+                    className="bg-brand-secondary hover:bg-brand-secondary/90 text-white"
                   >
                     <Plus className="h-4 w-4 mr-2" />
                     Assign More Targets
@@ -393,8 +397,8 @@ const Rooms: React.FC = () => {
                 </div>
                 
                 {getRoomTargets(roomForDetails.id).length === 0 ? (
-                  <div className="text-center py-8 bg-brand-brown/5 rounded-lg">
-                    <Target className="h-12 w-12 text-brand-brown/50 mx-auto mb-4" />
+                  <div className="text-center py-8 bg-brand-secondary/5 rounded-lg">
+                    <Target className="h-12 w-12 text-brand-primary/50 mx-auto mb-4" />
                     <p className="text-brand-dark/70 font-body">No targets assigned to this room</p>
                     <p className="text-sm text-brand-dark/50">Click "Assign More Targets" to get started</p>
                   </div>
@@ -403,11 +407,11 @@ const Rooms: React.FC = () => {
                     {getRoomTargets(roomForDetails.id).map((target) => (
                       <div
                         key={getTargetId(target)}
-                        className="flex items-center justify-between p-4 bg-white border border-brand-brown/20 rounded-lg"
+                        className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="p-2 bg-brand-brown/10 rounded-lg">
-                            <Target className="h-4 w-4 text-brand-brown" />
+                          <div className="p-2 bg-brand-secondary/10 rounded-lg">
+                            <Target className="h-4 w-4 text-brand-primary" />
                           </div>
                           <div>
                             <p className="font-heading text-brand-dark">{target.name}</p>
@@ -459,11 +463,11 @@ const Rooms: React.FC = () => {
                     {unassignedTargets.slice(0, 5).map((target) => (
                       <div
                         key={getTargetId(target)}
-                        className="flex items-center justify-between p-4 bg-brand-brown/5 border border-brand-brown/20 rounded-lg"
+                        className="flex items-center justify-between p-4 bg-brand-secondary/5 border border-gray-200 rounded-lg"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="p-2 bg-brand-brown/10 rounded-lg">
-                            <Target className="h-4 w-4 text-brand-brown" />
+                          <div className="p-2 bg-brand-secondary/10 rounded-lg">
+                            <Target className="h-4 w-4 text-brand-primary" />
                           </div>
                           <div>
                             <p className="font-heading text-brand-dark">{target.name}</p>
@@ -496,7 +500,7 @@ const Rooms: React.FC = () => {
                                toast.error('Failed to assign target');
                              }
                           }}
-                          className="border-brand-brown/30 text-brand-brown hover:bg-brand-brown/10"
+                          className="border-gray-200 text-brand-primary hover:bg-brand-secondary/10"
                         >
                           <ArrowRight className="h-4 w-4 mr-1" />
                           Assign

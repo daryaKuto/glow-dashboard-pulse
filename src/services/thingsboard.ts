@@ -147,19 +147,25 @@ class ThingsBoardService {
   }
 
   // Device Management
-  async getDevices(pageSize: number = 10, page: number = 0): Promise<ThingsBoardDeviceListResponse> {
+  async getDevices(pageSize: number = 100, page: number = 0, type?: string, textSearch?: string, sortProperty?: string, sortOrder?: 'ASC' | 'DESC'): Promise<ThingsBoardDeviceListResponse> {
     const token = localStorage.getItem('tb_access');
     if (!token) {
       throw new Error('Not authenticated');
     }
 
     try {
-      const response = await api.get('/tenant/devices', {
-        params: {
-          pageSize,
-          page
-        }
-      });
+      const params: any = {
+        pageSize,
+        page
+      };
+
+      // Add optional parameters as per SwaggerUI documentation
+      if (type) params.type = type;
+      if (textSearch) params.textSearch = textSearch;
+      if (sortProperty) params.sortProperty = sortProperty;
+      if (sortOrder) params.sortOrder = sortOrder;
+
+      const response = await api.get('/tenant/devices', { params });
 
       return response.data;
     } catch (error) {
@@ -332,6 +338,62 @@ class ThingsBoardService {
     }
   }
 
+  // User Management (as per SwaggerUI documentation)
+  async getUsers(pageSize: number = 100, page: number = 0, textSearch?: string, sortProperty?: string, sortOrder?: 'ASC' | 'DESC'): Promise<{ data: ThingsBoardUser[] }> {
+    const token = localStorage.getItem('tb_access');
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    try {
+      const params: any = {
+        pageSize,
+        page
+      };
+
+      if (textSearch) params.textSearch = textSearch;
+      if (sortProperty) params.sortProperty = sortProperty;
+      if (sortOrder) params.sortOrder = sortOrder;
+
+      const response = await api.get('/customer/users', { params });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get users:', error);
+      throw error;
+    }
+  }
+
+  async getUser(userId: string): Promise<ThingsBoardUser> {
+    const token = localStorage.getItem('tb_access');
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    try {
+      const response = await api.get(`/user/${userId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get user:', error);
+      throw error;
+    }
+  }
+
+  // Telemetry Keys (as per SwaggerUI documentation)
+  async getTelemetryKeys(entityType: string, entityId: string): Promise<string[]> {
+    const token = localStorage.getItem('tb_access');
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    try {
+      const response = await api.get(`/plugins/telemetry/${entityType}/${entityId}/keys/timeseries`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get telemetry keys:', error);
+      throw error;
+    }
+  }
+
   // Utility methods
   isAuthenticated(): boolean {
     return !!localStorage.getItem('tb_access');
@@ -343,6 +405,148 @@ class ThingsBoardService {
 
   setAccessToken(token: string): void {
     localStorage.setItem('tb_access', token);
+  }
+
+  /**
+   * Send RPC command to device
+   */
+  async sendRpcCommand(deviceId: string, method: string, params: Record<string, any>): Promise<any> {
+    const token = this.getAccessToken();
+    if (!token) {
+      throw new Error('No access token available');
+    }
+
+    try {
+      const response = await api.post(`/api/plugins/rpc/oneway/${deviceId}`, {
+        method,
+        params,
+        timeout: 5000 // 5 second timeout
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log(`RPC command sent to ${deviceId}:`, { method, params });
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to send RPC command to ${deviceId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send telemetry data to device
+   */
+  async sendTelemetry(deviceId: string, telemetry: Record<string, any>): Promise<void> {
+    const token = this.getAccessToken();
+    if (!token) {
+      throw new Error('No access token available');
+    }
+
+    try {
+      const response = await api.post(`/api/plugins/telemetry/${deviceId}/timeseries/DEVICE_SCOPE`, 
+        telemetry,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      console.log(`Telemetry sent to ${deviceId}:`, telemetry);
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to send telemetry to ${deviceId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get telemetry data for specific time range
+   */
+  async getTelemetryHistory(
+    deviceId: string, 
+    keys: string[], 
+    startTime: number, 
+    endTime: number,
+    limit: number = 1000
+  ): Promise<TelemetryData> {
+    const token = this.getAccessToken();
+    if (!token) {
+      throw new Error('No access token available');
+    }
+
+    try {
+      const keysParam = keys.join(',');
+      const response = await api.get(
+        `/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keysParam}&startTs=${startTime}&endTs=${endTime}&limit=${limit}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to get telemetry history for ${deviceId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Subscribe to real-time telemetry updates via WebSocket
+   */
+  subscribeToTelemetry(deviceId: string, keys: string[], callback: (data: any) => void): WebSocket | null {
+    const token = this.getAccessToken();
+    if (!token) {
+      console.error('No access token available for WebSocket subscription');
+      return null;
+    }
+
+    try {
+      const ws = openTelemetryWS(token);
+      
+      ws.onopen = () => {
+        console.log(`WebSocket connected for device ${deviceId}`);
+        
+        // Subscribe to telemetry updates
+        const subscribeCmd = {
+          cmdId: Date.now(),
+          entityType: 'DEVICE',
+          entityId: deviceId,
+          scope: 'LATEST_TELEMETRY',
+          keys: keys.join(',')
+        };
+        
+        ws.send(JSON.stringify(subscribeCmd));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          callback(data);
+        } catch (error) {
+          console.error('Failed to parse WebSocket message:', error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error(`WebSocket error for device ${deviceId}:`, error);
+      };
+
+      ws.onclose = () => {
+        console.log(`WebSocket connection closed for device ${deviceId}`);
+      };
+
+      return ws;
+    } catch (error) {
+      console.error(`Failed to create WebSocket subscription for ${deviceId}:`, error);
+      return null;
+    }
   }
 }
 

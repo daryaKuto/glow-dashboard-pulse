@@ -17,6 +17,7 @@ const RoomDesigner: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const { 
     room, 
     targets, 
@@ -55,10 +56,13 @@ const RoomDesigner: React.FC = () => {
   if (isLoading) {
     return (
       <div className="min-h-screen flex flex-col bg-brand-light">
-        <Header />
+        <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
         <div className="flex flex-1">
           {!isMobile && <Sidebar />}
-          {isMobile && <MobileDrawer />}
+          <MobileDrawer 
+            isOpen={isMobileMenuOpen} 
+            onClose={() => setIsMobileMenuOpen(false)} 
+          />
           <main className="flex-1 flex items-center justify-center">
             <div className="text-center">
               <div className="text-brand-dark/70 font-body">Loading room designer...</div>
@@ -71,26 +75,29 @@ const RoomDesigner: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-brand-light">
-      <Header />
+      <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
       
       <div className="flex flex-1">
         {!isMobile && <Sidebar />}
-        {isMobile && <MobileDrawer />}
+        <MobileDrawer 
+          isOpen={isMobileMenuOpen} 
+          onClose={() => setIsMobileMenuOpen(false)} 
+        />
         
         <div className="flex-1 flex flex-col">
           {/* Toolbar */}
-          <div className="bg-white p-3 border-b border-brand-brown/20 flex justify-between items-center">
+          <div className="bg-white p-3 border-b border-gray-200 flex justify-between items-center">
             <div className="flex items-center gap-4">
               <Button 
                 onClick={handleBack}
                 variant="ghost" 
                 size="sm"
-                className="text-brand-brown hover:text-brand-dark"
+                className="text-brand-primary hover:text-brand-dark"
               >
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back
               </Button>
-              <h2 className="text-xl font-heading font-bold text-brand-dark ml-4">
+              <h2 className="text-h3 font-heading font-bold text-brand-dark ml-4">
                 {room?.name || 'Room Designer'}
               </h2>
             </div>
@@ -100,7 +107,7 @@ const RoomDesigner: React.FC = () => {
                 onClick={handleReset}
                 variant="outline" 
                 size="sm"
-                className="border-brand-brown text-brand-brown hover:bg-brand-brown hover:text-white"
+                className="border-primary text-brand-primary hover:bg-brand-secondary hover:text-white"
               >
                 <RotateCcw className="h-4 w-4 mr-2" />
                 Reset
@@ -108,7 +115,7 @@ const RoomDesigner: React.FC = () => {
               <Button 
                 onClick={handleSave}
                 size="sm"
-                className="bg-brand-brown hover:bg-brand-dark text-white"
+                className="bg-brand-brown hover:bg-brand-secondary/90 text-white"
               >
                 <Save className="h-4 w-4 mr-2" />
                 Save
@@ -119,7 +126,7 @@ const RoomDesigner: React.FC = () => {
           {/* Main Content */}
           <div className="flex flex-1 overflow-hidden">
             {/* Canvas Area */}
-            <div className="w-3/4 relative overflow-hidden bg-white border-r border-brand-brown/20">
+            <div className="w-3/4 relative overflow-hidden bg-white border-r border-gray-200">
               <RoomCanvas 
                 room={room}
                 targets={targets}

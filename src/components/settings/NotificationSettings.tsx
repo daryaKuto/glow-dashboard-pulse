@@ -17,10 +17,10 @@ interface NotificationSettingsProps {
 
 const NotificationSettings = ({ settings, onToggle }: NotificationSettingsProps) => {
   return (
-    <Card className="bg-white border-brand-brown/20 shadow-sm">
+    <Card className="bg-white border-gray-200 shadow-sm">
       <CardHeader>
         <CardTitle className="text-brand-dark flex items-center gap-2">
-          <Bell className="h-5 w-5 text-brand-brown" />
+          <Bell className="h-5 w-5 text-brand-primary" />
           Email Notifications
         </CardTitle>
         <CardDescription className="text-brand-dark/70 font-body">

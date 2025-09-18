@@ -78,19 +78,19 @@ const TargetCard: React.FC<TargetCardProps> = ({
   const cardBackgroundClass = target.backgroundColor || 'bg-white';
 
   return (
-    <Card className={`w-full ${cardBackgroundClass} border-brand-brown/20 shadow-sm hover:shadow-md transition-shadow ${className}`}>
-      <CardHeader className="pb-3">
+    <Card className={`w-full ${cardBackgroundClass} border-gray-200 shadow-sm hover:shadow-md transition-shadow ${className}`}>
+      <CardHeader className="pb-2 md:pb-3 p-3 md:p-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <TargetIcon type={target.type || 'standard'} size="lg" />
+          <div className="flex items-center gap-2 md:gap-3">
+            <TargetIcon type={target.type || 'standard'} size="md" />
             <div>
-              <CardTitle className="text-lg font-heading text-brand-dark">{target.name}</CardTitle>
-              <div className="flex items-center gap-2 mt-1">
-                <Badge variant="outline" className="border-brand-brown/30 text-brand-dark font-body">
+              <CardTitle className="text-sm md:text-base lg:text-lg font-heading text-brand-dark">{target.name}</CardTitle>
+              <div className="flex items-center gap-1 md:gap-2 mt-1">
+                <Badge variant="outline" className="border-gray-200 text-brand-dark font-body text-xs">
                   {target.deviceType || target.type || 'standard'}
                 </Badge>
-                <div className={`w-2 h-2 rounded-full ${getStatusColor(target.status)}`}></div>
-                <span className="text-sm text-brand-dark/70 font-body capitalize">{target.status}</span>
+                <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${getStatusColor(target.status)}`}></div>
+                <span className="text-xs md:text-sm text-brand-dark/70 font-body capitalize">{target.status}</span>
               </div>
             </div>
           </div>
@@ -100,7 +100,7 @@ const TargetCard: React.FC<TargetCardProps> = ({
               variant="ghost"
               size="sm"
               onClick={() => onRename?.(target.id, target.name)}
-              className="text-brand-brown hover:text-brand-dark hover:bg-brand-brown/10"
+              className="text-brand-primary hover:text-brand-dark hover:bg-brand-secondary/10"
             >
               <Settings className="h-4 w-4" />
             </Button>
@@ -108,17 +108,17 @@ const TargetCard: React.FC<TargetCardProps> = ({
         </div>
       </CardHeader>
       
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3 md:space-y-4 p-3 md:p-4">
         {/* Game Information */}
         {target.lastGameName && (
-          <div className="p-3 bg-brand-brown/5 rounded-lg">
-            <div className="flex items-center gap-2 mb-2">
-              <Gamepad2 className="h-4 w-4 text-brand-brown" />
-              <span className="text-sm font-medium text-brand-dark">Last Game</span>
+          <div className="p-2 md:p-3 bg-brand-secondary/5 rounded-lg">
+            <div className="flex items-center gap-1.5 md:gap-2 mb-1 md:mb-2">
+              <Gamepad2 className="h-3 w-3 md:h-4 md:w-4 text-brand-primary" />
+              <span className="text-xs md:text-sm font-medium text-brand-dark">Last Game</span>
             </div>
-            <div className="text-sm text-brand-dark font-body">{target.lastGameName}</div>
+            <div className="text-xs md:text-sm text-brand-dark font-body">{target.lastGameName}</div>
             {target.lastEvent && (
-              <Badge className={`text-xs mt-2 ${getEventBadgeColor(target.lastEvent)}`}>
+              <Badge className={`text-xs mt-1 md:mt-2 ${getEventBadgeColor(target.lastEvent)}`}>
                 {target.lastEvent}
               </Badge>
             )}
@@ -126,33 +126,33 @@ const TargetCard: React.FC<TargetCardProps> = ({
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="text-center p-3 bg-brand-brown/5 rounded-lg">
-            <div className="text-2xl font-heading text-brand-dark">{target.lastHits || target.hits || 0}</div>
-            <div className="text-sm text-brand-dark/70 font-body">Last Hits</div>
+        <div className="grid grid-cols-2 gap-2 md:gap-3 lg:gap-4">
+          <div className="text-center p-2 md:p-3 bg-brand-secondary/5 rounded-lg">
+            <div className="text-lg md:text-xl lg:text-2xl font-heading text-brand-dark">{target.lastHits || target.hits || 0}</div>
+            <div className="text-xs md:text-sm text-brand-dark/70 font-body">Last Hits</div>
           </div>
-          <div className="text-center p-3 bg-brand-brown/5 rounded-lg">
-            <div className="text-2xl font-heading text-brand-dark">{target.accuracy || 0}%</div>
-            <div className="text-sm text-brand-dark/70 font-body">Accuracy</div>
+          <div className="text-center p-2 md:p-3 bg-brand-secondary/5 rounded-lg">
+            <div className="text-lg md:text-xl lg:text-2xl font-heading text-brand-dark">{target.accuracy || 0}%</div>
+            <div className="text-xs md:text-sm text-brand-dark/70 font-body">Accuracy</div>
           </div>
         </div>
         
         {/* Details */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-sm">
+        <div className="space-y-1.5 md:space-y-2">
+          <div className="flex items-center justify-between text-xs md:text-sm">
             <div className="text-brand-dark/70 font-body">Room:</div>
             <div className="text-brand-dark font-body">{roomName || 'Unassigned'}</div>
           </div>
           
-          <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center justify-between text-xs md:text-sm">
             <div className="text-brand-dark/70 font-body">Battery:</div>
             <div className={`flex items-center gap-1 font-body ${getBatteryColor(target.battery || 100)}`}>
-              <Battery className="h-4 w-4" />
+              <Battery className="h-3 w-3 md:h-4 md:w-4" />
               <span>{target.battery || 100}%</span>
             </div>
           </div>
           
-          <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center justify-between text-xs md:text-sm">
             <div className="text-brand-dark/70 font-body">Last Seen:</div>
             <div className="text-brand-dark font-body">{formatLastSeen(target.lastSeen || new Date().toISOString())}</div>
           </div>
@@ -161,13 +161,13 @@ const TargetCard: React.FC<TargetCardProps> = ({
 
         
         {/* Actions */}
-        <div className="flex gap-2 pt-2">
+        <div className="flex gap-1.5 md:gap-2 pt-2">
           <Button
             size="sm"
             onClick={() => onLocate?.(target.id)}
-            className="flex-1 border border-brand-brown bg-white text-brand-brown hover:bg-brand-brown hover:text-white transition-colors"
+            className="flex-1 border border-primary bg-white text-brand-primary hover:bg-brand-secondary hover:text-white transition-colors text-xs md:text-sm"
           >
-            <Wifi className="h-4 w-4 mr-2" />
+            <Wifi className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
             Locate
           </Button>
           
@@ -175,7 +175,7 @@ const TargetCard: React.FC<TargetCardProps> = ({
             <Button
               size="sm"
               onClick={() => onDelete(target.id)}
-              className="border border-red-300 bg-white text-red-600 hover:bg-red-600 hover:text-white transition-colors"
+              className="border border-red-300 bg-white text-red-600 hover:bg-red-600 hover:text-white transition-colors text-xs md:text-sm"
             >
               Delete
             </Button>

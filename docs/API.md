@@ -3,275 +3,225 @@
 
 ## Overview
 
-This document outlines the API endpoints used by the FunGun Training System. The current implementation uses a mock API with MSW (Mock Service Worker) for development purposes.
+This document outlines the API endpoints used by the DryFire Training System. The current implementation integrates with ThingsBoard Cloud API for device management, telemetry data, and user management.
 
 ## Base URL
 
-- Development (Mock): `/` (relative to the application)
-- Production: `https://api.fungun.dev/` (planned)
+- Development: `http://localhost:8080/api/tb` (via Vite proxy)
+- Production: `https://thingsboard.cloud/api`
+- Swagger UI: `https://thingsboard.cloud/swagger-ui/`
 
 ## Authentication
 
-API requests require authentication via a token passed as either:
-- Query parameter: `?token=your_token`
-- Authorization header: `Authorization: Bearer your_token`
+API requests require authentication via JWT token obtained through the login endpoint:
 
-## REST Endpoints
-
-### Statistics
-
-#### GET /stats/targets
-Returns statistics about targets.
-
-**Response**:
+**Login Endpoint:** `POST /api/auth/login`
 ```json
 {
-  "total": 4,
-  "online": 3
+  "username": "andrew.tam@gmail.com",
+  "password": "dryfire2025"
 }
 ```
 
-#### GET /stats/rooms
-Returns statistics about rooms.
-
-**Response**:
+**Response:**
 ```json
 {
-  "count": 2
+  "token": "eyJhbGciOiJIUzUxMiJ9...",
+  "refreshToken": "eyJhbGciOiJIUzUxMiJ9...",
+  "userId": { "id": "user-id" },
+  "scopes": ["TENANT_ADMIN"]
 }
 ```
 
-#### GET /stats/scenarios
-Returns statistics about available scenarios.
+**Authorization Header:** `X-Authorization: Bearer {token}`
 
-**Response**:
+## ThingsBoard API Endpoints
+
+### Device Management
+
+#### GET /api/tenant/devices
+Returns a paginated list of devices owned by the tenant.
+
+**Query Parameters:**
+- `pageSize` (required): Maximum amount of entities to return (default: 100)
+- `page` (required): Sequence number of page starting from 0
+- `type` (optional): Device type filter
+- `textSearch` (optional): Case-insensitive substring filter based on device name
+- `sortProperty` (optional): Property to sort by
+- `sortOrder` (optional): ASC or DESC
+
+**Response:**
 ```json
 {
-  "count": 3
+  "data": [
+    {
+      "id": {
+        "entityType": "DEVICE",
+        "id": "device-uuid"
+      },
+      "name": "Dryfire-Target-001",
+      "type": "default",
+      "createdTime": 1747821447067,
+      "tenantId": { "entityType": "TENANT", "id": "tenant-uuid" },
+      "customerId": { "entityType": "CUSTOMER", "id": "customer-uuid" },
+      "additionalInfo": {
+        "roomId": 1,
+        "roomName": "Living Room"
+      }
+    }
+  ],
+  "totalPages": 1,
+  "totalElements": 1,
+  "hasNext": false
 }
 ```
 
-#### GET /stats/hits
-Returns hit trend data for the last 7 days.
+#### GET /api/device/{deviceId}
+Get device by ID.
 
-**Response**:
+#### POST /api/device
+Create a new device.
+
+**Request Body:**
+```json
+{
+  "name": "New Target Device",
+  "type": "default",
+  "additionalInfo": {
+    "roomId": 1,
+    "roomName": "Living Room"
+  }
+}
+```
+
+#### POST /api/device/{deviceId}
+Update device properties.
+
+#### DELETE /api/device/{deviceId}
+Delete a device.
+
+### User Management
+
+#### GET /api/customer/users
+Returns a paginated list of users for the current tenant.
+
+**Query Parameters:**
+- `pageSize` (required): Maximum amount of entities in one page (default: 100)
+- `page` (required): Sequence number of page starting from 0
+- `textSearch` (optional): Case-insensitive substring filter based on user email
+- `sortProperty` (optional): Property to sort by
+- `sortOrder` (optional): ASC or DESC
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "id": {
+        "entityType": "USER",
+        "id": "user-uuid"
+      },
+      "email": "dryfire.user1@gmail.com",
+      "firstName": "user1",
+      "lastName": null,
+      "authority": "CUSTOMER_USER",
+      "createdTime": 1739341687805,
+      "tenantId": { "entityType": "TENANT", "id": "tenant-uuid" },
+      "customerId": { "entityType": "CUSTOMER", "id": "customer-uuid" }
+    }
+  ]
+}
+```
+
+### Telemetry Data
+
+#### GET /api/plugins/telemetry/{entityType}/{entityId}/keys/timeseries
+Get all telemetry keys for a device.
+
+**Path Parameters:**
+- `entityType`: Entity type (e.g., "DEVICE")
+- `entityId`: Entity ID
+
+**Response:**
 ```json
 [
-  {
-    "date": "2025-04-22",
-    "hits": 45
-  },
-  {
-    "date": "2025-04-23",
-    "hits": 67
-  }
+  "temperature",
+  "test",
+  "msg",
+  "deviceName",
+  "event",
+  "deviceId",
+  "gameId"
 ]
 ```
 
-### Targets
+#### GET /api/plugins/telemetry/{entityType}/{entityId}/values/timeseries
+Get telemetry values for specific keys.
 
-#### GET /targets
-Returns a list of all targets.
+**Query Parameters:**
+- `keys`: Comma-separated list of telemetry keys
+- `startTs` (optional): Start timestamp
+- `endTs` (optional): End timestamp
+- `limit` (optional): Maximum number of values to return
+- `agg` (optional): Aggregation function (NONE, AVG, SUM, etc.)
 
-**Response**:
-```json
-[
-  {
-    "id": 1,
-    "name": "Target Alpha",
-    "status": "online",
-    "battery": 95,
-    "roomId": 1
-  }
-]
-```
+### Device Attributes
 
-#### PUT /targets/:id
-Update a target's properties.
+#### GET /api/plugins/telemetry/{entityType}/{entityId}/values/attributes/{scope}
+Get device attributes.
 
-**Request Body**:
-```json
-{
-  "name": "New Target Name",
-  "roomId": 2
-}
-```
+**Path Parameters:**
+- `scope`: Attribute scope (SHARED_SCOPE, SERVER_SCOPE, CLIENT_SCOPE)
 
-#### POST /targets/locate/:id
-Signal a target to help locate it physically.
+#### POST /api/plugins/telemetry/{entityType}/{entityId}/attributes/{scope}
+Set device attributes.
 
-**Response**:
+**Request Body:**
 ```json
 {
-  "success": true
-}
-```
-
-### Rooms
-
-#### GET /rooms
-Returns a list of all rooms.
-
-**Response**:
-```json
-[
-  {
-    "id": 1,
-    "name": "Living Room",
-    "order": 1,
-    "targetCount": 2
-  }
-]
-```
-
-#### POST /rooms
-Create a new room.
-
-**Request Body**:
-```json
-{
-  "name": "New Room"
-}
-```
-
-#### PUT /rooms/:id
-Update a room's properties.
-
-**Request Body**:
-```json
-{
-  "name": "Updated Room Name"
-}
-```
-
-#### DELETE /rooms/:id
-Delete a room.
-
-#### PUT /rooms/order
-Update the order of rooms.
-
-**Request Body**:
-```json
-{
-  "roomIds": [2, 1, 3] 
-}
-```
-
-### Sessions
-
-#### GET /sessions
-Returns a list of all sessions.
-
-**Response**:
-```json
-[
-  {
-    "id": 1,
-    "name": "Morning Practice",
-    "date": "2025-04-25T09:00:00Z",
-    "duration": 15,
-    "score": 87,
-    "accuracy": 75
-  }
-]
-```
-
-#### POST /sessions
-Create a new session.
-
-**Request Body**:
-```json
-{
-  "scenarioId": 1,
-  "roomIds": [1, 2]
-}
-```
-
-#### POST /sessions/:id/end
-End an active session.
-
-### Invites
-
-#### GET /invites/pending
-Returns a list of pending invites.
-
-**Response**:
-```json
-[
-  {
-    "id": 1,
-    "token": "abc123",
-    "sessionId": 1,
-    "createdAt": "2025-04-25T09:05:00Z"
-  }
-]
-```
-
-#### POST /invites
-Create a new invite for a session.
-
-**Request Body**:
-```json
-{
-  "sessionId": 1
+  "roomId": 1,
+  "location": "Living Room",
+  "status": "active"
 }
 ```
 
 ## WebSocket API
 
-### Hit WebSocket
+### Telemetry WebSocket
 
-**URL**: `wss://api.fungun.dev/hits/:userId`
+**URL**: `wss://thingsboard.cloud/api/ws/plugins/telemetry?token={jwt_token}`
 
-**Events**:
-- `hit`: Sent when a target is hit
-  ```json
-  {
-    "type": "hit",
-    "targetId": "target123",
-    "score": 75
-  }
-  ```
-
-### Session WebSocket
-
-**URL**: `wss://api.fungun.dev/session/:sessionId`
-
-**Events**:
-- `score_update`: Sent when a player's score changes
-  ```json
-  {
-    "type": "score_update",
-    "userId": "user123",
-    "hits": 12,
-    "accuracy": 85,
-    "timestamp": "2025-04-25T09:10:00Z"
-  }
-  ```
+**Events:**
+- Real-time telemetry updates from devices
+- Device status changes
+- Hit events and scoring data
 
 ## Error Handling
 
-API endpoints return appropriate HTTP status codes:
+ThingsBoard API returns standard HTTP status codes:
 
 - `200 OK`: Successful request
 - `201 Created`: Resource created
 - `204 No Content`: Resource deleted
 - `400 Bad Request`: Invalid request
-- `404 Not Found`: Resource not found
 - `401 Unauthorized`: Authentication required
 - `403 Forbidden`: Insufficient permissions
-
-Error responses include a message explaining the error.
+- `404 Not Found`: Resource not found
 
 ## Rate Limiting
 
-The API implements rate limiting:
-- 100 requests per minute for authenticated users
-- 20 requests per minute for unauthenticated requests
+ThingsBoard Cloud implements rate limiting:
+- Varies by subscription plan
+- Standard limits apply for API calls
+- WebSocket connections have separate limits
 
 ## Implementation Details
 
-The current implementation uses MSW to mock these endpoints during development:
-- Mock handlers are defined in `src/mocks/handlers.ts`
+The current implementation:
+- Uses Vite proxy for CORS handling in development
+- Integrates with ThingsBoard Cloud API
+- Supports JWT token authentication
+- Includes automatic token refresh
+- Provides SwaggerUI integration for API testing
 - WebSocket mocking is in `src/mocks/mockSocket.ts`
 - Data is stored in memory during the session

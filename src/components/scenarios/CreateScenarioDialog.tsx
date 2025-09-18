@@ -54,7 +54,7 @@ const CreateScenarioDialog: React.FC<CreateScenarioDialogProps> = ({
   
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-white border-brand-brown/20 max-w-md">
+      <DialogContent className="bg-white border-gray-200 max-w-md">
         <DialogHeader>
           <DialogTitle className="text-brand-dark font-heading">Start New Scenario</DialogTitle>
           <DialogDescription className="text-brand-dark/70 font-body">
@@ -71,8 +71,8 @@ const CreateScenarioDialog: React.FC<CreateScenarioDialogProps> = ({
                   key={scenario.id}
                   className={`flex items-center justify-between p-3 rounded-lg cursor-pointer border transition-colors ${
                     selectedScenario === scenario.id 
-                      ? 'border-brand-brown bg-brand-brown/5' 
-                      : 'border-brand-brown/20 hover:border-brand-brown/40'
+                      ? 'border-primary bg-brand-secondary/5' 
+                      : 'border-gray-200 hover:border-primary/40'
                   }`}
                   onClick={() => setSelectedScenario(scenario.id)}
                 >
@@ -83,9 +83,9 @@ const CreateScenarioDialog: React.FC<CreateScenarioDialogProps> = ({
                     </span>
                   </div>
                   {selectedScenario === scenario.id ? (
-                    <CheckCircle size={16} className="text-brand-brown" />
+                    <CheckCircle size={16} className="text-brand-primary" />
                   ) : (
-                    <Circle size={16} className="text-brand-brown/40" />
+                    <Circle size={16} className="text-brand-primary/40" />
                   )}
                 </div>
               ))}
@@ -101,7 +101,7 @@ const CreateScenarioDialog: React.FC<CreateScenarioDialogProps> = ({
                     id={`room-${room.id}`}
                     checked={selectedRooms.includes(room.id)}
                     onCheckedChange={() => toggleRoomSelection(room.id)}
-                    className="border-brand-brown/30 data-[state=checked]:bg-brand-brown data-[state=checked]:border-brand-brown"
+                    className="border-gray-200 data-[state=checked]:bg-brand-brown data-[state=checked]:border-primary"
                   />
                   <label htmlFor={`room-${room.id}`} className="text-sm font-medium text-brand-dark font-body">
                     {room.name} ({room.targetCount} targets)
@@ -114,7 +114,7 @@ const CreateScenarioDialog: React.FC<CreateScenarioDialogProps> = ({
         
         <div className="flex justify-end">
           <Button
-            className="bg-brand-brown hover:bg-brand-dark text-white font-body"
+            className="bg-brand-brown hover:bg-brand-secondary/90 text-white font-body"
             disabled={selectedScenario === null}
             onClick={handleStart}
           >

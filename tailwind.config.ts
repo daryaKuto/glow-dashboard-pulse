@@ -1,4 +1,3 @@
-
 import type { Config } from "tailwindcss";
 
 export default {
@@ -20,17 +19,18 @@ export default {
 		},
 		extend: {
 			colors: {
+				// Shadcn/UI semantic colors using CSS variables
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
 				ring: 'hsl(var(--ring))',
 				background: 'hsl(var(--background))',
 				foreground: 'hsl(var(--foreground))',
 				primary: {
-					DEFAULT: 'hsl(var(--primary))',
+					DEFAULT: 'hsl(var(--primary))', // #CE3E0A - Active/hover state
 					foreground: 'hsl(var(--primary-foreground))'
 				},
 				secondary: {
-					DEFAULT: 'hsl(var(--secondary))',
+					DEFAULT: 'hsl(var(--secondary))', // #816E94 - Default button state
 					foreground: 'hsl(var(--secondary-foreground))'
 				},
 				destructive: {
@@ -42,7 +42,7 @@ export default {
 					foreground: 'hsl(var(--muted-foreground))'
 				},
 				accent: {
-					DEFAULT: 'hsl(var(--accent))',
+					DEFAULT: 'hsl(var(--accent))', // #816E94
 					foreground: 'hsl(var(--accent-foreground))'
 				},
 				popover: {
@@ -63,13 +63,28 @@ export default {
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
 				},
+				// Brand colors - exact hex values for systematic use
 				brand: {
-					light: '#F3E7DB',
-					dark: '#1A243C',
+					// Core brand colors (your specified palette)
+					dark: '#1C192B',        // Fonts and dark background/accents
+					primary: '#CE3E0A',     // Icons, buttons when hovered/activated, current page highlights
+					secondary: '#816E94',   // Search bar background, buttons when not hovered/activated
+					light: '#F6F7EB',       // Background for every page
+					surface: '#FFFFFF',     // Light card background
+					
+					// Semantic aliases for clarity
+					text: '#1C192B',
+					accent: '#CE3E0A',
+					neutral: '#816E94',
+					background: '#F6F7EB',
+					
+					// Legacy colors for backward compatibility
+					black: '#1C192B',
+					'burnt-orange': '#CE3E0A',
+					purple: '#816E94',
+					ivory: '#F6F7EB',
 					brown: '#6B4A38',
-					// Keep original colors for backward compatibility
 					indigo: '#0A002B',
-					surface: '#130447',
 					lavender: '#A884FF',
 					orange: '#FF7A00',
 					error: '#FF3B5C',
@@ -78,9 +93,23 @@ export default {
 				},
 			},
 			fontFamily: {
-				heading: ['Oswald', 'Arial Black', 'Arial', 'sans-serif'],
-				body: ['Poppins', 'sans-serif'],
-				display: ['"Space Grotesk"', 'Inter', 'sans-serif'], // Keep for backward compatibility
+				// Brand typography
+				display: ['Comfortaa', 'sans-serif'],     // Logo/display only
+				heading: ['Merriweather', 'serif'],       // Headings & UI labels  
+				body: ['Raleway', 'sans-serif'],          // Body text
+				
+				// Legacy aliases
+				sans: ['Raleway', 'sans-serif'],
+			},
+			fontSize: {
+				// Typography scale matching the brand tokens
+				'display': ['2.5rem', { lineHeight: '1.2', fontWeight: '600' }],
+				'h1': ['1.875rem', { lineHeight: '2.25rem', fontWeight: '600' }],
+				'h1-md': ['2.25rem', { lineHeight: '2.5rem', fontWeight: '600' }],
+				'h2': ['1.5rem', { lineHeight: '2rem', fontWeight: '600' }],
+				'h2-md': ['1.875rem', { lineHeight: '2.25rem', fontWeight: '600' }],
+				'h3': ['1.25rem', { lineHeight: '1.75rem', fontWeight: '600' }],
+				'overline': ['0.75rem', { lineHeight: '1rem', letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: '500' }],
 			},
 			backgroundImage: {
 				'iridescent': 'linear-gradient(90deg,#00E6FF 0%,#3C6CFF 30%,#B13CFF 60%,#FF7A00 100%)',
@@ -88,10 +117,16 @@ export default {
 			borderRadius: {
 				lg: 'var(--radius)',
 				md: 'calc(var(--radius) - 2px)',
-				sm: 'calc(var(--radius) - 4px)'
+				sm: 'calc(var(--radius) - 4px)',
+				'2xl': '1.25rem', // Brand default
 			},
 			boxShadow: {
-				'card': '0 4px 6px rgba(0, 0, 0, 0.3)',
+				// Brand elevation
+				'subtle': 'var(--shadow)',
+				'card': '0 4px 6px rgba(0, 0, 0, 0.3)', // Legacy
+			},
+			letterSpacing: {
+				'wide': '0.05em',
 			},
 			keyframes: {
 				'accordion-down': {

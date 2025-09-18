@@ -4,12 +4,13 @@ This folder contains all the necessary files to test the ThingsBoard API integra
 
 ## 📁 Files Included
 
-- `ThingsBoard_API_Collection.json` - Complete Postman collection with all API endpoints
-- `ThingsBoard_Environment.json` - Environment variables for ThingsBoard configuration
-- `test_data.json` - Sample test data for various API calls
+- `ThingsBoard_API_Collection_Fixed.json` - Complete Postman collection with all API endpoints
+- `ThingsBoard_Environment.json` - Environment variables for ThingsBoard configuration  
 - `README.md` - This instruction file
-- `test-runner.js` - Node.js script to run tests programmatically
-- `package.json` - Dependencies for the test runner
+- `SwaggerUI.md` - ThingsBoard API documentation reference
+- `TEST_RESULTS.md` - Documented test results and findings
+
+**Note:** Automated testing scripts have been moved to `../tests/api/` folder.
 
 ## 🚀 Quick Start
 
@@ -160,15 +161,15 @@ This collection is designed for ThingsBoard Cloud. If you're using a different T
 
 ## 🚀 Programmatic Testing
 
-You can also run tests programmatically using the included Node.js script:
+You can also run tests programmatically using the automated testing scripts:
 
 ```bash
-cd postman
+cd tests/api
 npm install
 npm test
 ```
 
-This will run the entire collection and generate a test report.
+This will run the entire collection and generate a test report. See `../tests/api/README.md` for more details.
 
 ## 📋 Manual Testing Steps
 

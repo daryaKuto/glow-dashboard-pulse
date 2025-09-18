@@ -49,12 +49,12 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-brand-light p-4">
-      <Card className="w-full max-w-md bg-white border-brand-brown/20 shadow-lg">
+    <div className="min-h-screen flex flex-col bg-brand-light">
+      <Card className="w-full max-w-md bg-white border-gray-200 shadow-sm">
         <div className="mb-6 text-center">
           <a
             href="https://ailith.co"
-            className="text-sm text-brand-brown hover:underline"
+            className="text-sm text-brand-primary hover:underline"
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -62,9 +62,9 @@ const Login = () => {
           </a>
         </div>
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-heading text-brand-dark">Welcome Back</CardTitle>
+          <CardTitle className="text-h2 font-heading text-brand-dark">Welcome Back</CardTitle>
           <CardDescription className="text-brand-dark/70 font-body">
-            Sign in to your Ailith account
+            Sign in to your ailith.co account
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -81,9 +81,9 @@ const Login = () => {
                   required
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="pl-10 bg-white border-brand-brown/30 text-brand-dark"
+                  className="pl-10 bg-brand-light border-gray-200 text-brand-dark placeholder:text-brand-dark/70"
                 />
-                <Mail className="absolute left-3 top-3 h-4 w-4 text-brand-brown" />
+                <Mail className="absolute left-3 top-3 h-4 w-4 text-brand-primary" />
               </div>
             </div>
 
@@ -99,13 +99,13 @@ const Login = () => {
                   required
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="pl-10 pr-10 bg-white border-brand-brown/30 text-brand-dark"
+                  className="pl-10 pr-10 bg-brand-light border-gray-200 text-brand-dark placeholder:text-brand-dark/70"
                 />
-                <Lock className="absolute left-3 top-3 h-4 w-4 text-brand-brown" />
+                <Lock className="absolute left-3 top-3 h-4 w-4 text-brand-primary" />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3 text-brand-brown hover:text-brand-dark"
+                  className="absolute right-3 top-3 text-brand-primary hover:text-brand-dark"
                 >
                   {showPassword ? (
                     <EyeOff className="h-4 w-4" />
@@ -119,14 +119,14 @@ const Login = () => {
             <Button
               type="submit"
               disabled={loading}
-              className="w-full bg-brand-brown hover:bg-brand-dark text-white"
+              className="w-full bg-brand-secondary hover:bg-brand-primary text-white font-body"
             >
               {loading ? 'Logging in...' : 'Log in'}
             </Button>
 
             <div className="relative my-4">
-              <Separator className="bg-brand-brown/20" />
-              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-2 text-sm text-brand-dark/50 font-body">
+              <Separator className="bg-border" />
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-2 text-sm text-brand-dark/70 font-body">
                 or
               </span>
             </div>
@@ -136,7 +136,7 @@ const Login = () => {
               variant="outline"
               onClick={handleGoogleSignIn}
               disabled={googleLoading}
-              className="w-full border-brand-brown/30 text-brand-dark hover:bg-brand-brown hover:text-white"
+              className="w-full border-gray-200 text-brand-dark hover:bg-accent hover:text-accent-foreground font-body"
             >
               {googleLoading ? (
                 'Signing in...'
@@ -169,7 +169,7 @@ const Login = () => {
               Don't have an account?{' '}
               <Button
                 variant="link"
-                className="text-brand-brown hover:text-brand-dark p-0 font-body"
+                className="text-brand-primary hover:text-brand-primary/80 p-0 font-body"
                 onClick={() => navigate('/signup')}
               >
                 Sign up

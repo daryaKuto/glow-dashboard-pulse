@@ -44,7 +44,7 @@ const TargetIcon: React.FC<TargetIconProps> = ({
     const typeLower = type?.toLowerCase() || 'standard';
     switch (typeLower) {
       case 'standard':
-        return 'text-brand-brown';
+        return 'text-brand-primary';
       case 'reactive':
         return 'text-blue-600';
       case 'armored':
@@ -52,7 +52,7 @@ const TargetIcon: React.FC<TargetIconProps> = ({
       case 'premium':
         return 'text-yellow-600';
       default:
-        return 'text-brand-brown';
+        return 'text-brand-primary';
     }
   };
 

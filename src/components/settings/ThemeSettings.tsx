@@ -7,10 +7,10 @@ import { Label } from '@/components/ui/label';
 
 const ThemeSettings = () => {
   return (
-    <Card className="bg-white border-brand-brown/20 shadow-sm">
+    <Card className="bg-white border-gray-200 shadow-sm">
       <CardHeader>
         <CardTitle className="text-brand-dark flex items-center gap-2">
-          <Moon className="h-5 w-5 text-brand-brown" />
+          <Moon className="h-5 w-5 text-brand-primary" />
           Theme
         </CardTitle>
         <CardDescription className="text-brand-dark/70 font-body">

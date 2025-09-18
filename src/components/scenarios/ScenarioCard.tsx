@@ -26,25 +26,25 @@ const ScenarioCard: React.FC<ScenarioCardProps> = ({ scenario, onStart }) => {
   };
 
   return (
-    <Card className="w-full bg-white border-brand-brown/20 shadow-sm hover:shadow-md transition-shadow duration-200">
-      <CardHeader className="pb-3">
+    <Card className="w-full bg-white border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <CardHeader className="pb-2 md:pb-3 p-3 md:p-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-brand-brown/10 rounded-lg">
-              <Target className="h-5 w-5 text-brand-brown" />
+          <div className="flex items-center gap-2 md:gap-3">
+            <div className="p-1.5 md:p-2 bg-brand-secondary/10 rounded-lg">
+              <Target className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
             </div>
             <div>
-              <CardTitle className="text-lg font-heading text-brand-dark">
+              <CardTitle className="text-sm md:text-base lg:text-lg font-heading text-brand-dark">
                 {scenario.name}
               </CardTitle>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-1.5 md:gap-2 mt-1">
                 <Badge 
                   variant="outline" 
-                  className={`border ${getDifficultyColor(scenario.difficulty || 'unknown')} font-body`}
+                  className={`border text-xs ${getDifficultyColor(scenario.difficulty || 'unknown')} font-body`}
                 >
                   {scenario.difficulty || 'Unknown'}
                 </Badge>
-                <span className="text-sm text-brand-dark/70 font-body">
+                <span className="text-xs md:text-sm text-brand-dark/70 font-body">
                   {scenario.targetCount || 0} targets
                 </span>
               </div>
@@ -53,27 +53,27 @@ const ScenarioCard: React.FC<ScenarioCardProps> = ({ scenario, onStart }) => {
         </div>
       </CardHeader>
       
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3 md:space-y-4 p-3 md:p-4">
         {/* Stats */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="text-center p-3 bg-brand-brown/5 rounded-lg">
-            <div className="text-2xl font-heading text-brand-dark">
+        <div className="grid grid-cols-2 gap-2 md:gap-3 lg:gap-4">
+          <div className="text-center p-2 md:p-3 bg-brand-secondary/5 rounded-lg">
+            <div className="text-lg md:text-xl lg:text-2xl font-heading text-brand-dark">
               {scenario.targetCount || 0}
             </div>
-            <div className="text-sm text-brand-dark/70 font-body">Targets</div>
+            <div className="text-xs md:text-sm text-brand-dark/70 font-body">Targets</div>
           </div>
-          <div className="text-center p-3 bg-brand-brown/5 rounded-lg">
-            <div className="text-2xl font-heading text-brand-dark">
+          <div className="text-center p-2 md:p-3 bg-brand-secondary/5 rounded-lg">
+            <div className="text-lg md:text-xl lg:text-2xl font-heading text-brand-dark">
               {scenario.duration || 0}
             </div>
-            <div className="text-sm text-brand-dark/70 font-body">Minutes</div>
+            <div className="text-xs md:text-sm text-brand-dark/70 font-body">Minutes</div>
           </div>
         </div>
         
         {/* Description */}
         {scenario.description && (
-          <div className="p-3 bg-brand-brown/5 rounded-lg">
-            <p className="text-sm text-brand-dark/80 font-body">
+          <div className="p-2 md:p-3 bg-brand-secondary/5 rounded-lg">
+            <p className="text-xs md:text-sm text-brand-dark/80 font-body">
               {scenario.description}
             </p>
           </div>
@@ -83,9 +83,10 @@ const ScenarioCard: React.FC<ScenarioCardProps> = ({ scenario, onStart }) => {
         {onStart && (
           <Button 
             onClick={onStart}
-            className="w-full bg-brand-brown hover:bg-brand-dark text-white font-body"
+            className="w-full bg-brand-brown hover:bg-brand-secondary/90 text-white font-body text-xs md:text-sm"
+            size="sm"
           >
-            <Play className="h-4 w-4 mr-2" />
+            <Play className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
             Start Scenario
           </Button>
         )}

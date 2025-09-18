@@ -4,4 +4,3 @@ export { default as Sidebar } from '@/components/Sidebar';
 export { default as Header } from '@/components/Header';
 export { default as MobileDrawer } from '@/components/MobileDrawer';
 export { default as StatCard } from '@/components/StatCard';
-export { default as TrendChart } from '@/components/TrendChart';

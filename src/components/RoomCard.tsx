@@ -86,68 +86,68 @@ const RoomCard: React.FC<RoomCardProps> = ({
   };
 
   return (
-    <Card className={`w-full bg-white border-brand-brown/20 shadow-sm hover:shadow-md transition-shadow duration-200 ${
+    <Card className={`w-full bg-white border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200 ${
       isDragging ? 'opacity-50 scale-95' : ''
     }`}>
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-2 md:pb-3 p-3 md:p-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-brand-brown/10 rounded-lg">
+          <div className="flex items-center gap-2 md:gap-3">
+            <div className="p-1.5 md:p-2 bg-brand-secondary/10 rounded-lg">
               {getRoomIcon(room.icon)}
             </div>
             <div>
-              <CardTitle className="text-lg font-heading text-brand-dark">
+              <CardTitle className="text-sm md:text-base lg:text-lg font-heading text-brand-dark">
                 {room.name}
               </CardTitle>
-              <div className="flex items-center gap-2 mt-1">
-                <Badge variant="outline" className="border-brand-brown/30 text-brand-dark font-body">
+              <div className="flex items-center gap-1.5 md:gap-2 mt-1">
+                <Badge variant="outline" className="border-gray-200 text-brand-dark font-body text-xs">
                   Room
                 </Badge>
-                <span className="text-sm text-brand-dark/70 font-body">
+                <span className="text-xs md:text-sm text-brand-dark/70 font-body">
                   {room.targetCount} targets
                 </span>
               </div>
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 md:gap-2">
             <Button
               variant="ghost"
               size="sm"
               onClick={onAssignTargets}
-              className="text-brand-brown hover:text-brand-dark hover:bg-brand-brown/10"
+              className="text-brand-primary hover:text-brand-dark hover:bg-brand-secondary/10 p-1.5 md:p-2"
               title="Assign targets to this room"
             >
-              <Target className="h-4 w-4" />
+              <Target className="h-3 w-3 md:h-4 md:w-4" />
             </Button>
             <Button
               variant="ghost"
               size="sm"
               onClick={handleRename}
-              className="text-brand-brown hover:text-brand-dark hover:bg-brand-brown/10"
+              className="text-brand-primary hover:text-brand-dark hover:bg-brand-secondary/10 p-1.5 md:p-2"
             >
-              <Edit className="h-4 w-4" />
+              <Edit className="h-3 w-3 md:h-4 md:w-4" />
             </Button>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => onDelete(room.id)}
-              className="text-red-600 hover:text-red-700 hover:bg-red-600 hover:text-white"
+              className="text-red-600 hover:bg-red-600 hover:text-white p-1.5 md:p-2"
             >
-              <Trash className="h-4 w-4" />
+              <Trash className="h-3 w-3 md:h-4 md:w-4" />
             </Button>
           </div>
         </div>
       </CardHeader>
       
       {isEditing && (
-        <CardContent className="pt-0">
-          <div className="flex gap-2">
+        <CardContent className="pt-0 p-3 md:p-4">
+          <div className="flex gap-1.5 md:gap-2">
             <input
               type="text"
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              className="flex-1 px-3 py-2 border border-brand-brown/30 rounded-md text-brand-dark bg-white"
+              className="flex-1 px-2 md:px-3 py-1.5 md:py-2 border border-gray-200 rounded-md text-brand-dark bg-white text-xs md:text-sm"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   handleRename();
@@ -160,7 +160,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
             <Button
               size="sm"
               onClick={handleRename}
-              className="bg-brand-brown hover:bg-brand-dark text-white"
+              className="bg-brand-brown hover:bg-brand-secondary/90 text-white text-xs md:text-sm"
             >
               Save
             </Button>
@@ -168,7 +168,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
               size="sm"
               variant="outline"
               onClick={handleCancel}
-              className="border-brand-brown/30 text-brand-dark"
+              className="border-gray-200 text-brand-dark text-xs md:text-sm"
             >
               Cancel
             </Button>
@@ -176,11 +176,11 @@ const RoomCard: React.FC<RoomCardProps> = ({
         </CardContent>
       )}
       
-      <CardFooter className="pt-3">
+      <CardFooter className="pt-2 md:pt-3 p-3 md:p-4">
         <div className="flex items-center justify-between w-full">
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-brand-brown" />
-            <span className="text-sm text-brand-dark/70 font-body">
+          <div className="flex items-center gap-1.5 md:gap-2">
+            <Users className="h-3 w-3 md:h-4 md:w-4 text-brand-primary" />
+            <span className="text-xs md:text-sm text-brand-dark/70 font-body">
               {room.targetCount} target{room.targetCount !== 1 ? 's' : ''} assigned
             </span>
           </div>
@@ -189,9 +189,9 @@ const RoomCard: React.FC<RoomCardProps> = ({
             variant="outline"
             size="sm"
             onClick={onViewDetails}
-            className="border-brand-brown/30 text-brand-dark hover:bg-brand-brown/10"
+            className="border-gray-200 text-brand-dark hover:bg-brand-secondary/10 text-xs md:text-sm"
           >
-            <Eye className="h-4 w-4 mr-2" />
+            <Eye className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
             View Details
           </Button>
         </div>

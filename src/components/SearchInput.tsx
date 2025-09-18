@@ -44,9 +44,9 @@ const SearchInput: React.FC<SearchInputProps> = ({
       const timer = setTimeout(() => {
         // Mock search results
         const mockResults = [
-          { id: '1', name: 'John Doe', email: 'john@example.com', avatar: 'https://github.com/shadcn.png' },
-          { id: '2', name: 'Jane Smith', email: 'jane@example.com', avatar: 'https://github.com/shadcn.png' },
-          { id: '3', name: 'Mike Johnson', email: 'mike@example.com', avatar: 'https://github.com/shadcn.png' },
+          { id: '1', name: 'John Doe', email: 'john@example.com', avatar: '/thumb-3.png' },
+          { id: '2', name: 'Jane Smith', email: 'jane@example.com', avatar: '/thumb-3.png' },
+          { id: '3', name: 'Mike Johnson', email: 'mike@example.com', avatar: '/thumb-3.png' },
         ].filter(user => 
           user.name.toLowerCase().includes(query.toLowerCase()) ||
           user.email.toLowerCase().includes(query.toLowerCase())
@@ -103,9 +103,9 @@ const SearchInput: React.FC<SearchInputProps> = ({
           placeholder={placeholder}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="pl-10 bg-white border-brand-brown/30 text-brand-dark"
+          className="pl-10 bg-white border-gray-200 text-brand-dark"
         />
-        <Search className="absolute left-3 top-3 h-4 w-4 text-brand-brown" />
+        <Search className="absolute left-3 top-3 h-4 w-4 text-brand-primary" />
         
         {query && (
           <Button
@@ -113,7 +113,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
             variant="ghost"
             size="sm"
             onClick={handleClear}
-            className="absolute right-2 top-2 h-6 w-6 p-0 text-brand-brown hover:text-brand-dark"
+            className="absolute right-2 top-2 h-6 w-6 p-0 text-brand-primary hover:text-brand-dark"
           >
             <X className="h-4 w-4" />
           </Button>
@@ -122,7 +122,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
 
       {/* Search Results Dropdown */}
       {showResults && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-brand-brown/20 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto">
           {isSearching ? (
             <div className="p-4 text-center text-brand-dark/70 font-body">
               Searching...

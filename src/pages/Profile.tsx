@@ -44,6 +44,7 @@ import type { UserPreferences } from '@/lib/types';
 
 const Profile: React.FC = () => {
   const isMobile = useIsMobile();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const { user: authUser } = useAuth();
   const { scenarioHistory, fetchScenarios } = useScenarios();
   const { rooms, fetchRooms } = useRooms();
@@ -55,7 +56,7 @@ const Profile: React.FC = () => {
   const user = {
     name: authUser?.user_metadata?.name || authUser?.email?.split('@')[0] || 'User',
     email: authUser?.email || 'No email',
-    avatarUrl: authUser?.user_metadata?.avatar_url || 'https://github.com/shadcn.png',
+    avatarUrl: authUser?.user_metadata?.avatar_url || '/thumb-3.png',
     totalHits: 1248, // This should come from real data
     bestScore: 95, // This should come from real data
   };
@@ -153,18 +154,21 @@ const Profile: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-brand-light">
-      <Header />
+      <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
       
       <div className="flex flex-1">
         {!isMobile && <Sidebar />}
-        {isMobile && <MobileDrawer />}
+        <MobileDrawer 
+          isOpen={isMobileMenuOpen} 
+          onClose={() => setIsMobileMenuOpen(false)} 
+        />
         
         <main className="flex-1 overflow-y-auto">
           <div className="container mx-auto p-4 md:p-6 lg:p-8">
-            <h2 className="text-3xl font-heading text-brand-dark mb-8">Profile</h2>
+            <h2 className="text-h1 font-heading text-brand-dark mb-8">Profile</h2>
             
             <Tabs defaultValue="overview" className="space-y-6">
-              <TabsList className="grid w-full grid-cols-3 bg-white border border-brand-brown/20">
+              <TabsList className="grid w-full grid-cols-3 bg-white border border-gray-200">
                 <TabsTrigger value="overview" className="text-[#785a46] data-[state=active]:bg-brand-brown data-[state=active]:text-white hover:text-[#785a46]">Overview</TabsTrigger>
                 <TabsTrigger value="preferences" className="text-[#785a46] data-[state=active]:bg-brand-brown data-[state=active]:text-white hover:text-[#785a46]">Target Preferences</TabsTrigger>
                 <TabsTrigger value="sessions" className="text-[#785a46] data-[state=active]:bg-brand-brown data-[state=active]:text-white hover:text-[#785a46]">Recent Sessions</TabsTrigger>
@@ -172,27 +176,27 @@ const Profile: React.FC = () => {
               
               <TabsContent value="overview" className="space-y-6">
                 {/* Profile Info */}
-                <div className="bg-white rounded-lg p-6 shadow-sm border border-brand-brown/20">
+                <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
                   <div className="flex items-center gap-6">
-                                          <Avatar className="h-20 w-20 border-2 border-brand-brown/30">
+                                          <Avatar className="h-20 w-20 border-2 border-gray-200">
                         <AvatarImage src={user.avatarUrl} />
-                        <AvatarFallback className="bg-brand-brown text-white text-xl font-heading">
+                        <AvatarFallback className="bg-brand-brown text-white text-h3 font-heading">
                           {user.name.split(' ').map(n => n[0]).join('')}
                         </AvatarFallback>
                       </Avatar>
                     
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-2xl font-heading text-brand-dark">{user.name}</h3>
+                        <h3 className="text-h2 font-heading text-brand-dark">{user.name}</h3>
                         <Dialog>
                           <DialogTrigger asChild>
-                            <Button variant="ghost" size="sm" className="text-brand-brown hover:text-[#785a46] hover:bg-brand-brown/20">
+                            <Button variant="ghost" size="sm" className="text-brand-primary hover:text-[#785a46] hover:bg-brand-secondary/20">
                               <Edit className="h-4 w-4" />
                             </Button>
                           </DialogTrigger>
-                          <DialogContent className="bg-white border-brand-brown/20 text-brand-dark">
+                          <DialogContent className="bg-white border-gray-200 text-brand-dark">
                             <DialogHeader>
-                              <DialogTitle className="text-xl font-heading">Edit Profile</DialogTitle>
+                              <DialogTitle className="text-h3 font-heading">Edit Profile</DialogTitle>
                               <DialogDescription className="text-brand-dark/70 font-body">
                                 Update your profile information
                               </DialogDescription>
@@ -200,11 +204,11 @@ const Profile: React.FC = () => {
                             <div className="space-y-4">
                               <div>
                                 <label className="text-sm text-brand-dark font-body">Display Name</label>
-                                <Input defaultValue={user.name} className="bg-white border-brand-brown/30 text-brand-dark" />
+                                <Input defaultValue={user.name} className="bg-white border-gray-200 text-brand-dark" />
                               </div>
                               <div>
                                 <label className="text-sm text-brand-dark font-body">Email</label>
-                                <Input defaultValue={user.email} disabled className="bg-white border-brand-brown/30 text-brand-dark/70" />
+                                <Input defaultValue={user.email} disabled className="bg-white border-gray-200 text-brand-dark/70" />
                                 <p className="text-xs text-brand-dark/70 font-body">Email cannot be changed</p>
                               </div>
                             </div>
@@ -218,11 +222,11 @@ const Profile: React.FC = () => {
                 
                 {/* Stats */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="bg-white rounded-lg p-6 shadow-sm border border-brand-brown/20">
+                  <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
                     <div className="text-sm text-brand-dark/70 font-body">Total Hits</div>
                     <div className="text-3xl text-brand-dark font-heading">{user.totalHits}</div>
                   </div>
-                  <div className="bg-white rounded-lg p-6 shadow-sm border border-brand-brown/20">
+                  <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
                     <div className="text-sm text-brand-dark/70 font-body">Best Score</div>
                     <div className="text-3xl text-brand-dark font-heading">{user.bestScore}</div>
                   </div>
@@ -230,10 +234,10 @@ const Profile: React.FC = () => {
               </TabsContent>
               
               <TabsContent value="preferences" className="space-y-6">
-                <Card className="bg-white border-brand-brown/20 shadow-sm">
+                <Card className="bg-white border-gray-200 shadow-sm">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-brand-dark">
-                      <Target className="h-5 w-5 text-brand-brown" />
+                      <Target className="h-5 w-5 text-brand-primary" />
                       Target Network Preferences
                     </CardTitle>
                   </CardHeader>
@@ -245,7 +249,7 @@ const Profile: React.FC = () => {
                     ) : (
                       <>
                         {/* House WiFi Settings */}
-                        <div className="p-4 border border-brand-brown/20 rounded-lg bg-brand-brown/5">
+                        <div className="p-4 border border-gray-200 rounded-lg bg-brand-secondary/5">
                           <h4 className="font-semibold text-brand-dark mb-4">House WiFi Settings</h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-2">
@@ -258,7 +262,7 @@ const Profile: React.FC = () => {
                                 placeholder="MyWiFi"
                                 value={formPrefs.houseWifi?.ssid || ''}
                                 onChange={(e) => updateHouseWifi('ssid', e.target.value)}
-                                className="bg-white border-brand-brown/30 text-brand-dark placeholder:text-brand-dark/50"
+                                className="bg-white border-gray-200 text-brand-dark placeholder:text-brand-dark/50"
                               />
                             </div>
                             <div className="space-y-2">
@@ -271,7 +275,7 @@ const Profile: React.FC = () => {
                                 placeholder="••••••••"
                                 value={formPrefs.houseWifi?.password || ''}
                                 onChange={(e) => updateHouseWifi('password', e.target.value)}
-                                className="bg-white border-brand-brown/30 text-brand-dark placeholder:text-brand-dark/50"
+                                className="bg-white border-gray-200 text-brand-dark placeholder:text-brand-dark/50"
                               />
                             </div>
                           </div>
@@ -280,8 +284,8 @@ const Profile: React.FC = () => {
                         {/* Target IP Addresses */}
                         {rooms.map((room) => (
                           <div key={room.id} className="space-y-4">
-                            <h3 className="text-lg font-heading text-brand-dark border-b border-brand-brown/20 pb-2 flex items-center gap-2">
-                              <div className="p-1 bg-brand-brown/10 rounded">
+                            <h3 className="text-lg font-heading text-brand-dark border-b border-gray-200 pb-2 flex items-center gap-2">
+                              <div className="p-1 bg-brand-secondary/10 rounded">
                                 {getRoomIcon(room.icon)}
                               </div>
                               {room.name} ({room.targetCount} targets)
@@ -293,7 +297,7 @@ const Profile: React.FC = () => {
                                 const targetPrefs = formPrefs[targetId] || {};
                                 
                                 return (
-                                  <div key={targetId} className="p-4 border border-brand-brown/20 rounded-lg bg-brand-brown/5">
+                                  <div key={targetId} className="p-4 border border-gray-200 rounded-lg bg-brand-secondary/5">
                                     <h4 className="font-semibold text-brand-dark mb-3">
                                       Target {index + 1}
                                     </h4>
@@ -307,7 +311,7 @@ const Profile: React.FC = () => {
                                         placeholder="192.168.1.100"
                                         value={targetPrefs.ipAddress || ''}
                                         onChange={(e) => handleChange(targetId, 'ipAddress', e.target.value)}
-                                        className="bg-white border-brand-brown/30 text-brand-dark placeholder:text-brand-dark/50"
+                                        className="bg-white border-gray-200 text-brand-dark placeholder:text-brand-dark/50"
                                       />
                                     </div>
                                   </div>
@@ -317,7 +321,7 @@ const Profile: React.FC = () => {
                           </div>
                         ))}
                         
-                        <div className="flex justify-end pt-4 border-t border-brand-brown/20">
+                        <div className="flex justify-end pt-4 border-t border-gray-200">
                           <Button 
                             onClick={handleSave}
                             disabled={prefsLoading}
@@ -334,7 +338,7 @@ const Profile: React.FC = () => {
               </TabsContent>
               
               <TabsContent value="sessions" className="space-y-6">
-                <Card className="bg-white border-brand-brown/20 shadow-sm">
+                <Card className="bg-white border-gray-200 shadow-sm">
                   <CardHeader>
                     <CardTitle className="text-brand-dark">Recent Sessions</CardTitle>
                   </CardHeader>

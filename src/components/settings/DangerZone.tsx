@@ -38,7 +38,7 @@ const DangerZone = ({ onDeleteAccount }: DangerZoneProps) => {
               Delete Account
             </Button>
           </AlertDialogTrigger>
-          <AlertDialogContent className="bg-white border-brand-brown/20">
+          <AlertDialogContent className="bg-white border-gray-200">
             <AlertDialogHeader>
               <AlertDialogTitle className="text-brand-dark">Are you sure?</AlertDialogTitle>
               <AlertDialogDescription className="text-brand-dark/70 font-body">
@@ -46,7 +46,7 @@ const DangerZone = ({ onDeleteAccount }: DangerZoneProps) => {
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel className="border-brand-brown/30 text-brand-dark hover:bg-brand-brown/10">
+              <AlertDialogCancel className="border-gray-200 text-brand-dark hover:bg-brand-secondary/10">
                 Cancel
               </AlertDialogCancel>
               <AlertDialogAction

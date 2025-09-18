@@ -26,10 +26,21 @@ export default defineConfig(({ mode }) => ({
             console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
           });
           proxy.on('proxyReqWs', (proxyReq, req, _socket, _head) => {
-            console.log('Sending WebSocket Request to the Target:', req.url);
+            console.log('Sending WebSocket Request to the Target:', req?.url || 'unknown');
           });
           proxy.on('proxySocket', (proxySocket, req, _socket) => {
-            console.log('WebSocket connection established for:', req.url);
+            console.log('WebSocket connection established for:', req?.url || 'unknown');
+          });
+        },
+      },
+      '/swagger-ui': {
+        target: 'https://thingsboard.cloud',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/swagger-ui/, '/swagger-ui'),
+        secure: true,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('SwaggerUI proxy error', err);
           });
         },
       }

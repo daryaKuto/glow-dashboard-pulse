@@ -37,9 +37,9 @@ const UserSearchResult: React.FC<UserSearchResultProps> = ({
   };
 
   return (
-    <div className="flex items-center justify-between p-3 rounded-lg bg-brand-brown/5 border border-brand-brown/10 hover:bg-brand-brown/10 transition-colors">
+    <div className="flex items-center justify-between p-3 rounded-lg bg-brand-secondary/5 border border-primary/10 hover:bg-brand-secondary/10 transition-colors">
       <div className="flex items-center gap-3">
-        <Avatar className="h-10 w-10 border border-brand-brown/20">
+        <Avatar className="h-10 w-10 border border-gray-200">
           <AvatarImage src={user.avatar} />
           <AvatarFallback className="bg-brand-brown text-white text-sm font-heading">
             {user.name.split(' ').map(n => n[0]).join('')}
@@ -58,7 +58,7 @@ const UserSearchResult: React.FC<UserSearchResultProps> = ({
       
       <div className="flex items-center gap-2">
         {isCurrentUser ? (
-          <span className="text-xs text-brand-dark/50 font-body px-2 py-1 bg-brand-brown/10 rounded">
+          <span className="text-xs text-brand-dark/50 font-body px-2 py-1 bg-brand-secondary/10 rounded">
             You
           </span>
         ) : (
@@ -67,7 +67,7 @@ const UserSearchResult: React.FC<UserSearchResultProps> = ({
               size="sm"
               variant="ghost"
               onClick={handleAddFriend}
-              className="text-brand-brown hover:text-brand-dark hover:bg-brand-brown/10"
+              className="text-brand-primary hover:text-brand-dark hover:bg-brand-secondary/10"
             >
               <UserPlus className="h-4 w-4" />
             </Button>

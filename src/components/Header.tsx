@@ -50,7 +50,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       .slice(0, 2);
   };
 
-  const getUserDisplayName = (user: any) => {
+  const getUserDisplayName = (user: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
     if (user?.user_metadata?.first_name && user?.user_metadata?.last_name) {
       return `${user.user_metadata.first_name} ${user.user_metadata.last_name}`;
     }

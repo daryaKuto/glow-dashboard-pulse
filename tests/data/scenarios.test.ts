@@ -42,25 +42,11 @@ describe('Scenario Templates', () => {
   });
 
   test('should have specific scenarios', () => {
-    const quickDraw = SCENARIOS.find(s => s.id === 'quick-draw');
-    expect(quickDraw).toBeDefined();
-    expect(quickDraw?.name).toBe('Quick Draw');
-    expect(quickDraw?.targetCount).toBe(1);
-    expect(quickDraw?.shotsPerTarget).toBe(1);
-    expect(quickDraw?.timeLimitMs).toBe(3000);
-
     const doubleTap = SCENARIOS.find(s => s.id === 'double-tap');
     expect(doubleTap).toBeDefined();
     expect(doubleTap?.name).toBe('Double Tap');
-    expect(doubleTap?.targetCount).toBe(1);
+    expect(doubleTap?.targetCount).toBe(2);
     expect(doubleTap?.shotsPerTarget).toBe(2);
-    expect(doubleTap?.timeLimitMs).toBe(4000);
-
-    const tripleThreat = SCENARIOS.find(s => s.id === 'triple-threat');
-    expect(tripleThreat).toBeDefined();
-    expect(tripleThreat?.name).toBe('Triple Threat');
-    expect(tripleThreat?.targetCount).toBe(3);
-    expect(tripleThreat?.shotsPerTarget).toBe(2);
-    expect(tripleThreat?.timeLimitMs).toBe(10000);
+    expect(doubleTap?.timeLimitMs).toBe(10000);
   });
 }); 

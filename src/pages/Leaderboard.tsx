@@ -2,9 +2,9 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useStats } from '@/store/useStats';
-import Header from '@/components/Header';
-import Sidebar from '@/components/Sidebar';
-import MobileDrawer from '@/components/MobileDrawer';
+import Header from '@/components/shared/Header';
+import Sidebar from '@/components/shared/Sidebar';
+import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';

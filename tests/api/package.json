@@ -1,0 +1,25 @@
+{
+  "name": "glow-dashboard-api-tests",
+  "version": "1.0.0",
+  "description": "API testing scripts for ThingsBoard integration",
+  "main": "run-tests-fixed.js",
+  "scripts": {
+    "test": "node run-tests-fixed.js",
+    "test:auth": "node simple-auth-test.js",
+    "test:decode": "node decode-token.js",
+    "test:runner": "node test-runner.js",
+    "test:working": "node working-api-test.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  },
+  "keywords": [
+    "thingsboard",
+    "api",
+    "testing",
+    "postman",
+    "glow-dashboard"
+  ],
+  "author": "Glow Dashboard Team",
+  "license": "MIT"
+}

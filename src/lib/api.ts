@@ -154,18 +154,49 @@ export const API = {
       // First, authenticate with ThingsBoard if not already authenticated
       const thingsBoardService = (await import('@/services/thingsboard')).default;
       if (!thingsBoardService.isAuthenticated()) {
-        console.log('Authenticating with ThingsBoard...');
-        const credentials = {
-          username: 'andrew.tam@gmail.com',
-          password: 'dryfire2025'
-        };
-        await thingsBoardService.login(credentials.username, credentials.password);
-        console.log('ThingsBoard authentication successful');
+        console.log('🔐 Authenticating with ThingsBoard...');
+        const username = import.meta.env.VITE_TB_USERNAME;
+        const password = import.meta.env.VITE_TB_PASSWORD;
+        
+        if (!username || !password) {
+          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
+        }
+        
+        try {
+          const authResult = await thingsBoardService.login(username, password);
+          console.log('✅ ThingsBoard authentication successful:', {
+            tokenLength: authResult.token?.length,
+            refreshTokenLength: authResult.refreshToken?.length
+          });
+          
+          // Verify tokens are stored
+          const storedToken = localStorage.getItem('tb_access');
+          const storedRefresh = localStorage.getItem('tb_refresh');
+          console.log('🔍 Tokens stored in localStorage:', {
+            accessToken: storedToken ? `${storedToken.substring(0, 20)}...` : 'NOT FOUND',
+            refreshToken: storedRefresh ? `${storedRefresh.substring(0, 20)}...` : 'NOT FOUND'
+          });
+          
+        } catch (authError) {
+          console.error('❌ ThingsBoard authentication failed:', authError);
+          throw new Error(`Authentication failed: ${authError.message}`);
+        }
+      } else {
+        console.log('✅ Already authenticated with ThingsBoard');
       }
       
       // Fetch devices from ThingsBoard
       const devices = await listDevices();
-      console.log('Fetched devices from ThingsBoard:', devices);
+      console.log('🔍 Raw devices from ThingsBoard API:', {
+        count: devices.length,
+        devices: devices.map(d => ({
+          name: d.name,
+          id: d.id?.id || d.id,
+          type: d.type,
+          additionalInfo: d.additionalInfo,
+          hasRoomId: !!d.additionalInfo?.roomId
+        }))
+      });
       
       // Filter to show legitimate target devices (exclude test devices and system devices)
       const targetDevices = devices.filter(device => {
@@ -202,7 +233,15 @@ export const API = {
         return shouldInclude;
       });
       
-      console.log('Filtered target devices:', targetDevices.map(d => ({ name: d.name, type: d.type, roomId: d.additionalInfo?.roomId })));
+      console.log('🔍 Filtered target devices:', {
+        count: targetDevices.length,
+        devices: targetDevices.map(d => ({ 
+          name: d.name, 
+          type: d.type, 
+          roomId: d.additionalInfo?.roomId,
+          hasRoomId: !!d.additionalInfo?.roomId
+        }))
+      });
       
       // Map the devices to include room information from our database
       const mappedDevices = await mapDevicesToRooms(targetDevices);
@@ -232,11 +271,14 @@ export const API = {
       
       // Ensure we're authenticated
       if (!thingsBoardService.isAuthenticated()) {
-        const credentials = {
-          username: 'andrew.tam@gmail.com',
-          password: 'dryfire2025'
-        };
-        await thingsBoardService.login(credentials.username, credentials.password);
+        const username = import.meta.env.VITE_TB_USERNAME;
+        const password = import.meta.env.VITE_TB_PASSWORD;
+        
+        if (!username || !password) {
+          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
+        }
+        
+        await thingsBoardService.login(username, password);
       }
       
       // Convert numeric ID to string (ThingsBoard uses string IDs)
@@ -277,11 +319,14 @@ export const API = {
       
       // Ensure we're authenticated
       if (!thingsBoardService.isAuthenticated()) {
-        const credentials = {
-          username: 'andrew.tam@gmail.com',
-          password: 'dryfire2025'
-        };
-        await thingsBoardService.login(credentials.username, credentials.password);
+        const username = import.meta.env.VITE_TB_USERNAME;
+        const password = import.meta.env.VITE_TB_PASSWORD;
+        
+        if (!username || !password) {
+          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
+        }
+        
+        await thingsBoardService.login(username, password);
       }
       
       // Fetch all devices from ThingsBoard
@@ -361,11 +406,14 @@ export const API = {
       
       // Ensure we're authenticated
       if (!thingsBoardService.isAuthenticated()) {
-        const credentials = {
-          username: 'andrew.tam@gmail.com',
-          password: 'dryfire2025'
-        };
-        await thingsBoardService.login(credentials.username, credentials.password);
+        const username = import.meta.env.VITE_TB_USERNAME;
+        const password = import.meta.env.VITE_TB_PASSWORD;
+        
+        if (!username || !password) {
+          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
+        }
+        
+        await thingsBoardService.login(username, password);
       }
       
       // Get existing rooms to determine new room ID
@@ -420,11 +468,14 @@ export const API = {
       
       // Ensure we're authenticated
       if (!thingsBoardService.isAuthenticated()) {
-        const credentials = {
-          username: 'andrew.tam@gmail.com',
-          password: 'dryfire2025'
-        };
-        await thingsBoardService.login(credentials.username, credentials.password);
+        const username = import.meta.env.VITE_TB_USERNAME;
+        const password = import.meta.env.VITE_TB_PASSWORD;
+        
+        if (!username || !password) {
+          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
+        }
+        
+        await thingsBoardService.login(username, password);
       }
       
       // Find all devices that belong to this room and update their roomName attribute
@@ -482,11 +533,14 @@ export const API = {
       
       // Ensure we're authenticated
       if (!thingsBoardService.isAuthenticated()) {
-        const credentials = {
-          username: 'andrew.tam@gmail.com',
-          password: 'dryfire2025'
-        };
-        await thingsBoardService.login(credentials.username, credentials.password);
+        const username = import.meta.env.VITE_TB_USERNAME;
+        const password = import.meta.env.VITE_TB_PASSWORD;
+        
+        if (!username || !password) {
+          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
+        }
+        
+        await thingsBoardService.login(username, password);
       }
       
       // Find all devices that belong to this room and remove their roomId
@@ -542,11 +596,14 @@ export const API = {
       
       // Ensure we're authenticated
       if (!thingsBoardService.isAuthenticated()) {
-        const credentials = {
-          username: 'andrew.tam@gmail.com',
-          password: 'dryfire2025'
-        };
-        await thingsBoardService.login(credentials.username, credentials.password);
+        const username = import.meta.env.VITE_TB_USERNAME;
+        const password = import.meta.env.VITE_TB_PASSWORD;
+        
+        if (!username || !password) {
+          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
+        }
+        
+        await thingsBoardService.login(username, password);
       }
       
       // Update order in ThingsBoard device groups
@@ -592,11 +649,14 @@ export const API = {
       
       // Ensure we're authenticated
       if (!thingsBoardService.isAuthenticated()) {
-        const credentials = {
-          username: 'andrew.tam@gmail.com',
-          password: 'dryfire2025'
-        };
-        await thingsBoardService.login(credentials.username, credentials.password);
+        const username = import.meta.env.VITE_TB_USERNAME;
+        const password = import.meta.env.VITE_TB_PASSWORD;
+        
+        if (!username || !password) {
+          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
+        }
+        
+        await thingsBoardService.login(username, password);
       }
       
       // First, get the current device to preserve existing additionalInfo
@@ -636,11 +696,24 @@ export const API = {
         console.log(`Unassigned target ${targetId} from all rooms in ThingsBoard`);
         return { success: true };
       } else {
+        // Get room name from Supabase for better display
+        let roomName = `Room ${roomId}`;
+        try {
+          const { supabaseRoomsService } = await import('@/services/supabase-rooms');
+          const rooms = await supabaseRoomsService.getUserRooms();
+          const room = rooms.find(r => r.id === roomId);
+          if (room) {
+            roomName = room.name;
+          }
+        } catch (error) {
+          console.warn('Could not fetch room name, using default:', error);
+        }
+        
         // Assign target to room by updating device attributes
         const updatedAdditionalInfo = {
           ...currentAdditionalInfo,
           roomId: parseInt(roomId),
-          roomName: `Room ${roomId}`
+          roomName: roomName
         };
         
         const response = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/device/${targetId}`, {
@@ -675,11 +748,14 @@ export const API = {
       
       // Ensure we're authenticated
       if (!thingsBoardService.isAuthenticated()) {
-        const credentials = {
-          username: 'andrew.tam@gmail.com',
-          password: 'dryfire2025'
-        };
-        await thingsBoardService.login(credentials.username, credentials.password);
+        const username = import.meta.env.VITE_TB_USERNAME;
+        const password = import.meta.env.VITE_TB_PASSWORD;
+        
+        if (!username || !password) {
+          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
+        }
+        
+        await thingsBoardService.login(username, password);
       }
       
       // Get all devices and filter by roomId

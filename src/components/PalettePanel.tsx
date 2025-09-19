@@ -2,7 +2,7 @@
 import React from 'react';
 import { useRoomDesigner } from '@/store/useRoomDesigner';
 import { useLocation } from 'react-router-dom';
-import TargetIcon from './TargetIcon';
+import TargetIcon from '@/pages/targets/TargetIcon';
 import { Target } from '@/store/useTargets';
 
 interface PalettePanelProps {

@@ -15,6 +15,11 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ token: string; refreshToken: string }>;
   signInWithGoogle: () => Promise<void>;
   signUp: (email: string, password: string, userData?: Record<string, unknown>) => Promise<{ token: string; refreshToken: string }>;
+  
+  // Password Management
+  resetPassword: (email: string) => Promise<void>;
+  updatePassword: (newPassword: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -33,24 +38,54 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!isDevelopment) return;
 
     try {
-      console.log('[AuthProvider] Auto-login to ThingsBoard for development...');
+      console.log('[AuthProvider] Auto-login to Supabase for development...');
       
-      // Auto-login to ThingsBoard
-      const response = await API.signIn('andrew.tam@gmail.com', 'password123');
+      // Actually log into Supabase with the test user
+      const testEmail = import.meta.env.VITE_TEST_EMAIL || 'test@example.com';
+      const testPassword = import.meta.env.VITE_TEST_PASSWORD || 'testpassword123';
       
-      if (response.token) {
-        console.log('[AuthProvider] ThingsBoard login complete for development');
-        // Set a mock user for development
-        setUser({
-          id: 'dev-user',
-          email: 'andrew.tam@gmail.com',
+      console.log('[AuthProvider] Attempting login with:', { testEmail, hasPassword: !!testPassword });
+      
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: testEmail,
+        password: testPassword
+      });
+
+      console.log('[AuthProvider] Supabase login response:', { 
+        user: data?.user?.email, 
+        userId: data?.user?.id,
+        session: !!data?.session, 
+        error: error?.message 
+      });
+
+      if (error) {
+        console.error('[AuthProvider] Supabase login failed:', error);
+        console.log('[AuthProvider] Dev mode: Using direct user setup instead of password auth');
+        
+        // In dev mode, if password auth fails, create a mock user session
+        const testUserId = import.meta.env.VITE_TEST_USER_ID || '1dca810e-7f11-4ec9-8605-8633cf2b74f0';
+        const mockUser = {
+          id: testUserId,
+          email: testEmail,
           app_metadata: {},
+          user_metadata: { name: 'Andrew Tam' },
           aud: 'authenticated',
           created_at: new Date().toISOString(),
-          user_metadata: {
-            name: 'Development User'
-          }
-        } as User);
+        } as User;
+        
+        console.log('[AuthProvider] Setting dev mode user:', mockUser.email);
+        setUser(mockUser);
+        setLoading(false);
+        return;
+      }
+
+      if (data.user && data.session) {
+        console.log('[AuthProvider] Supabase login successful:', data.user.email);
+        setUser(data.user);
+        setSession(data.session);
+        setLoading(false);
+      } else {
+        console.error('[AuthProvider] No user or session in response');
         setLoading(false);
       }
     } catch (error) {
@@ -100,11 +135,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Development mode: Skip authentication entirely
   useEffect(() => {
     const isDevelopment = import.meta.env.DEV;
+    console.log('[AuthProvider] Development mode check:', {
+      isDevelopment,
+      user: !!user,
+      loading,
+      isLoggingIn,
+      hasAttemptedAutoLogin
+    });
+    
     if (isDevelopment && !user && !loading && !isLoggingIn && !hasAttemptedAutoLogin) {
       console.log('[AuthProvider] Development mode - bypassing authentication');
       setHasAttemptedAutoLogin(true);
       
-      // Auto-login to ThingsBoard for development
+      // Auto-login to Supabase for development
       autoLoginDev();
     }
   }, [user, loading, isLoggingIn, hasAttemptedAutoLogin, autoLoginDev]);
@@ -186,6 +229,63 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (error) throw error;
   }, []);
 
+  // Password reset - send reset email
+  const resetPassword = useCallback(async (email: string) => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`
+      });
+      
+      if (error) throw error;
+    } catch (error) {
+      console.error('[AuthProvider] Password reset error:', error);
+      throw error;
+    }
+  }, []);
+
+  // Update password - for authenticated users
+  const updatePassword = useCallback(async (newPassword: string) => {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+      
+      if (error) throw error;
+    } catch (error) {
+      console.error('[AuthProvider] Update password error:', error);
+      throw error;
+    }
+  }, []);
+
+  // Change password - verify current password first
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    try {
+      if (!user?.email) {
+        throw new Error('No user email available');
+      }
+
+      // First verify current password by attempting to sign in
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword
+      });
+
+      if (signInError) {
+        throw new Error('Current password is incorrect');
+      }
+
+      // If current password is correct, update to new password
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (updateError) throw updateError;
+    } catch (error) {
+      console.error('[AuthProvider] Change password error:', error);
+      throw error;
+    }
+  }, [user]);
+
   const value: AuthContextType = {
     user,
     session,
@@ -195,7 +295,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     signOut,
     signIn,
     signInWithGoogle,
-    signUp
+    signUp,
+    resetPassword,
+    updatePassword,
+    changePassword
   };
   
   return (

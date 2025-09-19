@@ -5,9 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Target as TargetIcon, AlertCircle, Wifi, WifiOff, CheckCircle } from 'lucide-react';
-import Header from '@/components/Header';
-import Sidebar from '@/components/Sidebar';
-import MobileDrawer from '@/components/MobileDrawer';
+import Header from '@/components/shared/Header';
+import Sidebar from '@/components/shared/Sidebar';
+import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { SCENARIOS, type ScenarioTemplate } from '@/data/scenarios';
 import { useScenarioRun } from '@/store/useScenarioRun';
@@ -15,10 +15,8 @@ import { useRooms } from '@/store/useRooms';
 import { toast } from '@/components/ui/sonner';
 import API from '@/lib/api';
 import { useScenarioLiveData } from '@/hooks/useScenarioLiveData';
-import { useScenarioLiveDataMock } from '@/hooks/useScenarioLiveDataMock';
+// Removed mock data import - using real data only
 import type { Target } from '@/store/useTargets';
-import ScenarioCountdown from '@/components/ScenarioCountdown';
-import { countdownService } from '@/services/countdown';
 
 const Scenarios: React.FC = () => {
   const location = useLocation();
@@ -27,23 +25,51 @@ const Scenarios: React.FC = () => {
   const { rooms: storeRooms } = useRooms();
   const { active, current, error, start, stop, progress, timeRemaining, currentSession, useMockData, toggleMockMode } = useScenarioRun();
 
-  // Provide mock rooms when in demo mode or when no rooms are available
-  const mockRooms = [
-    { id: 1, name: 'Training Room A', order: 1, targetCount: 4, icon: 'target' },
-    { id: 2, name: 'Training Room B', order: 2, targetCount: 6, icon: 'target' },
-    { id: 3, name: 'Practice Range', order: 3, targetCount: 8, icon: 'target' }
-  ];
-
-  const rooms = useMockData ? mockRooms : (storeRooms.length > 0 ? storeRooms : mockRooms);
+  // Use real rooms from Supabase only
+  const rooms = storeRooms;
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
   const [availableTargets, setAvailableTargets] = useState<Target[]>([]);
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const [loadingTargets, setLoadingTargets] = useState(false);
   const [showCountdown, setShowCountdown] = useState(false);
   const [pendingScenario, setPendingScenario] = useState<ScenarioTemplate | null>(null);
+  const [countdownState, setCountdownState] = useState<{
+    phase: 'ready' | 'countdown' | 'go' | 'complete';
+    count: number;
+    message: string;
+  }>({
+    phase: 'ready',
+    count: 3,
+    message: 'Get Ready'
+  });
 
   // Get token from localStorage
   const token = localStorage.getItem('tb_access');
+
+  // Beep sound function
+  const playBeep = React.useCallback((frequency: number = 800, duration: number = 200) => {
+    if (typeof window !== 'undefined' && 'AudioContext' in window) {
+      try {
+        const audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.value = frequency;
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration / 1000);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + duration / 1000);
+      } catch (error) {
+        console.log('Audio not available:', error);
+      }
+    }
+  }, []);
 
   // Create stable callback functions to prevent infinite re-renders
   const handleHitDetected = React.useCallback((hitData: {
@@ -105,7 +131,7 @@ const Scenarios: React.FC = () => {
   // Auto-select first room if available
   React.useEffect(() => {
     if (rooms.length > 0 && selectedRoomId === null) {
-      setSelectedRoomId(rooms[0].id);
+      setSelectedRoomId(Number(rooms[0].id));
     }
   }, [rooms, selectedRoomId]);
 
@@ -188,13 +214,14 @@ const Scenarios: React.FC = () => {
       return;
     }
 
-    // Store scenario for countdown completion
+    // Store scenario and start inline countdown
     setPendingScenario(scenarioTemplate);
     setShowCountdown(true);
+    startInlineCountdown(scenarioTemplate);
   };
 
   // Handle countdown completion - actually start the scenario
-  const handleCountdownComplete = async () => {
+  const handleCountdownComplete = React.useCallback(async () => {
     setShowCountdown(false);
     
     if (!pendingScenario) return;
@@ -210,39 +237,46 @@ const Scenarios: React.FC = () => {
     } finally {
       setPendingScenario(null);
     }
-  };
+  }, [pendingScenario, useMockData, selectedRoomId, selectedTargets, start]);
 
-  // Handle countdown cancellation
-  const handleCountdownCancel = () => {
-    setShowCountdown(false);
-    setPendingScenario(null);
-    toast.info('Scenario start cancelled');
-  };
+  // Start inline countdown within the scenario card
+  const startInlineCountdown = React.useCallback(async (scenarioTemplate: ScenarioTemplate) => {
+    // Initial ready state
+    setCountdownState({ phase: 'ready', count: 3, message: 'Get Ready' });
+    
+    // Wait 1 second, then start countdown
+    setTimeout(async () => {
+      // 3
+      setCountdownState({ phase: 'countdown', count: 3, message: 'Get Ready' });
+      playBeep(600, 300);
+      
+      setTimeout(async () => {
+        // 2
+        setCountdownState({ phase: 'countdown', count: 2, message: 'Get Set' });
+        playBeep(700, 300);
+        
+        setTimeout(async () => {
+          // 1
+          setCountdownState({ phase: 'countdown', count: 1, message: 'Almost...' });
+          playBeep(800, 300);
+          
+          setTimeout(async () => {
+            // GO!
+            setCountdownState({ phase: 'go', count: 0, message: 'GO!' });
+            playBeep(1000, 500); // Higher pitch, longer beep for GO
+            
+            setTimeout(() => {
+              setCountdownState({ phase: 'complete', count: 0, message: 'Scenario Started' });
+              setTimeout(() => {
+                handleCountdownComplete();
+              }, 500);
+            }, 1000);
+          }, 1000);
+        }, 1000);
+      }, 1000);
+    }, 1000);
+  }, [playBeep, handleCountdownComplete]);
 
-  // Handle stop scenario from countdown
-  const handleStopFromCountdown = async () => {
-    setShowCountdown(false);
-    setPendingScenario(null);
-    
-    // Cancel countdown in service
-    if (pendingScenario) {
-      try {
-        const roomIdToUse = useMockData ? (selectedRoomId || 1) : selectedRoomId;
-        await countdownService.cancelCountdown({
-          sessionId: `countdown_${Date.now()}`,
-          scenarioId: pendingScenario.id,
-          targetDeviceIds: selectedTargets,
-          roomId: roomIdToUse!.toString(),
-          userId: 'current_user',
-          useMockData
-        });
-      } catch (error) {
-        console.error('Failed to cancel countdown:', error);
-      }
-    }
-    
-    toast.success('Scenario stopped');
-  };
 
   const handleStopScenario = () => {
     stop();
@@ -307,43 +341,29 @@ const Scenarios: React.FC = () => {
                 </div>
               </div>
 
-              {/* Stats Overview Bar - Desktop Only */}
-              <div className="hidden lg:flex items-center justify-between p-6 bg-brand-surface rounded-2xl shadow-subtle border border-gray-100">
-                <div className="flex items-center gap-8">
+              {/* Stats Overview Bar - Responsive */}
+              <div className="flex items-center justify-center p-3 sm:p-4 lg:p-6 bg-brand-surface rounded-2xl shadow-subtle border border-gray-100">
+                <div className="flex items-center gap-4 sm:gap-6 lg:gap-8">
                   <div className="text-center">
-                    <div className="text-2xl font-heading font-bold text-brand-primary mb-1">
+                    <div className="text-lg sm:text-xl lg:text-2xl font-heading font-bold text-brand-primary mb-1">
                       {rooms.length}
                     </div>
-                    <div className="text-sm text-brand-text/60 font-body">Available Rooms</div>
+                    <div className="text-xs sm:text-sm text-brand-text/60 font-body">Available Rooms</div>
                   </div>
-                  <div className="w-px h-12 bg-gray-200"></div>
+                  <div className="w-px h-8 sm:h-10 lg:h-12 bg-gray-200"></div>
                   <div className="text-center">
-                    <div className="text-2xl font-heading font-bold text-brand-primary mb-1">
+                    <div className="text-lg sm:text-xl lg:text-2xl font-heading font-bold text-brand-primary mb-1">
                       {availableTargets.filter(t => t.status === 'online').length}
                     </div>
-                    <div className="text-sm text-brand-text/60 font-body">Online Targets</div>
+                    <div className="text-xs sm:text-sm text-brand-text/60 font-body">Online Targets</div>
                   </div>
-                  <div className="w-px h-12 bg-gray-200"></div>
+                  <div className="w-px h-8 sm:h-10 lg:h-12 bg-gray-200"></div>
                   <div className="text-center">
-                    <div className="text-2xl font-heading font-bold text-brand-primary mb-1">
+                    <div className="text-lg sm:text-xl lg:text-2xl font-heading font-bold text-brand-primary mb-1">
                       {SCENARIOS.length}
                     </div>
-                    <div className="text-sm text-brand-text/60 font-body">Training Scenarios</div>
+                    <div className="text-xs sm:text-sm text-brand-text/60 font-body">Training Scenarios</div>
                   </div>
-                </div>
-                
-                <div className="flex items-center gap-4">
-                  {selectedTargets.length > 0 && (
-                    <div className="px-4 py-2 bg-brand-primary/10 text-brand-primary rounded-xl text-sm font-body">
-                      {selectedTargets.length} targets selected
-                    </div>
-                  )}
-                  {active && current && (
-                    <div className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-700 rounded-xl text-sm font-body">
-                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                      {current.name} Active
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -479,7 +499,7 @@ const Scenarios: React.FC = () => {
                                       checked={isSelected}
                                       onCheckedChange={(checked) => handleTargetSelection(target.id, checked as boolean)}
                                       disabled={!isOnline}
-                                      className="data-[state=checked]:bg-brand-primary data-[state=checked]:border-brand-primary"
+                                      className="data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500 data-[state=checked]:text-white"
                                     />
                                     <div>
                                       <label 
@@ -604,7 +624,7 @@ const Scenarios: React.FC = () => {
                     )}
 
                     {/* Status Message - Highlighted when ready */}
-                    {selectedTargets.length >= template.targetCount && !active && (
+                    {selectedTargets.length >= template.targetCount && !active && !showCountdown && (
                       <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
                         <div className="flex items-center justify-center gap-2">
                           <CheckCircle className="h-4 w-4 text-green-600" />
@@ -615,14 +635,68 @@ const Scenarios: React.FC = () => {
                       </div>
                     )}
 
+                    {/* Inline Countdown Display */}
+                    {showCountdown && pendingScenario?.id === template.id && (
+                      <div className="bg-gradient-to-br from-brand-primary via-brand-secondary to-brand-primary rounded-lg p-6 mb-4 text-center">
+                        <div className="text-white">
+                          <h3 className="text-lg font-heading font-semibold mb-4">
+                            {pendingScenario.name}
+                          </h3>
+                          
+                          <div className="mb-4">
+                            {countdownState.phase === 'countdown' && (
+                              <div className="text-6xl font-heading font-bold animate-pulse">
+                                {countdownState.count}
+                              </div>
+                            )}
+                            {countdownState.phase === 'go' && (
+                              <div className="text-5xl font-heading font-bold animate-bounce">
+                                GO!
+                              </div>
+                            )}
+                            {countdownState.phase === 'ready' && (
+                              <div className="text-3xl font-heading font-bold">
+                                Ready?
+                              </div>
+                            )}
+                            {countdownState.phase === 'complete' && (
+                              <div className="text-3xl font-heading font-bold">
+                                Started!
+                              </div>
+                            )}
+                          </div>
+                          
+                          <p className="text-lg font-body mb-4">
+                            {countdownState.message}
+                          </p>
+                          
+                          {/* Progress Dots */}
+                          <div className="flex items-center justify-center gap-2">
+                            {[1, 2, 3].map((step) => (
+                              <div
+                                key={step}
+                                className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                                  countdownState.phase === 'ready' ? 'bg-white/30' :
+                                  countdownState.phase === 'countdown' && countdownState.count >= (4 - step) ? 'bg-white' :
+                                  countdownState.phase === 'go' || countdownState.phase === 'complete' ? 'bg-white' :
+                                  'bg-white/30'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Start Session Button - Bottom */}
                     <Button 
                       onClick={() => handleStartScenario(template)}
-                      disabled={active || (!useMockData && selectedRoomId === null) || selectedTargets.length < template.targetCount}
+                      disabled={active || showCountdown || (!useMockData && selectedRoomId === null) || selectedTargets.length < template.targetCount}
                       className="w-full h-12 bg-brand-primary hover:bg-brand-primary/90 disabled:bg-gray-300 disabled:text-gray-500 text-white font-body text-base font-medium rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
                     >
                       <TargetIcon className="h-5 w-5 mr-2" />
-                      {active && current?.id === template.id ? 'Scenario Running...' : 'Start Session'}
+                      {active && current?.id === template.id ? 'Scenario Running...' : 
+                       showCountdown && pendingScenario?.id === template.id ? 'Starting...' : 'Start Session'}
                     </Button>
                   </div>
                 ))}
@@ -632,20 +706,6 @@ const Scenarios: React.FC = () => {
         </main>
       </div>
 
-      {/* Countdown Popup */}
-      <ScenarioCountdown
-        isOpen={showCountdown}
-        onClose={handleCountdownCancel}
-        onCountdownComplete={handleCountdownComplete}
-        onStop={handleStopFromCountdown}
-        scenarioName={pendingScenario?.name || ''}
-        scenarioId={pendingScenario?.id || ''}
-        targetCount={selectedTargets.length}
-        targetDeviceIds={selectedTargets}
-        sessionId={`countdown_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`}
-        roomId={(useMockData ? (selectedRoomId || 1) : selectedRoomId)?.toString() || '1'}
-        useMockData={useMockData}
-      />
     </div>
   );
 };

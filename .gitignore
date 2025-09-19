@@ -31,3 +31,13 @@ dist-ssr
 .env.production.local
 
 .env.local.backup
+
+# supabase
+supabase/
+
+# scripts
+scripts/
+
+# misc
+misc/
+

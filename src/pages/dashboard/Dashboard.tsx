@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Target as TargetIcon, Users, Calendar, Bell, Clock, Zap, Trophy, TrendingUp, Activity, BarChart3, Play, User, X, Gamepad2, BarChart, Award } from 'lucide-react';
 import { useStats } from '@/store/useStats';
@@ -7,13 +7,14 @@ import { useTargets, type Target } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
 import { useScenarios, type ScenarioHistory } from '@/store/useScenarios';
 import { useAuth } from '@/providers/AuthProvider';
-import Header from '@/components/Header';
-import Sidebar from '@/components/Sidebar';
-import MobileDrawer from '@/components/MobileDrawer';
+import Header from '@/components/shared/Header';
+import Sidebar from '@/components/shared/Sidebar';
+import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useShootingActivityPolling } from '@/hooks/useShootingActivityPolling';
+import { useInitialSync } from '@/hooks/useInitialSync';
 import type { TargetShootingActivity } from '@/hooks/useShootingActivityPolling';
-import ShootingStatusBanner from '@/components/ShootingStatusBanner';
+import ShootingStatusBanner from '@/components/shared/ShootingStatusBanner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -266,19 +267,17 @@ const SystemOverview: React.FC<{
         <div className="grid grid-cols-2 gap-1.5 md:gap-2">
           <Button 
             size="sm" 
-            variant="outline"
-            className="border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white text-xs rounded-sm md:rounded"
+            className="bg-brand-primary text-white hover:bg-brand-primary/90 text-[10px] h-7 !px-2 w-full whitespace-nowrap overflow-hidden"
             onClick={() => window.location.href = '/dashboard/targets'}
           >
-            Manage Targets
+            <span className="truncate">Manage Targets</span>
           </Button>
           <Button 
             size="sm" 
-            variant="outline"
-            className="border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white text-xs rounded-sm md:rounded"
+            className="bg-brand-purple text-white hover:bg-brand-purple/90 text-[10px] h-7 !px-2 w-full whitespace-nowrap overflow-hidden"
             onClick={() => window.location.href = '/dashboard/scenarios'}
           >
-            View Sessions
+            <span className="truncate">View Sessions</span>
           </Button>
         </div>
       </div>
@@ -414,6 +413,9 @@ const Dashboard: React.FC = () => {
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [dismissedCards, setDismissedCards] = useState<string[]>([]);
+  const [targets, setTargets] = useState<Target[]>([]);
+  const [targetsLoading, setTargetsLoading] = useState(false);
+  const isFetchingRef = useRef(false);
   
   // Real data from stores
   const { 
@@ -429,29 +431,74 @@ const Dashboard: React.FC = () => {
   } = useStats();
   
   const { slices, refresh: refreshDashboardStats } = useDashboardStats();
-  const { targets, isLoading: targetsLoading, refresh: refreshTargets } = useTargets();
-  const { rooms, isLoading: roomsLoading, fetchRooms } = useRooms();
+  const { targets: rawTargets, refresh: refreshTargets } = useTargets();
+  const { rooms, isLoading: roomsLoading, fetchRooms, getAllTargetsWithAssignments } = useRooms();
   const { scenarioHistory, isLoading: scenariosLoading, fetchScenarios } = useScenarios();
   
   const { user } = useAuth();
+  
+  // Initial sync with ThingsBoard (only on dashboard)
+  const { syncStatus, isReady } = useInitialSync();
 
   // Get ThingsBoard token from localStorage
   const tbToken = localStorage.getItem('tb_access');
 
+  // Fetch merged targets with room assignments
+  const fetchMergedTargets = useCallback(async () => {
+    setTargetsLoading(true);
+    try {
+      console.log('🔄 Dashboard: Fetching merged targets with assignments...');
+      const mergedTargets = await getAllTargetsWithAssignments();
+      setTargets(mergedTargets);
+      setTargetsLoading(false);
+      console.log('✅ Dashboard: Merged targets loaded:', mergedTargets.length);
+    } catch (error) {
+      console.error('❌ Dashboard: Error fetching merged targets:', error);
+      // Fallback to empty array if merged fetch fails
+      setTargets([]);
+      setTargetsLoading(false);
+    }
+  }, [getAllTargetsWithAssignments]);
+
   // Smart polling system with heartbeat detection
   const fetchAllData = useCallback(async () => {
-    try {
-      await Promise.all([
-        fetchStats(tbToken || ''),
-        refreshTargets(),
-        fetchRooms(tbToken || ''),
-        fetchScenarios(tbToken || ''),
-        refreshDashboardStats()
-      ]);
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+    // Prevent multiple simultaneous fetches
+    if (isFetchingRef.current) {
+      console.log('🔄 Dashboard: Fetch already in progress, skipping...');
+      return;
     }
-  }, [tbToken, fetchStats, refreshTargets, fetchRooms, fetchScenarios, refreshDashboardStats]);
+
+    isFetchingRef.current = true;
+    try {
+      console.log('🔄 Dashboard: Fetching all data...');
+      
+      // Always try to fetch from Supabase first (rooms, targets with assignments)
+      const promises = [
+        fetchRooms(), // This should work from Supabase
+        refreshDashboardStats() // This should work from Supabase
+      ];
+
+      // Fetch merged targets separately to avoid dependency issues
+      fetchMergedTargets();
+
+      // Try to fetch from ThingsBoard if available
+      if (tbToken) {
+        promises.push(
+          fetchStats(tbToken),
+          refreshTargets(),
+          fetchScenarios(tbToken)
+        );
+      }
+
+      await Promise.allSettled(promises); // Use allSettled to not fail if some requests fail
+      
+      console.log('✅ Dashboard: Data fetch completed');
+    } catch (error) {
+      console.error('❌ Dashboard: Error fetching data:', error);
+    } finally {
+      isFetchingRef.current = false;
+    }
+  }, [tbToken, fetchStats, refreshTargets, fetchRooms, fetchScenarios, refreshDashboardStats, fetchMergedTargets]);
 
   const { 
     currentInterval, 
@@ -471,13 +518,28 @@ const Dashboard: React.FC = () => {
     standbyThreshold: 600000   // 10 minutes - standby mode threshold
   });
 
-  // Initial data fetch
+  // Initial data fetch - start immediately, don't wait for sync
   useEffect(() => {
+    console.log('🔄 Dashboard: Starting initial data fetch...');
     fetchAllData();
   }, [fetchAllData]);
 
+  // Additional fetch after sync completes (if it does)
+  useEffect(() => {
+    if (isReady && syncStatus.isComplete) {
+      console.log('🔄 Dashboard: Sync completed, refreshing data...');
+      fetchAllData();
+    }
+  }, [isReady, syncStatus.isComplete, fetchAllData]);
+
+  // Use merged targets if available, otherwise fallback to raw targets
+  const currentTargets = targets.length > 0 ? targets : rawTargets;
+  
+  // Don't show loading if we have data
+  const shouldShowTargetsLoading = targetsLoading && currentTargets.length === 0;
+  
   // Calculate real statistics
-  const onlineTargets = targets.filter(target => target.status === 'online').length;
+  const onlineTargets = currentTargets.filter(target => target.status === 'online').length;
   const totalRooms = rooms.length;
   const recentScenarios = scenarioHistory.slice(0, 3);
   
@@ -486,25 +548,110 @@ const Dashboard: React.FC = () => {
     ? Math.round(recentScenarios.reduce((sum, s) => sum + (s.score || 0), 0) / recentScenarios.length)
     : lastScenarioScore;
 
-  // Calculate room utilization based on targets assigned to rooms
-  const targetsInRooms = targets.filter(target => target.roomId).length;
-  const roomUtilization = targets.length > 0 ? Math.round((targetsInRooms / targets.length) * 100) : 0;
+  // Calculate room utilization based on assigned targets vs total targets
+  const assignedTargets = currentTargets.filter(target => target.roomId).length;
+  const totalTargets = currentTargets.length;
+  const roomUtilization = totalTargets > 0 ? Math.round((assignedTargets / totalTargets) * 100) : 0;
+  
+  // Debug logging for room utilization
+  console.log('📊 Room Utilization Calculation:', {
+    dataSource: targets.length > 0 ? 'merged' : 'raw',
+    totalTargets,
+    assignedTargets,
+    unassignedTargets: totalTargets - assignedTargets,
+    roomUtilization: `${roomUtilization}%`,
+    roomDetails: rooms.map(room => ({ name: room.name, targetCount: room.targetCount })),
+    targetDetails: currentTargets.map(t => ({ name: t.name, roomId: t.roomId, hasRoomId: !!t.roomId }))
+  });
+
+  // Debug logging for raw data from ThingsBoard
+  console.log('🔍 Raw ThingsBoard Data Debug:', {
+    rawTargetsCount: rawTargets.length,
+    rawTargets: rawTargets.map(t => ({ 
+      name: t.name, 
+      id: t.id, 
+      status: t.status, 
+      roomId: t.roomId,
+      hasRoomId: !!t.roomId 
+    })),
+    mergedTargetsCount: targets.length,
+    mergedTargets: targets.map(t => ({ 
+      name: t.name, 
+      id: t.id, 
+      status: t.status, 
+      roomId: t.roomId,
+      hasRoomId: !!t.roomId 
+    })),
+    loadingStates: {
+      targetsLoading,
+      shouldShowTargetsLoading,
+      roomsLoading,
+      scenariosLoading
+    }
+  });
 
   // Note: Authentication is handled at the route level in App.tsx
   // If we reach this component, the user is already authenticated
 
+  // Debug logging
+  console.log('🏠 Dashboard render:', { isReady, syncStatus });
+  
+  // Show loading screen only if we have no data at all and sync is still loading
+  const hasAnyData = rooms.length > 0 || targets.length > 0 || scenarioHistory.length > 0;
+  const shouldShowLoading = !isReady && !hasAnyData && syncStatus.isLoading;
+
+  if (shouldShowLoading) {
+    return (
+      <div className="min-h-screen flex flex-col bg-brand-light">
+        <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
+        <div className="flex flex-1">
+          {!isMobile && <Sidebar />}
+          <MobileDrawer 
+            isOpen={isMobileMenuOpen} 
+            onClose={() => setIsMobileMenuOpen(false)} 
+          />
+          
+          <main className="flex-1 overflow-auto">
+            <div className="p-2 md:p-4 lg:p-6 max-w-7xl mx-auto">
+              <div className="text-center py-16">
+                <div className="bg-white rounded-lg p-8 mx-auto max-w-md shadow-sm border border-gray-200">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-primary mx-auto mb-4"></div>
+                  <div className="text-brand-primary mb-4 text-h3 font-heading">Loading Dashboard</div>
+                  <p className="text-brand-dark mb-4 font-body">
+                    {syncStatus.isLoading ? 'Syncing with ThingsBoard...' : 'Loading your data...'}
+                  </p>
+                  {syncStatus.error && (
+                    <div className="text-red-600 text-sm">
+                      <p>Sync failed - using available data</p>
+                      <button 
+                        onClick={() => window.location.reload()} 
+                        className="mt-2 px-3 py-1 bg-red-100 hover:bg-red-200 rounded text-xs"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen flex flex-col bg-brand-light">
+    <div className="min-h-screen flex flex-col bg-brand-light responsive-container">
       <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
-      <div className="flex flex-1">
+      <div className="flex flex-1 no-overflow">
         {!isMobile && <Sidebar />}
         <MobileDrawer 
           isOpen={isMobileMenuOpen} 
           onClose={() => setIsMobileMenuOpen(false)} 
         />
         
-        <main className="flex-1 overflow-auto">
-          <div className="p-2 md:p-4 lg:p-6 max-w-7xl mx-auto space-y-2 md:space-y-4 lg:space-y-6">
+        <main className="flex-1 overflow-y-auto responsive-container">
+          <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
             
             {/* Shooting Activity Status Indicator */}
             <ShootingStatusBanner
@@ -520,11 +667,11 @@ const Dashboard: React.FC = () => {
             {/* Stats Cards Grid - Using Real Data */}
             <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
               <StatCard
-                title="Active Targets"
-                value={onlineTargets}
-                subtitle={`${targets.length} total targets`}
+                title="Total Registered Targets"
+                value={totalTargets}
+                subtitle={`${onlineTargets} online`}
                 icon={<TargetIcon className="w-6 h-6 -ml-1.5 md:ml-0" />}
-                isLoading={targetsLoading}
+                isLoading={shouldShowTargetsLoading}
               />
               <StatCard
                 title="Total Rooms"
@@ -541,11 +688,11 @@ const Dashboard: React.FC = () => {
                 isLoading={scenariosLoading}
               />
               <StatCard
-                title="Room Utilization"
+                title="Target Assignment"
                 value={`${roomUtilization}%`}
-                subtitle="Targets assigned"
+                subtitle={`${assignedTargets}/${totalTargets} targets assigned`}
                 icon={<BarChart3 className="w-6 h-6 -ml-1.5 md:ml-0" />}
-                isLoading={targetsLoading || roomsLoading}
+                isLoading={shouldShowTargetsLoading || roomsLoading}
               />
             </div>
 
@@ -572,11 +719,11 @@ const Dashboard: React.FC = () => {
                   <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">System Overview</CardTitle>
                 </CardHeader>
                 <CardContent className="p-2 md:p-4">
-                  <SystemOverview 
-                    targets={targets} 
-                    scenarios={scenarioHistory} 
-                    isLoading={targetsLoading || scenariosLoading} 
-                  />
+            <SystemOverview 
+              targets={currentTargets} 
+              scenarios={scenarioHistory} 
+              isLoading={shouldShowTargetsLoading || scenariosLoading} 
+            />
                 </CardContent>
               </Card>
 

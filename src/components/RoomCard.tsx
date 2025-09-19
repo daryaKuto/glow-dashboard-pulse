@@ -35,8 +35,8 @@ import { Room } from '@/store/useRooms';
 interface RoomCardProps {
   room: Room;
   isDragging?: boolean;
-  onRename: (id: number, name: string) => void;
-  onDelete: (id: number) => void;
+  onRename: (id: string, name: string) => void;
+  onDelete: (id: string) => void;
   onAssignTargets: () => void;
   onViewDetails: () => void;
 }

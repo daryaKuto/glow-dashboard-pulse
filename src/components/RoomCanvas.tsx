@@ -14,7 +14,7 @@ import {
 import { restrictToParentElement } from '@dnd-kit/modifiers';
 import { useRoomDesigner } from '@/store/useRoomDesigner';
 import { useLocation } from 'react-router-dom';
-import TargetIcon from './TargetIcon';
+import TargetIcon from '@/pages/targets/TargetIcon';
 import GroupBox from './GroupBox';
 
 const RoomCanvas: React.FC = () => {

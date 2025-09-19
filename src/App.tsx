@@ -3,13 +3,16 @@ import React, { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 
 // Auth pages
-import Signup from './pages/Signup';
-import Login from './pages/Login';
+import Signup from './pages/auth/Signup';
+import Login from './pages/auth/Login';
+import ForgotPassword from './pages/auth/ForgotPassword';
+import ResetPassword from './pages/auth/ResetPassword';
+import ChangePassword from './pages/auth/ChangePassword';
 import OAuthCallback from './pages/auth/callback';
 
 // Dashboard pages
 import Dashboard from './pages/dashboard/Dashboard';
-import Targets from './pages/Targets';
+import Targets from './pages/targets/Targets';
 import Rooms from './pages/Rooms';
 import RoomDesigner from './pages/RoomDesigner';
 import Scenarios from './pages/Scenarios';
@@ -71,6 +74,9 @@ function App() {
         {/* Auth routes - redirect to dashboard if already logged in (or in dev mode) */}
         <Route path="/signup" element={(!user && !isDevelopment) ? <Signup /> : <Navigate to="/dashboard" replace />} />
         <Route path="/login" element={(!user && !isDevelopment) ? <Login /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/forgot-password" element={(!user && !isDevelopment) ? <ForgotPassword /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/reset-password" element={(!user && !isDevelopment) ? <ResetPassword /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/change-password" element={(user || isDevelopment) ? <ChangePassword /> : <Navigate to="/login" replace />} />
         <Route path="/auth/callback" element={<OAuthCallback />} />
         
         {/* Dashboard routes - require authentication (bypass in dev mode) */}

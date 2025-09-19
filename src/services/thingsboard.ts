@@ -75,6 +75,12 @@ class ThingsBoardService {
         });
 
         console.log('[ThingsBoard] Login successful:', response.status);
+        
+        // Store tokens in localStorage
+        localStorage.setItem('tb_access', response.data.token);
+        localStorage.setItem('tb_refresh', response.data.refreshToken);
+        
+        console.log('[ThingsBoard] Tokens stored in localStorage');
         return response.data;
       } catch (error: any) {
         console.log(`[ThingsBoard] Login failed (attempt ${attempt}/${maxRetries}):`, error);

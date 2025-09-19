@@ -9,6 +9,62 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      user_profiles: {
+        Row: {
+          id: string
+          email: string
+          name: string | null
+          first_name: string | null
+          last_name: string | null
+          display_name: string | null
+          avatar_url: string | null
+          phone: string | null
+          timezone: string
+          language: string
+          units: string
+          is_active: boolean
+          last_login_at: string | null
+          profile_completed: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          email: string
+          name?: string | null
+          first_name?: string | null
+          last_name?: string | null
+          display_name?: string | null
+          avatar_url?: string | null
+          phone?: string | null
+          timezone?: string
+          language?: string
+          units?: string
+          is_active?: boolean
+          last_login_at?: string | null
+          profile_completed?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          email?: string
+          name?: string | null
+          first_name?: string | null
+          last_name?: string | null
+          display_name?: string | null
+          avatar_url?: string | null
+          phone?: string | null
+          timezone?: string
+          language?: string
+          units?: string
+          is_active?: boolean
+          last_login_at?: string | null
+          profile_completed?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
       user_settings: {
         Row: {
           id: string
@@ -28,6 +84,250 @@ export type Database = {
           id?: string
           user_id?: string
           target_preferences?: Json
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      user_rooms: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          room_type: string
+          icon: string
+          order_index: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          room_type?: string
+          icon?: string
+          order_index?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          room_type?: string
+          icon?: string
+          order_index?: number
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      user_room_targets: {
+        Row: {
+          id: string
+          user_id: string
+          room_id: string
+          target_id: string
+          target_name: string
+          assigned_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          room_id: string
+          target_id: string
+          target_name: string
+          assigned_at?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          room_id?: string
+          target_id?: string
+          target_name?: string
+          assigned_at?: string
+          created_at?: string
+        }
+      }
+      sessions: {
+        Row: {
+          id: string
+          user_id: string
+          room_id: string | null
+          room_name: string | null
+          scenario_name: string | null
+          scenario_type: string | null
+          score: number
+          duration_ms: number
+          hit_count: number
+          miss_count: number
+          total_shots: number
+          accuracy_percentage: number
+          avg_reaction_time_ms: number | null
+          best_reaction_time_ms: number | null
+          worst_reaction_time_ms: number | null
+          started_at: string
+          ended_at: string | null
+          created_at: string
+          thingsboard_data: Json
+          raw_sensor_data: Json
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          room_id?: string | null
+          room_name?: string | null
+          scenario_name?: string | null
+          scenario_type?: string | null
+          score?: number
+          duration_ms?: number
+          hit_count?: number
+          miss_count?: number
+          total_shots?: number
+          accuracy_percentage?: number
+          avg_reaction_time_ms?: number | null
+          best_reaction_time_ms?: number | null
+          worst_reaction_time_ms?: number | null
+          started_at?: string
+          ended_at?: string | null
+          created_at?: string
+          thingsboard_data?: Json
+          raw_sensor_data?: Json
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          room_id?: string | null
+          room_name?: string | null
+          scenario_name?: string | null
+          scenario_type?: string | null
+          score?: number
+          duration_ms?: number
+          hit_count?: number
+          miss_count?: number
+          total_shots?: number
+          accuracy_percentage?: number
+          avg_reaction_time_ms?: number | null
+          best_reaction_time_ms?: number | null
+          worst_reaction_time_ms?: number | null
+          started_at?: string
+          ended_at?: string | null
+          created_at?: string
+          thingsboard_data?: Json
+          raw_sensor_data?: Json
+        }
+      }
+      session_hits: {
+        Row: {
+          id: string
+          session_id: string
+          user_id: string
+          target_id: string | null
+          target_name: string | null
+          room_name: string | null
+          hit_type: string
+          reaction_time_ms: number | null
+          score: number
+          hit_timestamp: string
+          hit_position: Json
+          sensor_data: Json
+        }
+        Insert: {
+          id?: string
+          session_id: string
+          user_id: string
+          target_id?: string | null
+          target_name?: string | null
+          room_name?: string | null
+          hit_type?: string
+          reaction_time_ms?: number | null
+          score?: number
+          hit_timestamp?: string
+          hit_position?: Json
+          sensor_data?: Json
+        }
+        Update: {
+          id?: string
+          session_id?: string
+          user_id?: string
+          target_id?: string | null
+          target_name?: string | null
+          room_name?: string | null
+          hit_type?: string
+          reaction_time_ms?: number | null
+          score?: number
+          hit_timestamp?: string
+          hit_position?: Json
+          sensor_data?: Json
+        }
+      }
+      user_analytics: {
+        Row: {
+          id: string
+          user_id: string
+          date: string
+          period_type: string
+          total_sessions: number
+          total_duration_ms: number
+          avg_session_duration_ms: number
+          total_score: number
+          avg_score: number
+          best_score: number
+          total_shots: number
+          total_hits: number
+          total_misses: number
+          accuracy_percentage: number
+          avg_reaction_time_ms: number | null
+          best_reaction_time_ms: number | null
+          worst_reaction_time_ms: number | null
+          score_improvement: number
+          accuracy_improvement: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          date?: string
+          period_type?: string
+          total_sessions?: number
+          total_duration_ms?: number
+          avg_session_duration_ms?: number
+          total_score?: number
+          avg_score?: number
+          best_score?: number
+          total_shots?: number
+          total_hits?: number
+          total_misses?: number
+          accuracy_percentage?: number
+          avg_reaction_time_ms?: number | null
+          best_reaction_time_ms?: number | null
+          worst_reaction_time_ms?: number | null
+          score_improvement?: number
+          accuracy_improvement?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          date?: string
+          period_type?: string
+          total_sessions?: number
+          total_duration_ms?: number
+          avg_session_duration_ms?: number
+          total_score?: number
+          avg_score?: number
+          best_score?: number
+          total_shots?: number
+          total_hits?: number
+          total_misses?: number
+          accuracy_percentage?: number
+          avg_reaction_time_ms?: number | null
+          best_reaction_time_ms?: number | null
+          worst_reaction_time_ms?: number | null
+          score_improvement?: number
+          accuracy_improvement?: number
           created_at?: string
           updated_at?: string
         }

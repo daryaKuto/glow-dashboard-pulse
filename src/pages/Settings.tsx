@@ -3,12 +3,13 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import Header from '@/components/Header';
-import Sidebar from '@/components/Sidebar';
-import MobileDrawer from '@/components/MobileDrawer';
+import Header from '@/components/shared/Header';
+import Sidebar from '@/components/shared/Sidebar';
+import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import NotificationSettings from '@/components/settings/NotificationSettings';
 import ThemeSettings from '@/components/settings/ThemeSettings';
+import PasswordSettings from '@/components/settings/PasswordSettings';
 import DangerZone from '@/components/settings/DangerZone';
 
 interface NotificationSettingsType {
@@ -113,6 +114,7 @@ const Settings = () => {
               <div className="text-center py-8 text-brand-dark/70 font-body">Loading settings...</div>
             ) : userId ? (
               <div className="space-y-6">
+                <PasswordSettings />
                 <NotificationSettings 
                   settings={notificationSettings}
                   onToggle={handleToggleNotification}

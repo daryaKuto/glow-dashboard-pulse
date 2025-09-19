@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useRoomDesigner } from '@/store/useRoomDesigner';
-import Header from '@/components/Header';
-import Sidebar from '@/components/Sidebar';
-import MobileDrawer from '@/components/MobileDrawer';
+import Header from '@/components/shared/Header';
+import Sidebar from '@/components/shared/Sidebar';
+import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import RoomCanvas from '@/components/RoomCanvas';
 import InspectorPanel from '@/components/InspectorPanel';

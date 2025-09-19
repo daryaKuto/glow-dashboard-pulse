@@ -130,26 +130,50 @@ const Scenarios: React.FC = () => {
     fetchRooms();
   }, [fetchRooms]);
 
-  // Auto-select first room if available
-  React.useEffect(() => {
-    if (rooms.length > 0 && selectedRoomId === null) {
-      setSelectedRoomId(Number(rooms[0].id));
-    }
-  }, [rooms, selectedRoomId]);
-
-  // Load targets when room changes
+  // Load all targets initially (before room selection)
   useEffect(() => {
-    const loadTargets = async () => {
-      if (selectedRoomId === null) return;
-      
+    const loadAllTargets = async () => {
       setLoadingTargets(true);
       try {
         const targets = await API.getTargets() as Target[];
-        // For scenarios, show all available targets (not just room-assigned ones)
-        // Users can select any targets for their scenario regardless of room assignment
         setAvailableTargets(targets);
-        setSelectedTargets([]); // Clear selection when room changes
-        console.log(`📋 Loaded ${targets.length} targets for scenario selection`);
+        console.log(`📋 Initial load: ${targets.length} total targets available`);
+      } catch (error) {
+        console.error('Failed to load initial targets:', error);
+      } finally {
+        setLoadingTargets(false);
+      }
+    };
+
+    loadAllTargets();
+  }, []);
+
+  // Don't auto-select room - let user choose or see all targets
+  // React.useEffect(() => {
+  //   if (rooms.length > 0 && selectedRoomId === null) {
+  //     setSelectedRoomId(Number(rooms[0].id));
+  //   }
+  // }, [rooms, selectedRoomId]);
+
+  // Load targets when room changes or on mount
+  useEffect(() => {
+    const loadTargets = async () => {
+      setLoadingTargets(true);
+      try {
+        const targets = await API.getTargets() as Target[];
+        
+        if (selectedRoomId === null) {
+          // No room selected - show all targets from ThingsBoard
+          setAvailableTargets(targets);
+          console.log(`📋 Loaded ${targets.length} total targets (no room filter)`);
+        } else {
+          // Room selected - show only targets assigned to that room
+          const roomTargets = targets.filter((t: Target) => t.roomId === selectedRoomId);
+          setAvailableTargets(roomTargets);
+          console.log(`📋 Loaded ${roomTargets.length} targets for room ${selectedRoomId}`);
+        }
+        
+        setSelectedTargets([]); // Clear selection when targets change
       } catch (error) {
         console.error('Failed to load targets:', error);
         toast.error('Failed to load targets');

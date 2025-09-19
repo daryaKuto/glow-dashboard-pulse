@@ -23,7 +23,7 @@ const Scenarios: React.FC = () => {
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const { rooms: storeRooms } = useRooms();
-  const { active, current, error, start, stop, progress, timeRemaining, currentSession, useMockData, toggleMockMode } = useScenarioRun();
+  const { active, current, error, start, stop, progress, timeRemaining, currentSession } = useScenarioRun();
 
   // Use real rooms from Supabase only
   const rooms = storeRooms;
@@ -122,11 +122,8 @@ const Scenarios: React.FC = () => {
     onError: () => {}
   }), []);
 
-  // Use mock or real live data based on mode
-  const mockLiveDataResult = useScenarioLiveDataMock(liveDataConfig || defaultConfig);
-  const realLiveDataResult = useScenarioLiveData(liveDataConfig || defaultConfig);
-
-  const { liveData, isPolling } = useMockData ? mockLiveDataResult : realLiveDataResult;
+  // Use real live data only
+  const { liveData, isPolling } = useScenarioLiveData(liveDataConfig || defaultConfig);
 
   // Auto-select first room if available
   React.useEffect(() => {
@@ -142,33 +139,20 @@ const Scenarios: React.FC = () => {
       
       setLoadingTargets(true);
       try {
-        if (useMockData) {
-          // Provide mock targets for demo mode
-          const mockTargets: Target[] = [
-            { id: `target-${selectedRoomId}-1`, name: `Target ${selectedRoomId}A`, status: 'online', roomId: selectedRoomId },
-            { id: `target-${selectedRoomId}-2`, name: `Target ${selectedRoomId}B`, status: 'online', roomId: selectedRoomId },
-            { id: `target-${selectedRoomId}-3`, name: `Target ${selectedRoomId}C`, status: 'online', roomId: selectedRoomId },
-            { id: `target-${selectedRoomId}-4`, name: `Target ${selectedRoomId}D`, status: 'online', roomId: selectedRoomId },
-          ];
-          setAvailableTargets(mockTargets);
-        } else {
-          const targets = await API.getTargets() as Target[];
-          const roomTargets = targets.filter((t: Target) => t.roomId === selectedRoomId);
-          setAvailableTargets(roomTargets);
-        }
+        const targets = await API.getTargets() as Target[];
+        const roomTargets = targets.filter((t: Target) => t.roomId === selectedRoomId);
+        setAvailableTargets(roomTargets);
         setSelectedTargets([]); // Clear selection when room changes
       } catch (error) {
         console.error('Failed to load targets:', error);
-        if (!useMockData) {
-          toast.error('Failed to load targets');
-        }
+        toast.error('Failed to load targets');
       } finally {
         setLoadingTargets(false);
       }
     };
 
     loadTargets();
-  }, [selectedRoomId, useMockData]);
+  }, [selectedRoomId]);
 
   const handleTargetSelection = (targetId: string, checked: boolean) => {
     if (checked) {
@@ -192,13 +176,12 @@ const Scenarios: React.FC = () => {
   };
 
   const handleStartScenario = async (scenarioTemplate: ScenarioTemplate) => {
-    if (!useMockData && selectedRoomId === null) {
+    if (selectedRoomId === null) {
       toast.error('Please select a room first');
       return;
     }
 
-    // Use mock room ID if in demo mode and no room selected
-    const roomIdToUse = useMockData ? (selectedRoomId || 1) : selectedRoomId;
+    const roomIdToUse = selectedRoomId;
 
     if (selectedTargets.length < scenarioTemplate.targetCount) {
       toast.error(`Please select ${scenarioTemplate.targetCount} targets for this scenario`);
@@ -226,7 +209,7 @@ const Scenarios: React.FC = () => {
     
     if (!pendingScenario) return;
 
-    const roomIdToUse = useMockData ? (selectedRoomId || 1) : selectedRoomId;
+    const roomIdToUse = selectedRoomId;
 
     try {
       // Now actually start the scenario after countdown
@@ -237,7 +220,7 @@ const Scenarios: React.FC = () => {
     } finally {
       setPendingScenario(null);
     }
-  }, [pendingScenario, useMockData, selectedRoomId, selectedTargets, start]);
+  }, [pendingScenario, selectedRoomId, selectedTargets, start]);
 
   // Start inline countdown within the scenario card
   const startInlineCountdown = React.useCallback(async (scenarioTemplate: ScenarioTemplate) => {
@@ -312,22 +295,9 @@ const Scenarios: React.FC = () => {
                 
                 {/* Mode Toggle - Compact */}
                 <div className="flex items-center gap-2">
-                  <div className={`px-2 py-1 rounded-lg text-xs font-body font-medium ${
-                    useMockData 
-                      ? 'bg-brand-primary/10 text-brand-primary' 
-                      : 'bg-brand-secondary/10 text-brand-secondary'
-                  }`}>
-                    {useMockData ? '🎭 Demo' : '🔗 Live'}
+                  <div className="px-2 py-1 rounded-lg text-xs font-body font-medium bg-brand-secondary/10 text-brand-secondary">
+                    🔗 Live Data
                   </div>
-                  <Button
-                    onClick={toggleMockMode}
-                    disabled={active}
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2 text-xs font-body border border-brand-secondary/30 text-brand-secondary hover:bg-brand-primary hover:text-white hover:border-brand-primary"
-                  >
-                    Toggle
-                  </Button>
 
                   {active && (
                     <Button 
@@ -378,7 +348,7 @@ const Scenarios: React.FC = () => {
                 <div className="bg-brand-surface rounded-xl p-4 shadow-subtle border border-gray-100">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-heading text-sm font-semibold text-brand-text">Training Room</h3>
-                    {useMockData && (
+                    {false && (
                       <div className="px-2 py-1 bg-brand-primary/10 text-brand-primary text-xs font-body rounded-full">
                         Demo
                       </div>
@@ -391,7 +361,7 @@ const Scenarios: React.FC = () => {
                         <TargetIcon className="w-4 h-4 text-brand-secondary" />
                       </div>
                       <p className="text-xs text-brand-text/60 font-body">
-                        {useMockData ? 'Loading...' : 'No rooms'}
+                        {false ? 'Loading...' : 'No rooms'}
                       </p>
                     </div>
                   ) : (
@@ -400,9 +370,9 @@ const Scenarios: React.FC = () => {
                         <select
                           value={selectedRoomId || ''}
                           onChange={(e) => setSelectedRoomId(e.target.value ? parseInt(e.target.value) : null)}
-                          disabled={useMockData}
+                          disabled={false}
                           className={`w-full px-3 py-2 pr-8 rounded-lg font-body text-sm appearance-none transition-all duration-200 ${
-                            useMockData 
+                            false 
                               ? 'bg-gray-50 border border-gray-200 text-gray-400 cursor-not-allowed'
                               : 'bg-brand-background border border-brand-secondary/20 text-brand-text cursor-pointer hover:border-brand-secondary focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary'
                           }`}
@@ -415,13 +385,13 @@ const Scenarios: React.FC = () => {
                           ))}
                         </select>
                         <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                          <svg className={`w-4 h-4 ${useMockData ? 'text-gray-400' : 'text-brand-text/50'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className={`w-4 h-4 ${false ? 'text-gray-400' : 'text-brand-text/50'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                           </svg>
                         </div>
                       </div>
                       
-                      {useMockData && (
+                      {false && (
                         <p className="text-xs text-brand-primary font-body">
                           Demo mode active
                         </p>
@@ -691,7 +661,7 @@ const Scenarios: React.FC = () => {
                     {/* Start Session Button - Bottom */}
                     <Button 
                       onClick={() => handleStartScenario(template)}
-                      disabled={active || showCountdown || (!useMockData && selectedRoomId === null) || selectedTargets.length < template.targetCount}
+                      disabled={active || showCountdown || (!false && selectedRoomId === null) || selectedTargets.length < template.targetCount}
                       className="w-full h-12 bg-brand-primary hover:bg-brand-primary/90 disabled:bg-gray-300 disabled:text-gray-500 text-white font-body text-base font-medium rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
                     >
                       <TargetIcon className="h-5 w-5 mr-2" />

@@ -145,9 +145,11 @@ const Scenarios: React.FC = () => {
       setLoadingTargets(true);
       try {
         const targets = await API.getTargets() as Target[];
-        const roomTargets = targets.filter((t: Target) => t.roomId === selectedRoomId);
-        setAvailableTargets(roomTargets);
+        // For scenarios, show all available targets (not just room-assigned ones)
+        // Users can select any targets for their scenario regardless of room assignment
+        setAvailableTargets(targets);
         setSelectedTargets([]); // Clear selection when room changes
+        console.log(`📋 Loaded ${targets.length} targets for scenario selection`);
       } catch (error) {
         console.error('Failed to load targets:', error);
         toast.error('Failed to load targets');

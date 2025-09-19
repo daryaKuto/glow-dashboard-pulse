@@ -22,7 +22,7 @@ const Scenarios: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-  const { rooms: storeRooms } = useRooms();
+  const { rooms: storeRooms, fetchRooms } = useRooms();
   const { active, current, error, start, stop, progress, timeRemaining, currentSession } = useScenarioRun();
 
   // Use real rooms from Supabase only
@@ -124,6 +124,11 @@ const Scenarios: React.FC = () => {
 
   // Use real live data only
   const { liveData, isPolling } = useScenarioLiveData(liveDataConfig || defaultConfig);
+
+  // Fetch rooms when component mounts
+  useEffect(() => {
+    fetchRooms();
+  }, [fetchRooms]);
 
   // Auto-select first room if available
   React.useEffect(() => {

@@ -564,7 +564,7 @@ const Targets: React.FC = () => {
                         <h2 className="text-sm md:text-xl font-heading font-semibold text-brand-dark">
                           {room ? room.name : 'Unassigned Targets'}
                         </h2>
-                        <Badge variant="outline" className="border-brand-secondary text-brand-secondary text-xs rounded-sm md:rounded">
+                        <Badge className="bg-red-50 border-red-500 text-red-700 text-xs rounded-lg md:rounded-xl">
                           {roomTargets.length} target{roomTargets.length !== 1 ? 's' : ''}
                         </Badge>
                       </div>

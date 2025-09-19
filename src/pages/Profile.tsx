@@ -65,7 +65,12 @@ const Profile: React.FC = () => {
   // Fetch data when component mounts
   useEffect(() => {
     const loadData = async () => {
-      if (!authUser?.id) return;
+      if (!authUser?.id) {
+        console.log('[Profile] No authenticated user found:', authUser);
+        return;
+      }
+      
+      console.log('[Profile] Loading data for user:', authUser.id, authUser.email);
       
       try {
         // Get token for rooms data (ThingsBoard)
@@ -77,8 +82,10 @@ const Profile: React.FC = () => {
           fetchRooms(),
           loadPrefs()
         ]);
+        
+        console.log('[Profile] All data loaded successfully');
       } catch (error) {
-        console.error("Error fetching data:", error);
+        console.error("[Profile] Error fetching data:", error);
       }
     };
     

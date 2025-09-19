@@ -22,11 +22,37 @@ const Scenarios: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-  const { rooms: storeRooms, fetchRooms } = useRooms();
+  const { rooms: storeRooms, fetchRooms, getRoomTargets } = useRooms();
   const { active, current, error, start, stop, progress, timeRemaining, currentSession } = useScenarioRun();
+  
+  // Demo mode toggle (Scenarios page only)
+  const [isDemoMode, setIsDemoMode] = useState(true); // Default to demo mode
 
-  // Use real rooms from Supabase only
-  const rooms = storeRooms;
+  // Mock data for demo mode
+  const mockRooms = [
+    { id: '1', name: 'Training Room A', order: 1, targetCount: 4, icon: 'home', room_type: 'training' },
+    { id: '2', name: 'Training Room B', order: 2, targetCount: 3, icon: 'briefcase', room_type: 'training' },
+    { id: '3', name: 'Practice Range', order: 3, targetCount: 6, icon: 'building', room_type: 'range' }
+  ];
+
+  const mockTargets: Target[] = [
+    { id: 'demo-target-1', name: 'Target Alpha', status: 'online', roomId: 1 },
+    { id: 'demo-target-2', name: 'Target Beta', status: 'online', roomId: 1 },
+    { id: 'demo-target-3', name: 'Target Gamma', status: 'online', roomId: 1 },
+    { id: 'demo-target-4', name: 'Target Delta', status: 'offline', roomId: 1 },
+    { id: 'demo-target-5', name: 'Target Echo', status: 'online', roomId: 2 },
+    { id: 'demo-target-6', name: 'Target Foxtrot', status: 'online', roomId: 2 },
+    { id: 'demo-target-7', name: 'Target Golf', status: 'online', roomId: 2 },
+    { id: 'demo-target-8', name: 'Target Hotel', status: 'online', roomId: 3 },
+    { id: 'demo-target-9', name: 'Target India', status: 'online', roomId: 3 },
+    { id: 'demo-target-10', name: 'Target Juliet', status: 'offline', roomId: 3 },
+    { id: 'demo-target-11', name: 'Target Kilo', status: 'online', roomId: 3 },
+    { id: 'demo-target-12', name: 'Target Lima', status: 'online', roomId: 3 },
+    { id: 'demo-target-13', name: 'Target Mike', status: 'online', roomId: 3 }
+  ];
+
+  // Use demo or real data based on mode
+  const rooms = isDemoMode ? mockRooms : storeRooms;
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
   const [availableTargets, setAvailableTargets] = useState<Target[]>([]);
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
@@ -45,6 +71,20 @@ const Scenarios: React.FC = () => {
 
   // Get token from localStorage
   const token = localStorage.getItem('tb_access');
+
+  // Debug logging
+  console.log('🔍 Scenarios page state:', {
+    roomsCount: rooms.length,
+    selectedRoomId,
+    availableTargetsCount: availableTargets.length,
+    selectedTargetsCount: selectedTargets.length,
+    loadingTargets,
+    isDemoMode,
+    active,
+    showCountdown,
+    rooms: rooms.map(r => ({ id: r.id, name: r.name, idType: typeof r.id })),
+    selectedTargets: selectedTargets
+  });
 
   // Beep sound function
   const playBeep = React.useCallback((frequency: number = 800, duration: number = 200) => {
@@ -130,23 +170,32 @@ const Scenarios: React.FC = () => {
     fetchRooms();
   }, [fetchRooms]);
 
-  // Load all targets initially (before room selection)
+  // Load targets based on demo/live mode
   useEffect(() => {
-    const loadAllTargets = async () => {
+    const loadTargets = async () => {
       setLoadingTargets(true);
       try {
-        const targets = await API.getTargets() as Target[];
-        setAvailableTargets(targets);
-        console.log(`📋 Initial load: ${targets.length} total targets available`);
+        if (isDemoMode) {
+          // Demo mode - use mock data
+          setAvailableTargets(mockTargets);
+          console.log(`🎭 Demo mode: Loaded ${mockTargets.length} mock targets`);
+        } else {
+          // Live mode - use real ThingsBoard data
+          console.log('🔄 Live mode: Loading all targets from ThingsBoard...');
+          const targets = await API.getTargets() as Target[];
+          setAvailableTargets(targets);
+          console.log(`✅ Live mode: Loaded ${targets.length} real targets from ThingsBoard`);
+        }
       } catch (error) {
-        console.error('Failed to load initial targets:', error);
+        console.error('❌ Failed to load targets:', error);
+        setAvailableTargets([]);
       } finally {
         setLoadingTargets(false);
       }
     };
 
-    loadAllTargets();
-  }, []);
+    loadTargets();
+  }, [isDemoMode]);
 
   // Don't auto-select room - let user choose or see all targets
   // React.useEffect(() => {
@@ -155,35 +204,54 @@ const Scenarios: React.FC = () => {
   //   }
   // }, [rooms, selectedRoomId]);
 
-  // Load targets when room changes or on mount
+  // Load targets when room is selected
   useEffect(() => {
-    const loadTargets = async () => {
+    const loadRoomTargets = async () => {
+      if (selectedRoomId === null) {
+        // No room selected - show all targets
+        if (isDemoMode) {
+          setAvailableTargets(mockTargets);
+        } else {
+          try {
+            const targets = await API.getTargets() as Target[];
+            setAvailableTargets(targets);
+          } catch (error) {
+            console.error('Failed to load all targets:', error);
+            setAvailableTargets([]);
+          }
+        }
+        return;
+      }
+      
       setLoadingTargets(true);
       try {
-        const targets = await API.getTargets() as Target[];
-        
-        if (selectedRoomId === null) {
-          // No room selected - show all targets from ThingsBoard
-          setAvailableTargets(targets);
-          console.log(`📋 Loaded ${targets.length} total targets (no room filter)`);
-        } else {
-          // Room selected - show only targets assigned to that room
-          const roomTargets = targets.filter((t: Target) => t.roomId === selectedRoomId);
+        if (isDemoMode) {
+          // Demo mode - filter mock targets by room
+          const roomTargets = mockTargets.filter(t => t.roomId === selectedRoomId);
           setAvailableTargets(roomTargets);
-          console.log(`📋 Loaded ${roomTargets.length} targets for room ${selectedRoomId}`);
+          console.log(`🎭 Demo mode: Filtered ${roomTargets.length} targets for room ${selectedRoomId}`);
+        } else {
+          // Live mode - get targets from Supabase
+          console.log(`🔄 Live mode: Loading targets for room ${selectedRoomId} from Supabase...`);
+          const roomTargets = await getRoomTargets(selectedRoomId.toString());
+          setAvailableTargets(roomTargets);
+          console.log(`✅ Live mode: Loaded ${roomTargets.length} targets for room ${selectedRoomId}`);
         }
         
         setSelectedTargets([]); // Clear selection when targets change
       } catch (error) {
-        console.error('Failed to load targets:', error);
-        toast.error('Failed to load targets');
+        console.error('❌ Failed to load room targets:', error);
+        if (!isDemoMode) {
+          toast.error('Failed to load room targets');
+        }
+        setAvailableTargets([]);
       } finally {
         setLoadingTargets(false);
       }
     };
 
-    loadTargets();
-  }, [selectedRoomId]);
+    loadRoomTargets();
+  }, [selectedRoomId, isDemoMode, getRoomTargets]);
 
   const handleTargetSelection = (targetId: string, checked: boolean) => {
     if (checked) {
@@ -326,9 +394,22 @@ const Scenarios: React.FC = () => {
                 
                 {/* Mode Toggle - Compact */}
                 <div className="flex items-center gap-2">
-                  <div className="px-2 py-1 rounded-lg text-xs font-body font-medium bg-brand-secondary/10 text-brand-secondary">
-                    🔗 Live Data
+                  <div className={`px-2 py-1 rounded-lg text-xs font-body font-medium ${
+                    isDemoMode 
+                      ? 'bg-yellow-100 text-yellow-800' 
+                      : 'bg-green-100 text-green-800'
+                  }`}>
+                    {isDemoMode ? '🎭 Demo' : '🔗 Live'}
                   </div>
+                  <Button
+                    onClick={() => setIsDemoMode(!isDemoMode)}
+                    disabled={active}
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs font-body border border-brand-secondary/30 text-brand-secondary hover:bg-brand-primary hover:text-white hover:border-brand-primary"
+                  >
+                    Toggle
+                  </Button>
 
                   {active && (
                     <Button 
@@ -376,7 +457,9 @@ const Scenarios: React.FC = () => {
               <div className="lg:col-span-3 space-y-4">
                 
                 {/* Room Selection - Compact */}
-                <div className="bg-brand-surface rounded-xl p-4 shadow-subtle border border-gray-100">
+                <div className={`bg-brand-surface rounded-xl p-4 shadow-subtle border border-gray-100 ${
+                  !isDemoMode ? 'opacity-50 pointer-events-none' : ''
+                }`}>
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-heading text-sm font-semibold text-brand-text">Training Room</h3>
                     {false && (
@@ -455,12 +538,13 @@ const Scenarios: React.FC = () => {
                 )}
                 
                 {/* Target Selection - Compact */}
-                {selectedRoomId !== null && (
-                  <div className="bg-brand-surface rounded-xl p-4 shadow-subtle border border-gray-100">
+                <div className={`bg-brand-surface rounded-xl p-4 shadow-subtle border border-gray-100 ${
+                  !isDemoMode ? 'opacity-50 pointer-events-none' : ''
+                }`}>
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-heading text-sm font-semibold text-brand-text">Select Targets</h3>
                       <div className="px-2 py-1 bg-brand-primary/10 text-brand-primary text-xs font-body rounded-full">
-                        {selectedTargets.length}
+                        {availableTargets.length}
                       </div>
                     </div>
                     
@@ -476,6 +560,7 @@ const Scenarios: React.FC = () => {
                           <TargetIcon className="w-4 h-4 text-brand-secondary" />
                         </div>
                         <p className="text-xs text-brand-text/60 font-body">No targets found</p>
+                        <p className="text-xs text-gray-500 mt-1">Debug: availableTargets.length = {availableTargets.length}, loadingTargets = {loadingTargets.toString()}</p>
                       </div>
                     ) : (
                       <>
@@ -486,7 +571,7 @@ const Scenarios: React.FC = () => {
                             
                             return (
                               <div 
-                                key={target.id} 
+                                key={`target-${target.id?.id || target.id}`} 
                                 className={`p-3 rounded-lg border transition-all duration-200 ${
                                   isSelected 
                                     ? 'border-brand-primary bg-brand-primary/5' 
@@ -496,7 +581,7 @@ const Scenarios: React.FC = () => {
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-2">
                                     <Checkbox
-                                      id={target.id}
+                                      id={`checkbox-${target.id?.id || target.id}`}
                                       checked={isSelected}
                                       onCheckedChange={(checked) => handleTargetSelection(target.id, checked as boolean)}
                                       disabled={!isOnline}
@@ -532,7 +617,6 @@ const Scenarios: React.FC = () => {
                       </>
                     )}
                   </div>
-                )}
               </div>
 
               {/* Right Column - Double Tap Scenario */}
@@ -636,63 +720,16 @@ const Scenarios: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Inline Countdown Display */}
-                    {showCountdown && pendingScenario?.id === template.id && (
-                      <div className="bg-gradient-to-br from-brand-primary via-brand-secondary to-brand-primary rounded-lg p-6 mb-4 text-center">
-                        <div className="text-white">
-                          <h3 className="text-lg font-heading font-semibold mb-4">
-                            {pendingScenario.name}
-                          </h3>
-                          
-                          <div className="mb-4">
-                            {countdownState.phase === 'countdown' && (
-                              <div className="text-6xl font-heading font-bold animate-pulse">
-                                {countdownState.count}
-                              </div>
-                            )}
-                            {countdownState.phase === 'go' && (
-                              <div className="text-5xl font-heading font-bold animate-bounce">
-                                GO!
-                              </div>
-                            )}
-                            {countdownState.phase === 'ready' && (
-                              <div className="text-3xl font-heading font-bold">
-                                Ready?
-                              </div>
-                            )}
-                            {countdownState.phase === 'complete' && (
-                              <div className="text-3xl font-heading font-bold">
-                                Started!
-                              </div>
-                            )}
-                          </div>
-                          
-                          <p className="text-lg font-body mb-4">
-                            {countdownState.message}
-                          </p>
-                          
-                          {/* Progress Dots */}
-                          <div className="flex items-center justify-center gap-2">
-                            {[1, 2, 3].map((step) => (
-                              <div
-                                key={step}
-                                className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                                  countdownState.phase === 'ready' ? 'bg-white/30' :
-                                  countdownState.phase === 'countdown' && countdownState.count >= (4 - step) ? 'bg-white' :
-                                  countdownState.phase === 'go' || countdownState.phase === 'complete' ? 'bg-white' :
-                                  'bg-white/30'
-                                }`}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
 
                     {/* Start Session Button - Bottom */}
                     <Button 
                       onClick={() => handleStartScenario(template)}
-                      disabled={active || showCountdown || (!false && selectedRoomId === null) || selectedTargets.length < template.targetCount}
+                      disabled={
+                        active || 
+                        showCountdown || 
+                        (!isDemoMode && selectedRoomId === null) || 
+                        selectedTargets.length < template.targetCount
+                      }
                       className="w-full h-12 bg-brand-primary hover:bg-brand-primary/90 disabled:bg-gray-300 disabled:text-gray-500 text-white font-body text-base font-medium rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
                     >
                       <TargetIcon className="h-5 w-5 mr-2" />
@@ -706,6 +743,77 @@ const Scenarios: React.FC = () => {
           </div>
         </main>
       </div>
+
+      {/* Full-Screen Countdown Modal */}
+      {showCountdown && pendingScenario && (
+        <div className="fixed inset-0 z-50 bg-purple-600 bg-gradient-to-br from-purple-600 via-purple-700 to-purple-800 flex items-center justify-center">
+          <div className="text-center text-white">
+            <h1 className="text-4xl md:text-6xl font-heading font-bold mb-8">
+              {pendingScenario.name}
+            </h1>
+            
+            <div className="mb-8">
+              {countdownState.phase === 'ready' && (
+                <div className="text-3xl md:text-5xl font-heading font-bold animate-pulse">
+                  Get Ready
+                </div>
+              )}
+              {countdownState.phase === 'countdown' && (
+                <div className="text-8xl md:text-9xl font-heading font-bold animate-pulse">
+                  {countdownState.count}
+                </div>
+              )}
+              {countdownState.phase === 'go' && (
+                <div className="text-6xl md:text-8xl font-heading font-bold animate-bounce text-green-300">
+                  GO!
+                </div>
+              )}
+              {countdownState.phase === 'complete' && (
+                <div className="text-4xl md:text-6xl font-heading font-bold text-green-300">
+                  Session Started!
+                </div>
+              )}
+            </div>
+            
+            <p className="text-xl md:text-2xl font-body mb-8 opacity-90">
+              {countdownState.message}
+            </p>
+            
+            {/* Progress Dots */}
+            <div className="flex items-center justify-center gap-4">
+              {[1, 2, 3].map((step) => (
+                <div
+                  key={step}
+                  className={`w-4 h-4 md:w-6 md:h-6 rounded-full transition-all duration-500 ${
+                    countdownState.phase === 'ready' ? 'bg-white/30' :
+                    countdownState.phase === 'countdown' && countdownState.count >= (4 - step) ? 'bg-white scale-125' :
+                    countdownState.phase === 'go' || countdownState.phase === 'complete' ? 'bg-green-300 scale-125' :
+                    'bg-white/30'
+                  }`}
+                />
+              ))}
+            </div>
+            
+            {/* Scenario Details */}
+            <div className="mt-12 p-6 bg-white/10 rounded-lg backdrop-blur-sm">
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div>
+                  <div className="text-2xl font-heading font-bold">{pendingScenario.targetCount}</div>
+                  <div className="text-sm opacity-75">Targets</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-heading font-bold">{pendingScenario.shotsPerTarget}</div>
+                  <div className="text-sm opacity-75">Shots Each</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-heading font-bold">{Math.round(pendingScenario.timeLimitMs / 1000)}s</div>
+                  <div className="text-sm opacity-75">Time Limit</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

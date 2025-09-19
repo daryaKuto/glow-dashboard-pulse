@@ -256,8 +256,10 @@ const Rooms: React.FC = () => {
       // Clear pending assignments
       setPendingAssignments(new Map());
       
-      // Refresh all data
-      await refreshTargetsWithAssignments();
+      // Smooth refresh - use startTransition to prevent jerkiness
+      startTransition(async () => {
+        await refreshTargetsWithAssignments();
+      });
       
       console.log('✅ All pending assignments saved to Supabase');
       
@@ -486,15 +488,21 @@ const Rooms: React.FC = () => {
       </Dialog>
 
       {/* Room Details Modal */}
-      <Dialog open={roomDetailsOpen} onOpenChange={async (open) => {
-        if (!open && pendingAssignments.size > 0) {
-          // Modal is closing and we have pending assignments - save them
-          await savePendingAssignments();
-        }
+      <Dialog open={roomDetailsOpen} onOpenChange={(open) => {
+        // Always close modal immediately for smooth UX
         setRoomDetailsOpen(open);
+        
+        if (!open && pendingAssignments.size > 0) {
+          // Save assignments in background after modal is closed
+          setTimeout(() => {
+            savePendingAssignments().catch(error => {
+              console.error('Background save failed:', error);
+            });
+          }, 100); // Small delay to ensure modal close animation completes
+        }
       }}>
         <DialogContent 
-          className="w-[calc(100vw-100px)] max-w-2xl max-h-[calc(100vh-55px)] p-6 rounded-lg mx-auto my-auto flex flex-col"
+          className="w-[calc(100vw-60px)] max-w-2xl max-h-[calc(100vh-55px)] p-6 rounded-lg mx-auto my-auto flex flex-col"
         >
           <DialogHeader className="pb-2 flex-shrink-0">
             <DialogTitle className="flex items-center gap-2 sm:gap-3">
@@ -523,7 +531,7 @@ const Rooms: React.FC = () => {
                   </div>
                   <div>
                     <p className="text-xs sm:text-sm text-brand-dark/70 font-body">Target Count</p>
-                    <p className="text-sm sm:text-base font-heading text-brand-dark">{roomForDetails.targetCount}</p>
+                    <p className="text-sm sm:text-base font-heading text-brand-dark">{getRoomTargets(roomForDetails.id).length}</p>
                   </div>
                   <div>
                     <p className="text-xs sm:text-sm text-brand-dark/70 font-body">Room ID</p>

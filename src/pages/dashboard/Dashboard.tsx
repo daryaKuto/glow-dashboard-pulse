@@ -121,7 +121,7 @@ const ActivityChart: React.FC<{
             {totalHits > 0 ? `${totalHits} total hits (historical)` : 'No recent activity'}
           </p>
         </div>
-        <Badge variant="outline" className="border-brand-secondary text-brand-secondary">
+        <Badge className="bg-green-500 text-white border-green-500">
           Real-time
         </Badge>
       </div>
@@ -731,7 +731,7 @@ const Dashboard: React.FC = () => {
               <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
                 <CardHeader className="space-y-1 md:space-y-3 pb-1 md:pb-3 p-2 md:p-4">
                   <div className="flex items-center justify-between">
-                    <Badge variant="outline" className="border-brand-secondary text-brand-secondary text-xs rounded-sm md:rounded">
+                    <Badge className="bg-red-50 border-red-500 text-red-700 text-xs rounded-sm md:rounded">
                       Latest Session
                     </Badge>
                     {recentScenarios[0]?.score !== undefined && (

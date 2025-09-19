@@ -32,11 +32,9 @@ dist-ssr
 
 .env.local.backup
 
-# supabase
-supabase/
+# add supabase directory
 
-# scripts
-scripts/
+# add scripts directory
 
 # misc
 misc/

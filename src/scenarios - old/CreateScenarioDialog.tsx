@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Checkbox } from '@/components/ui/checkbox';
 import { CheckCircle, Circle, Plus } from 'lucide-react';
-import { useScenarios } from '@/store/useScenarios';
+import { useScenarios } from './useScenarios';
 import { useRooms } from '@/store/useRooms';
 
 interface CreateScenarioDialogProps {

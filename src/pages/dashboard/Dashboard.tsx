@@ -5,7 +5,7 @@ import { useStats } from '@/store/useStats';
 import { useDashboardStats } from '@/store/useDashboardStats';
 import { useTargets, type Target } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
-import { useScenarios, type ScenarioHistory } from '@/store/useScenarios';
+import { useScenarios, type ScenarioHistory } from '@/scenarios - old/useScenarios';
 import { useAuth } from '@/providers/AuthProvider';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';

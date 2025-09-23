@@ -1,11 +1,11 @@
 import { create } from 'zustand';
-import { ScenarioTemplate } from '@/data/scenarios';
+import { ScenarioTemplate } from './scenarios';
 import API from '@/lib/api';
 import { useRooms } from '@/store/useRooms';
-import { scenarioApiService } from '@/services/scenario-api';
-import { mockScenarioService } from '@/services/scenario-mock';
-import { DOUBLE_TAP_CONFIG } from '@/types/scenario-data';
-import type { ScenarioSession, ScenarioResults } from '@/types/scenario-data';
+import { scenarioApiService } from './scenario-api';
+import { mockScenarioService } from './scenario-mock';
+import { DOUBLE_TAP_CONFIG } from './scenario-data';
+import type { ScenarioSession, ScenarioResults } from './scenario-data';
 
 interface RunState {
   active: boolean;

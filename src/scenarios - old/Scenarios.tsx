@@ -4,19 +4,24 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Target as TargetIcon, AlertCircle, Wifi, WifiOff, CheckCircle } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Target as TargetIcon, AlertCircle, Wifi, WifiOff, CheckCircle, Gamepad2, History } from 'lucide-react';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { SCENARIOS, type ScenarioTemplate } from '@/data/scenarios';
+import { SCENARIOS, type ScenarioTemplate } from './scenarios';
 import { useScenarioRun } from '@/store/useScenarioRun';
 import { useRooms } from '@/store/useRooms';
+import { useGameFlow } from '@/store/useGameFlow';
 import { toast } from '@/components/ui/sonner';
 import API from '@/lib/api';
 import { useScenarioLiveData } from '@/hooks/useScenarioLiveData';
+import GameFlowDashboard from '@/components/game-flow/GameFlowDashboard';
+import GameHistory from '@/components/game-flow/GameHistory';
 // Removed mock data import - using real data only
 import type { Target } from '@/store/useTargets';
+import { DeviceStatus } from '@/services/device-game-flow';
 
 const Scenarios: React.FC = () => {
   const location = useLocation();
@@ -24,9 +29,12 @@ const Scenarios: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const { rooms: storeRooms, fetchRooms, getRoomTargets } = useRooms();
   const { active, current, error, start, stop, progress, timeRemaining, currentSession } = useScenarioRun();
+  const { devices: gameFlowDevices, initializeDevices } = useGameFlow();
   
   // Demo mode toggle (Scenarios page only)
   const [isDemoMode, setIsDemoMode] = useState(true); // Default to demo mode
+  const [activeTab, setActiveTab] = useState<'scenarios' | 'game-flow' | 'history'>('scenarios');
+  const [gameDuration, setGameDuration] = useState(30); // Default 30 minutes
 
   // Mock data for demo mode
   const mockRooms = [
@@ -68,6 +76,22 @@ const Scenarios: React.FC = () => {
     count: 3,
     message: 'Get Ready'
   });
+
+  // Convert targets to device statuses for game flow
+  const convertTargetsToDevices = (targets: Target[]): DeviceStatus[] => {
+    return targets.map(target => ({
+      deviceId: typeof target.id === 'string' ? target.id : (target.id as { id: string })?.id || String(target.id),
+      name: target.name,
+      gameStatus: 'idle' as const,
+      wifiStrength: target.status === 'online' ? 85 : 0,
+      ambientLight: 'good' as const,
+      hitCount: 0,
+      lastSeen: target.status === 'online' ? Date.now() : 0,
+      isOnline: target.status === 'online'
+    }));
+  };
+
+  const availableDevices = convertTargetsToDevices(availableTargets);
 
   // Get token from localStorage
   const token = localStorage.getItem('tb_access');
@@ -296,10 +320,113 @@ const Scenarios: React.FC = () => {
       return;
     }
 
-    // Store scenario and start inline countdown
-    setPendingScenario(scenarioTemplate);
-    setShowCountdown(true);
-    startInlineCountdown(scenarioTemplate);
+    if (isDemoMode) {
+      // Demo mode - use existing countdown flow
+      setPendingScenario(scenarioTemplate);
+      setShowCountdown(true);
+      startInlineCountdown(scenarioTemplate);
+    } else {
+      // Live mode - use ThingsBoard game flow according to DeviceManagement.md
+      console.log('🔴 LIVE MODE: Starting ThingsBoard game flow');
+      
+      // Generate unique game ID
+      const gameId = `GM-${Date.now()}`;
+      
+      // Start the game flow according to documentation
+      await startLiveModeGame(scenarioTemplate, gameId, selectedTargets, gameDuration);
+    }
+  };
+
+  // Live mode game flow according to DeviceManagement.md
+  const startLiveModeGame = async (
+    scenarioTemplate: ScenarioTemplate, 
+    gameId: string, 
+    targetIds: string[], 
+    duration: number = 30
+  ) => {
+    try {
+      toast.info('🎮 Starting live game flow...');
+      
+      // Step 1: Create game session
+      console.log('📋 Step 1: Creating game session');
+      const { createGame, configureDevices, startGame } = useGameFlow.getState();
+      
+      const gameCreated = await createGame(scenarioTemplate.name, duration);
+      if (!gameCreated) {
+        toast.error('Failed to create game session');
+        return;
+      }
+      
+      // Step 2: Configure devices (sends 'configure' RPC commands)
+      console.log('⚙️ Step 2: Configuring devices');
+      toast.info('Configuring devices...');
+      
+      const configSuccess = await configureDevices();
+      if (!configSuccess) {
+        toast.error('Failed to configure devices');
+        return;
+      }
+      
+      // Step 3: Wait for device responses and start countdown
+      console.log('⏳ Step 3: Starting countdown');
+      setPendingScenario(scenarioTemplate);
+      setShowCountdown(true);
+      
+      // Custom countdown for live mode
+      startLiveModeCountdown(scenarioTemplate, startGame);
+      
+    } catch (error) {
+      console.error('❌ Live mode game flow failed:', error);
+      toast.error('Failed to start live game');
+    }
+  };
+
+  // Live mode countdown that integrates with ThingsBoard
+  const startLiveModeCountdown = async (
+    scenarioTemplate: ScenarioTemplate, 
+    startGameFn: () => Promise<boolean>
+  ) => {
+    // Initial ready state
+    setCountdownState({ phase: 'ready', count: 3, message: 'Configuring Devices' });
+    
+    // Wait 2 seconds for device configuration responses
+    setTimeout(async () => {
+      // Start normal countdown
+      setCountdownState({ phase: 'countdown', count: 3, message: 'Get Ready' });
+      playBeep(600, 300);
+      
+      setTimeout(async () => {
+        setCountdownState({ phase: 'countdown', count: 2, message: 'Get Set' });
+        playBeep(700, 300);
+        
+        setTimeout(async () => {
+          setCountdownState({ phase: 'countdown', count: 1, message: 'Almost...' });
+          playBeep(800, 300);
+          
+          setTimeout(async () => {
+            setCountdownState({ phase: 'go', count: 0, message: 'GO!' });
+            playBeep(1000, 500);
+            
+            // Send start commands to devices
+            const gameStarted = await startGameFn();
+            if (gameStarted) {
+              console.log('🚀 Live game started successfully!');
+              toast.success('Game started! Devices are now active.');
+            } else {
+              toast.error('Failed to start game on devices');
+            }
+            
+            setTimeout(() => {
+              setCountdownState({ phase: 'complete', count: 0, message: 'Game Active!' });
+              setTimeout(() => {
+                setShowCountdown(false);
+                setPendingScenario(null);
+              }, 500);
+            }, 1000);
+          }, 1000);
+        }, 1000);
+      }, 1000);
+    }, 2000); // Extra time for device configuration
   };
 
   // Handle countdown completion - actually start the scenario
@@ -424,7 +551,7 @@ const Scenarios: React.FC = () => {
               </div>
 
               {/* Stats Overview Bar - Responsive */}
-              <div className="flex items-center justify-center p-3 sm:p-4 lg:p-6 bg-brand-surface rounded-2xl shadow-subtle border border-gray-100">
+              <div className="flex items-center justify-center p-3 sm:p-4 lg:p-6 bg-brand-surface rounded-2xl shadow-subtle border border-gray-100 mt-4">
                 <div className="flex items-center gap-4 sm:gap-6 lg:gap-8">
                   <div className="text-center">
                     <div className="text-lg sm:text-xl lg:text-2xl font-heading font-bold text-brand-primary mb-1">
@@ -450,8 +577,27 @@ const Scenarios: React.FC = () => {
               </div>
             </div>
 
-            {/* Main Content Layout - Simplified 3-column design */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+            {/* Tab Navigation */}
+            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'scenarios' | 'game-flow' | 'history')} className="w-full mt-6">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="scenarios" className="flex items-center gap-2">
+                  <TargetIcon className="h-4 w-4" />
+                  Scenarios
+                </TabsTrigger>
+                <TabsTrigger value="game-flow" className="flex items-center gap-2">
+                  <Gamepad2 className="h-4 w-4" />
+                  Game Flow
+                </TabsTrigger>
+                <TabsTrigger value="history" className="flex items-center gap-2">
+                  <History className="h-4 w-4" />
+                  History
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Tab Content */}
+              <TabsContent value="scenarios" className="mt-6">
+                {/* Main Content Layout - Simplified 3-column design */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
               
               {/* Left Column - Room & Target Selection (Stacked) */}
               <div className="lg:col-span-3 space-y-4">
@@ -462,11 +608,7 @@ const Scenarios: React.FC = () => {
                 }`}>
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-heading text-sm font-semibold text-brand-text">Training Room</h3>
-                    {false && (
-                      <div className="px-2 py-1 bg-brand-primary/10 text-brand-primary text-xs font-body rounded-full">
-                        Demo
-                      </div>
-                    )}
+                    {/* Demo badge - disabled */}
                   </div>
                   
                   {rooms.length === 0 ? (
@@ -475,7 +617,7 @@ const Scenarios: React.FC = () => {
                         <TargetIcon className="w-4 h-4 text-brand-secondary" />
                       </div>
                       <p className="text-xs text-brand-text/60 font-body">
-                        {false ? 'Loading...' : 'No rooms'}
+                        No rooms
                       </p>
                     </div>
                   ) : (
@@ -485,11 +627,7 @@ const Scenarios: React.FC = () => {
                           value={selectedRoomId || ''}
                           onChange={(e) => setSelectedRoomId(e.target.value ? parseInt(e.target.value) : null)}
                           disabled={false}
-                          className={`w-full px-3 py-2 pr-8 rounded-lg font-body text-sm appearance-none transition-all duration-200 ${
-                            false 
-                              ? 'bg-gray-50 border border-gray-200 text-gray-400 cursor-not-allowed'
-                              : 'bg-brand-background border border-brand-secondary/20 text-brand-text cursor-pointer hover:border-brand-secondary focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary'
-                          }`}
+                          className="w-full px-3 py-2 pr-8 rounded-lg font-body text-sm appearance-none transition-all duration-200 bg-brand-background border border-brand-secondary/20 text-brand-text cursor-pointer hover:border-brand-secondary focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary"
                         >
                           <option value="">Select room...</option>
                           {rooms.map(room => (
@@ -499,17 +637,13 @@ const Scenarios: React.FC = () => {
                           ))}
                         </select>
                         <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                          <svg className={`w-4 h-4 ${false ? 'text-gray-400' : 'text-brand-text/50'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-4 h-4 text-brand-text/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                           </svg>
                         </div>
                       </div>
                       
-                      {false && (
-                        <p className="text-xs text-brand-primary font-body">
-                          Demo mode active
-                        </p>
-                      )}
+                      {/* Demo mode message - disabled */}
                     </div>
                   )}
                 </div>
@@ -571,7 +705,7 @@ const Scenarios: React.FC = () => {
                             
                             return (
                               <div 
-                                key={`target-${target.id?.id || target.id}`} 
+                                key={`target-${(target.id as any)?.id || target.id}`} 
                                 className={`p-3 rounded-lg border transition-all duration-200 ${
                                   isSelected 
                                     ? 'border-brand-primary bg-brand-primary/5' 
@@ -581,7 +715,7 @@ const Scenarios: React.FC = () => {
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-2">
                                     <Checkbox
-                                      id={`checkbox-${target.id?.id || target.id}`}
+                                      id={`checkbox-${(target.id as any)?.id || target.id}`}
                                       checked={isSelected}
                                       onCheckedChange={(checked) => handleTargetSelection(target.id, checked as boolean)}
                                       disabled={!isOnline}
@@ -738,8 +872,30 @@ const Scenarios: React.FC = () => {
                     </Button>
                   </div>
                 ))}
-              </div>
-            </div>
+                </div>
+                </div>
+              </TabsContent>
+
+              {/* Game Flow Tab */}
+              <TabsContent value="game-flow" className="mt-6">
+                <GameFlowDashboard 
+                  availableDevices={availableDevices}
+                  onGameComplete={(results) => {
+                    console.log('Game completed:', results);
+                    toast.success('Game completed successfully!');
+                  }}
+                />
+              </TabsContent>
+
+              {/* History Tab */}
+              <TabsContent value="history" className="mt-6">
+                <GameHistory 
+                  onGameSelect={(game) => {
+                    console.log('Game selected:', game);
+                  }}
+                />
+              </TabsContent>
+            </Tabs>
           </div>
         </main>
       </div>

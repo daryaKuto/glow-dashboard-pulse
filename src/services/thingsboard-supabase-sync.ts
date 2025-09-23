@@ -338,3 +338,4 @@ class ThingsBoardSupabaseSync {
 }
 
 export const tbSupabaseSync = new ThingsBoardSupabaseSync();
+

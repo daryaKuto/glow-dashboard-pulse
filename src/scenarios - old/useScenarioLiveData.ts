@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import thingsBoardService from '@/services/thingsboard';
-import { SCENARIO_TELEMETRY_KEYS } from '@/types/scenario-data';
+import { SCENARIO_TELEMETRY_KEYS } from './scenario-data';
 
 interface ScenarioLiveData {
   sessionId: string;

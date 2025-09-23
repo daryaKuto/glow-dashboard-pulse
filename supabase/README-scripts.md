@@ -148,3 +148,4 @@ Your dashboard successfully integrates:
 - **No fake data or placeholders**
 
 The 11% target assignment rate displayed in your dashboard represents 1 actual target (Dryfire-4) assigned to 1 actual room out of 9 total targets from your ThingsBoard tenant.
+

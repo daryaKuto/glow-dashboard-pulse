@@ -15,7 +15,8 @@ import Dashboard from './pages/dashboard/Dashboard';
 import Targets from './pages/targets/Targets';
 import Rooms from './pages/Rooms';
 import RoomDesigner from './pages/RoomDesigner';
-import Scenarios from './pages/Scenarios';
+import Games from './pages/Games';
+// import Scenarios from './pages/Scenarios'; // Commented out - moved to scenarios folder
 import Leaderboard from './pages/Leaderboard';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
@@ -84,7 +85,8 @@ function App() {
         <Route path="/dashboard/targets" element={(user || isDevelopment) ? <Targets /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/rooms" element={(user || isDevelopment) ? <Rooms /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/rooms/:id" element={(user || isDevelopment) ? <RoomDesigner /> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/scenarios" element={(user || isDevelopment) ? <Scenarios /> : <Navigate to="/login" replace />} />
+        <Route path="/dashboard/games" element={(user || isDevelopment) ? <Games /> : <Navigate to="/login" replace />} />
+        {/* <Route path="/dashboard/scenarios" element={(user || isDevelopment) ? <Scenarios /> : <Navigate to="/login" replace />} /> */}
         <Route path="/dashboard/leaderboard" element={(user || isDevelopment) ? <Leaderboard /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/profile" element={(user || isDevelopment) ? <Profile /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/settings" element={(user || isDevelopment) ? <Settings /> : <Navigate to="/login" replace />} />
@@ -94,7 +96,7 @@ function App() {
         <Route path="/settings" element={<Navigate to="/dashboard/settings" replace />} />
         <Route path="/targets" element={<Navigate to="/dashboard/targets" replace />} />
         <Route path="/rooms" element={<Navigate to="/dashboard/rooms" replace />} />
-        <Route path="/scenarios" element={<Navigate to="/dashboard/scenarios" replace />} />
+        {/* <Route path="/scenarios" element={<Navigate to="/dashboard/scenarios" replace />} /> */}
         <Route path="/sessions" element={<Navigate to="/dashboard/scenarios" replace />} />
         <Route path="/leaderboard" element={<Navigate to="/dashboard/leaderboard" replace />} />
         

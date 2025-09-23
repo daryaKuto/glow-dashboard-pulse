@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Home, Target, Users, Calendar, User } from 'lucide-react';
+import { Home, Target, Users, Calendar, User, Gamepad2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface SidebarProps {
@@ -20,7 +20,8 @@ const navItems: NavItem[] = [
   { title: 'Dashboard', icon: Home, path: '/dashboard' },
   { title: 'Targets', icon: Target, path: '/dashboard/targets' },
   { title: 'Rooms', icon: Users, path: '/dashboard/rooms' },
-  { title: 'Scenarios', icon: Calendar, path: '/dashboard/scenarios' },
+  { title: 'Games', icon: Gamepad2, path: '/dashboard/games' },
+  // { title: 'Scenarios', icon: Calendar, path: '/dashboard/scenarios' }, // Commented out - moved to scenarios folder
   { title: 'Profile', icon: User, path: '/dashboard/profile' }
 ];
 

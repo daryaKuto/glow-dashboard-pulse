@@ -140,3 +140,4 @@ ORDER BY tablename, policyname;
 SELECT '✅ RLS policies updated for real authentication!' as final_status;
 SELECT '🔧 Real authenticated sessions should now work!' as next_step;
 SELECT '📊 Check your app - session storage should work!' as result;
+

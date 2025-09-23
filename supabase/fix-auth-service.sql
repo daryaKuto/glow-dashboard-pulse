@@ -213,3 +213,4 @@ LIMIT 1;
 SELECT '✅ Auth service bypass implemented successfully!' as final_status;
 SELECT '🔧 Your app should now work with the bypass function!' as next_step;
 SELECT '📊 Session storage should work even with Auth service issues!' as result;
+

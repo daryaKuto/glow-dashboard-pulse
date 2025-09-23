@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { mockScenarioService } from '@/services/scenario-mock';
+import { mockScenarioService } from './scenario-mock';
 
 interface ScenarioLiveData {
   sessionId: string;

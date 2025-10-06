@@ -22,3 +22,4 @@ services:
     value: wss://thingsboard.cloud
   - key: VITE_DEMO_MODE
     value: "false"
+

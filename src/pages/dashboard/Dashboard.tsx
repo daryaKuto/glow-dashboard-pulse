@@ -6,7 +6,7 @@ import { useDashboardStats } from '@/store/useDashboardStats';
 import { useTargets, type Target } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
 import { useGameFlow } from '@/store/useGameFlow';
-import { useAuth } from '@/providers/AuthProvider';
+import { useAuth } from '@/hooks/useAuth';
 import { useDemoMode } from '@/providers/DemoModeProvider';
 import { apiWrapper } from '@/services/api-wrapper';
 import Header from '@/components/shared/Header';
@@ -17,6 +17,7 @@ import { useShootingActivityPolling } from '@/hooks/useShootingActivityPolling';
 import { useInitialSync } from '@/hooks/useInitialSync';
 import { useThingsBoardSync } from '@/hooks/useThingsBoardSync';
 import { fetchRecentSessions, type RecentSession } from '@/services/profile';
+import API, { clearCache } from '@/lib/api';
 import type { TargetShootingActivity } from '@/hooks/useShootingActivityPolling';
 import ShootingStatusBanner from '@/components/shared/ShootingStatusBanner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -389,6 +390,39 @@ const ProgressRing: React.FC<{
   );
 };
 
+// No Data Message Component
+const NoDataMessage: React.FC<{
+  title: string;
+  message: string;
+  icon: React.ReactNode;
+  actionText?: string;
+  onAction?: () => void;
+}> = ({ title, message, icon, actionText, onAction }) => (
+  <Card className="bg-blue-50 border-blue-200 shadow-sm">
+    <CardContent className="p-4 text-center">
+      <div className="flex flex-col items-center space-y-3">
+        <div className="p-3 bg-blue-100 rounded-full">
+          <div className="text-blue-600 w-8 h-8">
+            {icon}
+          </div>
+        </div>
+        <div>
+          <h3 className="text-lg font-semibold text-blue-800 font-heading">{title}</h3>
+          <p className="text-sm text-blue-700 font-body mt-1">{message}</p>
+        </div>
+        {actionText && onAction && (
+          <Button 
+            onClick={onAction}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            {actionText}
+          </Button>
+        )}
+      </div>
+    </CardContent>
+  </Card>
+);
+
 // Coming Soon Card Component
 const ComingSoonCard: React.FC<{
   type: string;
@@ -499,6 +533,17 @@ const Dashboard: React.FC = () => {
   
   const { user } = useAuth();
   
+  // 🔍 DEBUG: Log authentication and mode status
+  console.log('🔍 DASHBOARD DEBUG - Authentication Status:', {
+    isAuthenticated: !!user,
+    userId: user?.id || 'NO_USER_ID',
+    userEmail: user?.email || 'NO_EMAIL',
+    userCreatedAt: user?.created_at || 'NO_CREATED_AT',
+    isDemoMode: isDemoMode,
+    modeDescription: isDemoMode ? 'DEMO MODE - Using mock data' : 'LIVE MODE - Using real user data',
+    timestamp: new Date().toISOString()
+  });
+  
   // Initial sync with ThingsBoard (only on dashboard)
   const { syncStatus, isReady } = useInitialSync();
   
@@ -520,19 +565,35 @@ const Dashboard: React.FC = () => {
         setTargets(mockTargets);
         console.log('✅ DEMO: Loaded mock targets:', mockTargets.length);
       } else {
-        // Live mode: use real merged targets
-        const mergedTargets = await getAllTargetsWithAssignments();
-        setTargets(mergedTargets);
-        console.log('✅ LIVE: Merged targets loaded:', mergedTargets.length);
+        // Live mode: use real targets from API (no circular dependency)
+        const apiTargets = await API.getTargets() as Target[];
+        setTargets(apiTargets);
+        console.log('✅ LIVE: API targets loaded:', apiTargets.length);
+        
+        // Check if this is a "no data" message for new users
+        if (apiTargets.length === 1 && apiTargets[0]?.isNoDataMessage) {
+          console.log('ℹ️ New user detected - no ThingsBoard data available yet');
+        }
       }
       
       setTargetsLoading(false);
     } catch (error) {
       console.error('❌ Dashboard: Error fetching targets:', error);
-      setTargets([]);
+      // Set a helpful message for new users
+      setTargets([{
+        id: 'error-loading',
+        name: 'Unable to load targets',
+        status: 'offline' as const,
+        type: 'error',
+        roomId: null,
+        isErrorMessage: true,
+        message: 'No ThingsBoard data is associated with this account.',
+        createdTime: Date.now(),
+        additionalInfo: {}
+      }]);
       setTargetsLoading(false);
     }
-  }, [isDemoMode, getAllTargetsWithAssignments]);
+  }, [isDemoMode]);
 
   // Fetch recent sessions for average score calculation
   const fetchRecentSessionsData = useCallback(async () => {
@@ -540,8 +601,10 @@ const Dashboard: React.FC = () => {
       console.log(`🔄 Dashboard: Fetching recent sessions (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
       
       if (isDemoMode) {
-        // Demo mode: ALWAYS use mock sessions
-        const mockSessions = await apiWrapper.getRecentSessions(true, 'demo-user', 10);
+        // Demo mode: ALWAYS use andrew.tam user ID to fetch real data
+        const andrewTamUserId = '1dca810e-7f11-4ec9-8605-8633cf2b74f0';
+        console.log('🔍 DEMO: Using andrew.tam user ID for sessions:', andrewTamUserId);
+        const mockSessions = await apiWrapper.getRecentSessions(true, andrewTamUserId, 10);
         setRecentSessions(mockSessions);
         console.log('✅ DEMO: Loaded mock sessions:', mockSessions.length);
       } else {
@@ -551,6 +614,7 @@ const Dashboard: React.FC = () => {
           setRecentSessions([]);
           return;
         }
+        console.log('🔍 LIVE: Using authenticated user ID for sessions:', user.id, 'Email:', user.email);
         const sessions = await fetchRecentSessions(user.id, 10);
         setRecentSessions(sessions);
         console.log('✅ LIVE: Recent sessions loaded:', sessions.length);
@@ -559,7 +623,7 @@ const Dashboard: React.FC = () => {
       console.error('❌ Dashboard: Error fetching recent sessions:', error);
       setRecentSessions([]);
     }
-  }, [isDemoMode, user?.id]);
+  }, [isDemoMode, user?.id, user?.email]);
 
   // Smart polling system with heartbeat detection
   const fetchAllData = useCallback(async () => {
@@ -576,43 +640,60 @@ const Dashboard: React.FC = () => {
       if (isDemoMode) {
         // Demo mode: only fetch mock data
         console.log('🎭 DEMO: Using mock data for all dashboard stats');
+        console.log('🔍 DEMO: Will use demo user ID for all data queries');
         await Promise.all([
           fetchMergedTargets(),
           fetchRecentSessionsData(),
           loadGameHistory(true) // Load mock game history
         ]);
       } else {
-        // Live mode: fetch real data
-        const promises = [
-          fetchRooms(),
-          refreshDashboardStats(),
-          fetchRecentSessionsData()
+        // Live mode: fetch real data with proper error handling for new users
+        console.log('🔍 LIVE: Will use authenticated user ID for all data queries:', user?.id, 'Email:', user?.email);
+        
+        // Always fetch basic data first
+        const basicPromises = [
+          fetchMergedTargets(),
+          fetchRecentSessionsData(),
+          loadGameHistory(false)
         ];
 
-        // Fetch merged targets separately
-        fetchMergedTargets();
-
-        // Try to fetch from ThingsBoard if available
+        // Try to fetch from ThingsBoard if available, but don't fail if it's not
         if (tbToken) {
-          promises.push(
-            fetchStats(tbToken),
-            refreshTargets()
+          basicPromises.push(
+            fetchStats(tbToken).catch(err => {
+              console.warn('⚠️ ThingsBoard stats fetch failed (new user?):', err.message);
+              return null;
+            }),
+            refreshTargets().catch(err => {
+              console.warn('⚠️ ThingsBoard targets refresh failed (new user?):', err.message);
+              return null;
+            })
           );
         }
         
-        // Load real game history from Supabase
-        promises.push(loadGameHistory(false));
+        // Always fetch rooms
+        basicPromises.push(
+          fetchRooms().catch(err => {
+            console.warn('⚠️ Rooms fetch failed (new user?):', err.message);
+            return null;
+          }),
+          refreshDashboardStats().catch(err => {
+            console.warn('⚠️ Dashboard stats refresh failed (new user?):', err.message);
+            return null;
+          })
+        );
 
-        await Promise.allSettled(promises);
+        await Promise.allSettled(basicPromises);
       }
       
       console.log('✅ Dashboard: Data fetch completed');
     } catch (error) {
       console.error('❌ Dashboard: Error fetching data:', error);
+      // Don't re-throw the error to prevent infinite loops
     } finally {
       isFetchingRef.current = false;
     }
-  }, [isDemoMode, tbToken, fetchStats, refreshTargets, fetchRooms, refreshDashboardStats, fetchMergedTargets, fetchRecentSessionsData, loadGameHistory]);
+  }, [isDemoMode, tbToken, fetchStats, refreshTargets, fetchRooms, refreshDashboardStats, fetchMergedTargets, fetchRecentSessionsData, loadGameHistory, user?.id, user?.email]);
 
   // Comprehensive refresh function for manual refresh button
   const comprehensiveRefresh = useCallback(async () => {
@@ -682,7 +763,10 @@ const Dashboard: React.FC = () => {
     setRecentSessions([]);
     setTargetsLoading(false);
     
-    console.log(`🧹 Dashboard: Cleared old data. Fetching ${isDemoMode ? 'MOCK' : 'REAL'} data...`);
+    // Clear API cache to prevent stale data
+    clearCache();
+    
+    console.log(`🧹 Dashboard: Cleared old data and cache. Fetching ${isDemoMode ? 'MOCK' : 'REAL'} data...`);
     
     // Fetch new data for the current mode
     fetchAllData();
@@ -695,7 +779,7 @@ const Dashboard: React.FC = () => {
       console.log('🔄 Dashboard: Sync completed, refreshing data...');
       fetchAllData();
     }
-  }, [isDemoMode, isReady, syncStatus.isComplete, fetchAllData]);
+  }, [isDemoMode, isReady, syncStatus.isComplete, fetchAllData]); // Include fetchAllData but it's stable due to useCallback
 
   // Use targets based on mode
   // In demo mode, always use our fetched mock targets
@@ -764,6 +848,12 @@ const Dashboard: React.FC = () => {
   // In demo mode, show mock room count (3), in live mode show real rooms
   const totalRooms = isDemoMode ? 3 : rooms.length;
   const recentGames = gameHistory.slice(0, 3);
+  
+  // Check for "no data" messages
+  const hasNoDataMessage = currentTargets.some(target => target.isNoDataMessage);
+  const hasErrorMessage = currentTargets.some(target => target.isErrorMessage);
+  const noDataTarget = currentTargets.find(target => target.isNoDataMessage);
+  const errorTarget = currentTargets.find(target => target.isErrorMessage);
   
   // Calculate average score from recent sessions (same data source as profile page)
   const avgScore = recentSessions.length > 0 
@@ -845,6 +935,28 @@ const Dashboard: React.FC = () => {
               </Card>
             )}
             
+            {/* No Data Message */}
+            {!isDemoMode && hasNoDataMessage && noDataTarget && (
+              <NoDataMessage
+                title="No Data Available"
+                message={noDataTarget.message || 'No targets have been assigned to your account yet.'}
+                icon={<TargetIcon className="w-8 h-8" />}
+                actionText="Contact Administrator"
+                onAction={() => window.open('mailto:support@example.com?subject=Request for target assignment', '_blank')}
+              />
+            )}
+            
+            {/* Error Message */}
+            {!isDemoMode && hasErrorMessage && errorTarget && (
+              <NoDataMessage
+                title="Unable to Load Data"
+                message={errorTarget.message || 'There was an error loading your data.'}
+                icon={<X className="w-8 h-8" />}
+                actionText="Refresh Page"
+                onAction={() => window.location.reload()}
+              />
+            )}
+            
             {/* Shooting Activity Status Indicator */}
             {!isDemoMode && <ShootingStatusBanner
               hasActiveShooters={hasActiveShooters}
@@ -899,7 +1011,7 @@ const Dashboard: React.FC = () => {
                 </CardHeader>
                 <CardContent className="p-2 md:p-4">
                   <ActivityChart 
-                    targetActivity={mockTargetActivity} 
+                    targetActivity={isDemoMode ? mockTargetActivity : targetActivity} 
                     hitTrend={mockHitTrend} 
                     isLoading={isDemoMode ? false : statsLoading} 
                   />

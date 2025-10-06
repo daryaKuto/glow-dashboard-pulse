@@ -43,7 +43,18 @@ class ThingsBoardSupabaseSync {
       console.log('🔄 Starting ThingsBoard → Supabase sync...');
       
       // Check if ThingsBoard is available
-      await this.checkThingsBoardConnection();
+      const isOnline = await this.checkThingsBoardConnection();
+      
+      // If ThingsBoard is not available (new user), return empty data
+      if (!isOnline) {
+        console.log('ℹ️ ThingsBoard not available for this user, returning empty data');
+        this.lastSyncTime = new Date();
+        return {
+          targets: [],
+          sessions: [],
+          syncedAt: this.lastSyncTime
+        };
+      }
       
       // Sync targets
       const targets = await this.syncTargets();
@@ -244,27 +255,9 @@ class ThingsBoardSupabaseSync {
    */
   private async fetchThingsBoardSessions(): Promise<ThingsBoardSession[]> {
     // This would call actual ThingsBoard APIs to get recent session data
-    // For now, returning mock data
-    return [
-      {
-        id: 'session_001',
-        roomName: 'Living Room',
-        scenarioName: 'Quick Draw',
-        score: 750,
-        duration: 25000,
-        hitCount: 7,
-        missCount: 3,
-        totalShots: 10,
-        accuracy: 70,
-        avgReactionTime: 420,
-        startedAt: new Date(Date.now() - 1800000).toISOString(), // 30 min ago
-        endedAt: new Date(Date.now() - 1775000).toISOString(),
-        rawData: {
-          deviceId: 'tb-device-001',
-          sensorReadings: []
-        }
-      }
-    ];
+    // For new users without ThingsBoard data, return empty array
+    // TODO: Implement real ThingsBoard API calls here
+    return [];
   }
 
   /**

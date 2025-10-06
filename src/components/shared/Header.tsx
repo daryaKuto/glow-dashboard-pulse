@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '@/providers/AuthProvider';
+import { useAuth } from '@/hooks/useAuth';
 import { useDemoMode } from '@/providers/DemoModeProvider';
 import { useStats } from '@/store/useStats';
 import { useIsMobile } from '@/hooks/use-mobile';

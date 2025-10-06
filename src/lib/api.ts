@@ -122,11 +122,6 @@ async function updateRoomTargetCount(roomId: string) {
 
 /* ----------  AUTH  ---------- */
 export const API = {
-  // sign-in: returns token + refreshToken just like before
-  async signIn(email: string, password: string) {
-    return login(email, password);
-  },
-
   // sign-out: invalidate server session, clear local storage helpers
   async signOut() {
     await logout();
@@ -135,7 +130,7 @@ export const API = {
   },
 
   /* ----------  DEVICES  ---------- */
-  /** "Targets" page = ThingsBoard devices */
+  /** "Targets" page = ThingsBoard devices filtered by user assignments */
   getTargets: async () => {
     // Check cache first
     const cached = cache.get(CACHE_KEYS.TARGETS);
@@ -151,42 +146,49 @@ export const API = {
         throw new Error('ThingsBoard not configured. Please set VITE_TB_BASE_URL in .env');
       }
       
-      // First, authenticate with ThingsBoard if not already authenticated
-      const thingsBoardService = (await import('@/services/thingsboard')).default;
-      if (!thingsBoardService.isAuthenticated()) {
-        console.log('🔐 Authenticating with ThingsBoard...');
-        const username = import.meta.env.VITE_TB_USERNAME;
-        const password = import.meta.env.VITE_TB_PASSWORD;
-        
-        if (!username || !password) {
-          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
-        }
-        
-        try {
-          const authResult = await thingsBoardService.login(username, password);
-          console.log('✅ ThingsBoard authentication successful:', {
-            tokenLength: authResult.token?.length,
-            refreshTokenLength: authResult.refreshToken?.length
-          });
-          
-          // Verify tokens are stored
-          const storedToken = localStorage.getItem('tb_access');
-          const storedRefresh = localStorage.getItem('tb_refresh');
-          console.log('🔍 Tokens stored in localStorage:', {
-            accessToken: storedToken ? `${storedToken.substring(0, 20)}...` : 'NOT FOUND',
-            refreshToken: storedRefresh ? `${storedRefresh.substring(0, 20)}...` : 'NOT FOUND'
-          });
-          
-        } catch (authError) {
-          console.error('❌ ThingsBoard authentication failed:', authError);
-          throw new Error(`Authentication failed: ${authError.message}`);
-        }
-      } else {
-        console.log('✅ Already authenticated with ThingsBoard');
+      // Get current user from Supabase auth
+      const { supabase } = await import('@/integrations/supabase/client');
+      const { data: { user }, error } = await supabase.auth.getUser();
+      
+      if (error || !user) {
+        throw new Error('User not authenticated with Supabase');
       }
       
-      // Fetch devices from ThingsBoard
-      const devices = await listDevices();
+      const userEmail = user.email;
+      console.log('🔐 Attempting ThingsBoard authentication for user:', userEmail);
+      
+      try {
+        // First, authenticate with ThingsBoard using current user's email
+        const thingsBoardService = (await import('@/services/thingsboard')).default;
+        
+        // Check if we already have a valid token for this user
+        const currentToken = localStorage.getItem('tb_access');
+        const tokenUser = localStorage.getItem('tb_user_email');
+        
+        if (currentToken && tokenUser === userEmail && thingsBoardService.isAuthenticated()) {
+          console.log('✅ Already authenticated with ThingsBoard for user:', userEmail);
+        } else {
+          // Clear old tokens if they're for a different user
+          if (tokenUser && tokenUser !== userEmail) {
+            console.log('🔄 Different user detected, clearing old ThingsBoard tokens');
+            localStorage.removeItem('tb_access');
+            localStorage.removeItem('tb_refresh');
+            localStorage.removeItem('tb_user_email');
+          }
+          
+          // Use user's email as ThingsBoard username, with a common password
+          const username = userEmail;
+          const password = import.meta.env.VITE_TB_PASSWORD || 'dryfire2025';
+          
+          const authResult = await thingsBoardService.login(username, password);
+          console.log('✅ ThingsBoard authentication successful for user:', userEmail);
+          
+          // Store user email with the token for validation
+          localStorage.setItem('tb_user_email', userEmail);
+        }
+        
+        // Fetch devices from ThingsBoard
+        const devices = await listDevices();
       console.log('🔍 Raw devices from ThingsBoard API:', {
         count: devices.length,
         devices: devices.map(d => ({
@@ -245,12 +247,32 @@ export const API = {
       
       // Map the devices to include room information from our database
       const mappedDevices = await mapDevicesToRooms(targetDevices);
-      console.log('Mapped devices with room info:', mappedDevices);
+      console.log('✅ Final mapped devices with room info:', mappedDevices);
       
-      cache.set(CACHE_KEYS.TARGETS, mappedDevices, 30000);
-      return mappedDevices;
+        cache.set(CACHE_KEYS.TARGETS, mappedDevices, 30000);
+        return mappedDevices;
+        
+      } catch (tbError) {
+        console.warn('⚠️ ThingsBoard authentication/data fetch failed for user:', userEmail, tbError.message);
+        console.log('ℹ️ This is normal for new users who don\'t have ThingsBoard accounts yet');
+        
+        // Return empty array with helpful message for new users
+        const emptyResult = [{
+          id: 'no-tb-data',
+          name: 'No ThingsBoard Data',
+          type: 'info',
+          roomId: null,
+          isNoDataMessage: true,
+          message: `No ThingsBoard data is associated with this account.`,
+          createdTime: Date.now(),
+          additionalInfo: {}
+        }];
+        
+        cache.set(CACHE_KEYS.TARGETS, emptyResult, 30000);
+        return emptyResult;
+      }
     } catch (error) {
-      console.error('Error fetching targets from ThingsBoard:', error);
+      console.error('Error fetching targets:', error);
       throw error;
     }
   },
@@ -313,87 +335,72 @@ export const API = {
   /* ----------  ROOM MANAGEMENT  ---------- */
   getRooms: async () => {
     try {
+      console.log('🔐 Fetching user-specific rooms from Supabase...');
       
-      // Get the ThingsBoard service
-      const thingsBoardService = (await import('@/services/thingsboard')).default;
+      // Use Supabase service to get user-specific rooms
+      const { supabaseRoomsService } = await import('@/services/supabase-rooms');
       
-      // Ensure we're authenticated
-      if (!thingsBoardService.isAuthenticated()) {
-        const username = import.meta.env.VITE_TB_USERNAME;
-        const password = import.meta.env.VITE_TB_PASSWORD;
+      try {
+        const userRooms = await supabaseRoomsService.getUserRooms();
         
-        if (!username || !password) {
-          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
-        }
-        
-        await thingsBoardService.login(username, password);
-      }
-      
-      // Fetch all devices from ThingsBoard
-      const devicesResponse = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/tenant/devices?pageSize=100&page=0`, {
-        headers: {
-          'Authorization': `Bearer ${thingsBoardService.getAccessToken()}`,
-        },
-      });
-
-      if (!devicesResponse.ok) {
-        throw new Error(`Failed to fetch devices: ${devicesResponse.status}`);
-      }
-
-      const devicesData = await devicesResponse.json();
-      const devices = devicesData.data || devicesData;
-      
-      console.log('All devices from ThingsBoard:', devices.map((d: any) => ({ 
-        name: d.name, 
-        roomId: d.additionalInfo?.roomId, 
-        roomName: d.additionalInfo?.roomName 
-      })));
-      
-      // Extract unique roomIds from devices
-      const roomIds = new Set<number>();
-      devices.forEach((device: any) => {
-        if (device.additionalInfo?.roomId) {
-          roomIds.add(device.additionalInfo.roomId);
-        }
-      });
-      
-      console.log('Found roomIds in devices:', Array.from(roomIds));
-      
-      // Create rooms based on roomIds found in devices
-      const rooms = Array.from(roomIds).map((roomId, index) => {
-        // Find a device with this roomId to get the room name
-        const roomDevice = devices.find((device: any) => device.additionalInfo?.roomId === roomId);
-        const roomName = roomDevice?.additionalInfo?.roomName || `Room ${roomId}`;
-        const targetCount = devices.filter((device: any) => device.additionalInfo?.roomId === roomId).length;
-        
-        console.log(`Room ${roomId} (${roomName}) has ${targetCount} targets`);
-        
-        return {
-          id: roomId,
-          name: roomName,
-          order: index + 1,
-          targetCount,
-          icon: 'home',
-          thingsBoardId: roomId.toString()
-        };
-      });
-      
-      // If no rooms found, create a default room
-      if (rooms.length === 0) {
-        rooms.push({
-          id: 1,
-          name: 'Default Room',
-          order: 1,
-          targetCount: devices.length,
-          icon: 'home',
-          thingsBoardId: '1'
+        console.log('🔍 User-specific rooms from Supabase:', {
+          count: userRooms.length,
+          rooms: userRooms.map(r => ({
+            id: r.id,
+            name: r.name,
+            target_count: r.target_count
+          }))
         });
+        
+        // Check if user has no rooms
+        if (!userRooms || userRooms.length === 0) {
+          console.log('ℹ️ No rooms assigned to user - returning empty array with helpful message');
+          const emptyResult = [{
+            id: 'no-rooms',
+            name: 'No rooms assigned',
+            order: 1,
+            targetCount: 0,
+            icon: 'home',
+            thingsBoardId: 'no-rooms',
+            isNoDataMessage: true,
+            message: 'No rooms have been assigned to your account yet. Please contact an administrator to create rooms for your account.'
+          }];
+          
+          return emptyResult;
+        }
+        
+        // Transform Supabase rooms to match the expected format
+        const rooms = userRooms.map((room, index) => ({
+          id: parseInt(room.id) || index + 1, // Convert UUID to number or use index
+          name: room.name,
+          order: room.order_index || index + 1,
+          targetCount: room.target_count || 0,
+          icon: room.icon || 'home',
+          thingsBoardId: room.id // Keep the UUID for ThingsBoard integration
+        }));
+        
+        console.log('✅ Final transformed rooms:', rooms);
+        return rooms;
+        
+      } catch (supabaseError) {
+        console.error('❌ Error fetching user-specific rooms from Supabase:', supabaseError);
+        
+        // Return a helpful message instead of throwing an error
+        const errorResult = [{
+          id: 'error-loading-rooms',
+          name: 'Unable to load rooms',
+          order: 1,
+          targetCount: 0,
+          icon: 'home',
+          thingsBoardId: 'error-loading-rooms',
+          isErrorMessage: true,
+          message: 'There was an error loading your rooms. Please try refreshing the page or contact support if the issue persists.'
+        }];
+        
+        return errorResult;
       }
-
-      console.log('Fetched rooms from ThingsBoard devices:', rooms);
-      return rooms;
     } catch (error) {
-      console.error('Error fetching rooms from ThingsBoard:', error);
+      console.error('Error fetching user-specific rooms:', error);
       throw error;
     }
   },
@@ -854,33 +861,49 @@ export const API = {
     }
 
     try {
-      // Check if ThingsBoard is properly configured
-      const tbBaseUrl = import.meta.env.VITE_TB_BASE_URL;
-      if (!tbBaseUrl) {
-        throw new Error('ThingsBoard not configured. Please set VITE_TB_BASE_URL in .env');
-      }
+      console.log('🔐 Calculating user-specific stats...');
       
-      // Get the current user's targets (same as getTargets function)
+      // Get the current user's targets (now user-specific)
       const targets = await API.getTargets();
       console.log('User targets for stats:', targets.length);
       
-      // Get rooms for the current user
+      // Get rooms for the current user (now user-specific)
       const rooms = await API.getRooms();
       console.log('User rooms for stats:', rooms.length);
       
+      // Filter out "no data" messages from counts
+      const actualTargets = targets.filter(t => !t.isNoDataMessage && !t.isErrorMessage);
+      const actualRooms = rooms.filter(r => !r.isNoDataMessage && !r.isErrorMessage);
+      
       const stats = {
-        targets: { online: targets.length },
-        rooms: { count: rooms.length },
+        targets: { online: actualTargets.length },
+        rooms: { count: actualRooms.length },
         sessions: { latest: { score: 0 } },
         invites: [],
+        hasNoData: actualTargets.length === 0 && actualRooms.length === 0,
+        noDataMessage: actualTargets.length === 0 && actualRooms.length === 0 
+          ? 'No data has been assigned to your account yet. Please contact an administrator to get started.'
+          : null
       };
       
-      console.log('Stats calculated for current user:', stats);
+      console.log('✅ User-specific stats calculated:', stats);
       cache.set(CACHE_KEYS.STATS, stats, 15000); // Cache for 15 seconds
       return stats;
     } catch (error) {
-      console.error('Error fetching stats from ThingsBoard:', error);
-      throw error;
+      console.error('Error fetching user-specific stats:', error);
+      
+      // Return safe default stats instead of throwing
+      const safeStats = {
+        targets: { online: 0 },
+        rooms: { count: 0 },
+        sessions: { latest: { score: 0 } },
+        invites: [],
+        hasError: true,
+        errorMessage: 'Unable to load statistics. Please try refreshing the page.'
+      };
+      
+      cache.set(CACHE_KEYS.STATS, safeStats, 5000); // Shorter cache for errors
+      return safeStats;
     }
   },
   /** 7-day hit trend – stub empty array until we wire TB aggregate API */

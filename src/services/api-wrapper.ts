@@ -52,8 +52,40 @@ class ApiWrapper {
    */
   async getRooms(isDemoMode: boolean): Promise<any[]> {
     if (isDemoMode) {
-      console.log('🎭 DEMO MODE: Using mock rooms');
-      return mockSupabaseService.getUserRooms();
+      console.log('🎭 DEMO MODE: Fetching real andrew.tam rooms from Supabase');
+      // In demo mode, fetch real rooms for andrew.tam@gmail.com
+      // We'll directly query Supabase with andrew.tam's user ID
+      try {
+        const { supabase } = await import('@/integrations/supabase/client');
+        const andrewTamUserId = '1dca810e-7f11-4ec9-8605-8633cf2b74f0';
+        
+        const { data: rooms, error } = await supabase
+          .from('user_rooms')
+          .select(`
+            *,
+            user_room_targets(count)
+          `)
+          .eq('user_id', andrewTamUserId)
+          .order('order_index', { ascending: true });
+
+        if (error) {
+          console.error('❌ Error fetching andrew.tam rooms:', error);
+          // Fallback to mock data if real data fails
+          return mockSupabaseService.getUserRooms();
+        }
+
+        // Transform the data to include target count
+        const transformedRooms = rooms.map(room => ({
+          ...room,
+          target_count: room.user_room_targets?.[0]?.count || 0
+        }));
+
+        return transformedRooms;
+      } catch (error) {
+        console.error('❌ Error in demo mode room fetch:', error);
+        // Fallback to mock data
+        return mockSupabaseService.getUserRooms();
+      }
     } else {
       console.log('🔗 LIVE MODE: Fetching real rooms from Supabase');
       return await supabaseRoomsService.getUserRooms();
@@ -143,8 +175,10 @@ class ApiWrapper {
    */
   async getUserProfile(isDemoMode: boolean, userId: string): Promise<any> {
     if (isDemoMode) {
-      console.log('🎭 DEMO MODE: Using mock user profile');
-      return mockSupabaseService.getUserProfile(userId);
+      console.log('🎭 DEMO MODE: Fetching real andrew.tam profile from Supabase');
+      // In demo mode, always fetch real data for andrew.tam@gmail.com
+      const andrewTamUserId = '1dca810e-7f11-4ec9-8605-8633cf2b74f0';
+      return await fetchUserProfileData(andrewTamUserId);
     } else {
       console.log('🔗 LIVE MODE: Fetching real user profile from Supabase');
       return await fetchUserProfileData(userId);
@@ -156,8 +190,10 @@ class ApiWrapper {
    */
   async getRecentSessions(isDemoMode: boolean, userId: string, limit: number = 10): Promise<any[]> {
     if (isDemoMode) {
-      console.log(`🎭 DEMO MODE: Using mock recent sessions (limit: ${limit})`);
-      return mockSupabaseService.getRecentSessions(userId, limit);
+      console.log(`🎭 DEMO MODE: Fetching real andrew.tam sessions from Supabase (limit: ${limit})`);
+      // In demo mode, always fetch real data for andrew.tam@gmail.com
+      const andrewTamUserId = '1dca810e-7f11-4ec9-8605-8633cf2b74f0';
+      return await fetchRecentSessions(andrewTamUserId, limit);
     } else {
       console.log(`🔗 LIVE MODE: Fetching real recent sessions from Supabase (limit: ${limit})`);
       return await fetchRecentSessions(userId, limit);

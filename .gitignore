@@ -31,6 +31,7 @@ dist-ssr
 .env.production.local
 
 .env.local.backup
+.env.production
 
 # add supabase directory
 
@@ -42,4 +43,4 @@ misc/
 # add dryfire sys architecture
 dryfire-sys-architecture/
 
-
+scripts/

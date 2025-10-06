@@ -82,6 +82,31 @@ else
     echo -e "${GREEN}✅ auth.users table accessible: $USERS_COUNT users${NC}"
 fi
 
+# Test authentication with confirmed user
+echo -e "\n${YELLOW}🔐 Testing authentication with confirmed user...${NC}"
+echo "Testing: d777914w@gmail.com"
+
+# Create a simple test to verify auth works
+AUTH_TEST=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
+    -H "apikey: $SUPABASE_ANON_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"email":"d777914w@gmail.com","password":"test12345"}' \
+    2>/dev/null || echo "ERROR")
+
+if [[ "$AUTH_TEST" == "ERROR" ]]; then
+    echo -e "${RED}❌ Authentication test failed${NC}"
+else
+    # Check if we got a token back
+    TOKEN=$(echo "$AUTH_TEST" | jq -r '.access_token' 2>/dev/null || echo "")
+    if [[ -n "$TOKEN" && "$TOKEN" != "null" ]]; then
+        echo -e "${GREEN}✅ Authentication successful!${NC}"
+        echo -e "${BLUE}📊 Token received: ${TOKEN:0:20}...${NC}"
+    else
+        echo -e "${RED}❌ Authentication failed: No token received${NC}"
+        echo "Response: $AUTH_TEST"
+    fi
+fi
+
 # Summary
 echo -e "\n${BLUE}📋 Summary${NC}"
 echo -e "Supabase Connection: ${GREEN}✅ Working${NC}"

@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
-import { useAuth } from '@/providers/AuthProvider';
+import { useAuth } from '@/hooks/useAuth';
 import { useDemoMode } from '@/providers/DemoModeProvider';
 import { apiWrapper } from '@/services/api-wrapper';
 import { useRooms } from '@/store/useRooms';
@@ -125,7 +125,7 @@ const Profile: React.FC = () => {
   const [wifiFetched, setWifiFetched] = useState(false); // Track if WiFi has been fetched
 
   // Fetch WiFi credentials from ThingsBoard
-  const fetchWifiCredentials = async () => {
+  const fetchWifiCredentials = useCallback(async () => {
     if (rooms.length === 0) {
       setWifiError('No rooms available. Please ensure you have access to at least one room.');
       return;
@@ -202,7 +202,7 @@ const Profile: React.FC = () => {
     } finally {
       setLoadingWifi(false);
     }
-  };
+  }, [rooms.length]);
 
   // Fetch data when component mounts or mode changes
   useEffect(() => {
@@ -221,8 +221,10 @@ const Profile: React.FC = () => {
         console.log('🎭 DEMO: Loading mock profile data...');
         
         try {
-          const mockProfile = await apiWrapper.getUserProfile(true, 'demo-user');
-          const mockSessions = await apiWrapper.getRecentSessions(true, 'demo-user', 10);
+          // Demo mode: Use andrew.tam user ID to fetch real data
+          const andrewTamUserId = '1dca810e-7f11-4ec9-8605-8633cf2b74f0';
+          const mockProfile = await apiWrapper.getUserProfile(true, andrewTamUserId);
+          const mockSessions = await apiWrapper.getRecentSessions(true, andrewTamUserId, 10);
           const mockRoomsList = await apiWrapper.getRooms(true);
           
           // Transform mock profile to match expected UserProfileData format
@@ -333,7 +335,7 @@ const Profile: React.FC = () => {
         setWifiError('Not authenticated with ThingsBoard. Please refresh the page.');
       }
     }
-  }, [isDemoMode, rooms.length, authUser?.id, wifiFetched, loadingWifi]);
+  }, [isDemoMode, rooms.length, authUser?.id, wifiFetched, loadingWifi, fetchWifiCredentials]);
 
   // Initialize form preferences when prefs are loaded
   useEffect(() => {

@@ -35,14 +35,7 @@ class SupabaseRoomsService {
   private async getCurrentUserId(): Promise<string> {
     console.log('🔐 getCurrentUserId - Starting auth check...');
     
-    // In dev mode, always use the known user ID to bypass auth issues
-    if (import.meta.env.DEV) {
-      const testUserId = import.meta.env.VITE_TEST_USER_ID || '1dca810e-7f11-4ec9-8605-8633cf2b74f0';
-      console.log('🔧 Dev mode: Using known user ID:', testUserId);
-      return testUserId;
-    }
-    
-    // In production, use proper authentication
+    // Always use proper authentication - no hardcoded bypass
     const { data: { user }, error } = await supabase.auth.getUser();
     
     console.log('🔐 getCurrentUserId - Supabase auth check:', {
@@ -390,9 +383,8 @@ class SupabaseRoomsService {
 
       if (error) throw error;
 
-      // Get all targets from ThingsBoard
-      const { API } = await import('@/lib/api');
-      const allTargets = await API.getTargets() as any[];
+      // Use synced targets instead of calling API.getTargets() to avoid circular dependency
+      const allTargets = this.syncedTargets.length > 0 ? this.syncedTargets : [];
       
       // Deduplicate targets by ID (fixes duplicate target issue)
       const uniqueTargetsMap = new Map<string, any>();

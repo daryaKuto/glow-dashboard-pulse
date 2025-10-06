@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { tbSupabaseSync } from '@/services/thingsboard-supabase-sync';
 import { useAuth } from '@/store/useAuth';
 
@@ -26,21 +26,24 @@ export const useInitialSync = () => {
     error: null,
     syncedData: null
   });
+  const hasStartedSync = useRef(false);
 
   // Perform ONE-TIME sync immediately (don't wait for user)
   useEffect(() => {
     console.log('🔄 useInitialSync useEffect:', { 
       user: !!user, 
       isComplete: syncStatus.isComplete, 
-      isLoading: syncStatus.isLoading 
+      isLoading: syncStatus.isLoading,
+      hasStartedSync: hasStartedSync.current
     });
     
-    // Start sync immediately, don't wait for user
-    if (!syncStatus.isComplete && !syncStatus.isLoading) {
+    // Start sync immediately, don't wait for user, but only once
+    if (!syncStatus.isComplete && !syncStatus.isLoading && !hasStartedSync.current) {
       console.log('🔄 Triggering immediate sync');
+      hasStartedSync.current = true;
       performInitialSync();
     }
-  }, [syncStatus.isComplete, syncStatus.isLoading]);
+  }, []); // Empty dependency array to run only once
 
   const performInitialSync = async () => {
     console.log('🔄 Starting ONE-TIME sync on login for:', user?.email);

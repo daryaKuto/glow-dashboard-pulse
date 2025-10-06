@@ -66,7 +66,7 @@ const MOCK_ROOMS: MockRoom[] = [
     order_index: 1,
     icon: 'target',
     room_type: 'training',
-    user_id: 'demo-user',
+    user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
     created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
     updated_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
   },
@@ -76,7 +76,7 @@ const MOCK_ROOMS: MockRoom[] = [
     order_index: 2,
     icon: 'trophy',
     room_type: 'competition',
-    user_id: 'demo-user',
+    user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
     created_at: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString(),
     updated_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
   },
@@ -86,17 +86,17 @@ const MOCK_ROOMS: MockRoom[] = [
     order_index: 3,
     icon: 'dumbbell',
     room_type: 'practice',
-    user_id: 'demo-user',
+    user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
     created_at: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
     updated_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()
   }
 ];
 
-// Mock user profile
+// Mock user profile - using andrew.tam data
 const MOCK_USER_PROFILE: MockUserProfile = {
-  id: 'demo-user',
-  email: 'demo@example.com',
-  full_name: 'Demo User',
+  id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
+  email: 'andrew.tam@gmail.com',
+  full_name: 'Andrew Tam',
   avatar_url: undefined,
   created_at: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
   updated_at: new Date().toISOString()
@@ -106,7 +106,7 @@ const MOCK_USER_PROFILE: MockUserProfile = {
 const MOCK_GAME_SESSIONS: MockGameSession[] = [
   {
     id: 'mock-session-001',
-    user_id: 'demo-user',
+    user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
     game_id: 'GM-001',
     game_name: 'Quick Practice',
     start_time: Date.now() - 5 * 24 * 60 * 60 * 1000,
@@ -117,7 +117,7 @@ const MOCK_GAME_SESSIONS: MockGameSession[] = [
   },
   {
     id: 'mock-session-002',
-    user_id: 'demo-user',
+    user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
     game_id: 'GM-002',
     game_name: 'Accuracy Training',
     start_time: Date.now() - 3 * 24 * 60 * 60 * 1000,
@@ -128,7 +128,7 @@ const MOCK_GAME_SESSIONS: MockGameSession[] = [
   },
   {
     id: 'mock-session-003',
-    user_id: 'demo-user',
+    user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
     game_id: 'GM-003',
     game_name: 'Speed Challenge',
     start_time: Date.now() - 1 * 24 * 60 * 60 * 1000,
@@ -142,7 +142,7 @@ const MOCK_GAME_SESSIONS: MockGameSession[] = [
 // Mock user analytics
 const MOCK_USER_ANALYTICS: MockUserAnalytics = {
   id: 'mock-analytics-001',
-  user_id: 'demo-user',
+  user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
   period_type: 'all_time',
   total_sessions: 15,
   total_hits: 850,
@@ -157,7 +157,7 @@ const MOCK_USER_ANALYTICS: MockUserAnalytics = {
 const MOCK_RECENT_SESSIONS: MockRecentSession[] = [
   {
     id: 'mock-recent-001',
-    user_id: 'demo-user',
+    user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
     game_name: 'Speed Challenge',
     score: 62,
     duration: 1200,
@@ -176,7 +176,7 @@ const MOCK_RECENT_SESSIONS: MockRecentSession[] = [
   },
   {
     id: 'mock-recent-002',
-    user_id: 'demo-user',
+    user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
     game_name: 'Accuracy Training',
     score: 78,
     duration: 1800,
@@ -195,7 +195,7 @@ const MOCK_RECENT_SESSIONS: MockRecentSession[] = [
   },
   {
     id: 'mock-recent-003',
-    user_id: 'demo-user',
+    user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
     game_name: 'Quick Practice',
     score: 45,
     duration: 900,
@@ -214,7 +214,7 @@ const MOCK_RECENT_SESSIONS: MockRecentSession[] = [
   },
   {
     id: 'mock-recent-004',
-    user_id: 'demo-user',
+    user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
     game_name: 'Endurance Test',
     score: 92,
     duration: 3600,
@@ -233,7 +233,7 @@ const MOCK_RECENT_SESSIONS: MockRecentSession[] = [
   },
   {
     id: 'mock-recent-005',
-    user_id: 'demo-user',
+    user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
     game_name: 'Precision Drill',
     score: 54,
     duration: 1500,
@@ -287,7 +287,7 @@ class MockSupabaseService {
       order_index: this.rooms.length + 1,
       icon: roomData.icon || 'home',
       room_type: roomData.room_type || 'training',
-      user_id: 'demo-user',
+      user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -383,7 +383,7 @@ class MockSupabaseService {
     console.log('🎭 DEMO: Storing mock game summary', sessionData);
     const newSession: MockGameSession = {
       id: `mock-session-${Date.now()}`,
-      user_id: 'demo-user',
+      user_id: '1dca810e-7f11-4ec9-8605-8633cf2b74f0', // Andrew Tam's user ID
       game_id: sessionData.game_id || `GM-${Date.now()}`,
       game_name: sessionData.game_name || 'New Game',
       start_time: sessionData.start_time || Date.now(),

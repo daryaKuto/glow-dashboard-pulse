@@ -21,17 +21,34 @@ interface DemoModeProviderProps {
 }
 
 export const DemoModeProvider: React.FC<DemoModeProviderProps> = ({ children }) => {
-  // Initialize from localStorage or default to demo mode
+  // Initialize from localStorage or default to live mode
   const [isDemoMode, setIsDemoMode] = useState<boolean>(() => {
     const stored = localStorage.getItem('demo_mode');
-    // Default to demo mode (true) if not set
-    return stored !== null ? stored === 'true' : true;
+    // Default to live mode (false) if not set - users should see their real data by default
+    return stored !== null ? stored === 'true' : false;
   });
 
   // Persist to localStorage whenever mode changes
   useEffect(() => {
     localStorage.setItem('demo_mode', String(isDemoMode));
     console.log(`🎭 Demo Mode ${isDemoMode ? 'ENABLED' : 'DISABLED'} - ${isDemoMode ? 'Using placeholder data' : 'Using real data from ThingsBoard and Supabase'}`);
+  }, [isDemoMode]);
+
+  // Listen for demo mode changes from AuthProvider
+  useEffect(() => {
+    const handleDemoModeChange = (event: CustomEvent) => {
+      const { isDemoMode: newMode } = event.detail;
+      if (newMode !== isDemoMode) {
+        console.log('🎭 Demo mode changed via AuthProvider:', newMode);
+        setIsDemoMode(newMode);
+      }
+    };
+
+    window.addEventListener('demoModeChanged', handleDemoModeChange as EventListener);
+    
+    return () => {
+      window.removeEventListener('demoModeChanged', handleDemoModeChange as EventListener);
+    };
   }, [isDemoMode]);
 
   const toggleDemoMode = useCallback(() => {

@@ -322,6 +322,58 @@ class ThingsBoardService {
     }
   }
 
+  // Get WiFi credentials from device attributes
+  async getDeviceWifiCredentials(deviceId: string): Promise<{ ssid: string; password: string } | null> {
+    try {
+      const attributes = await this.getDeviceAttributes(deviceId, 'SHARED_SCOPE');
+      
+      // ThingsBoard returns attributes as an array of {key, value} objects
+      let wifiCredentials = { ssid: '', password: '' };
+      
+      if (Array.isArray(attributes)) {
+        // Parse array format: [{key: 'wifi_ssid', value: 'MyWiFi'}, ...]
+        for (const attr of attributes) {
+          if (attr.key === 'wifi_ssid' || attr.key === 'ssid') {
+            wifiCredentials.ssid = attr.value || '';
+          } else if (attr.key === 'wifi_password' || attr.key === 'password') {
+            wifiCredentials.password = attr.value || '';
+          }
+        }
+      } else if (attributes && typeof attributes === 'object') {
+        // Fallback for object format (if API changes)
+        wifiCredentials = {
+          ssid: attributes.wifi_ssid || attributes.ssid || '',
+          password: attributes.wifi_password || attributes.password || ''
+        };
+      }
+
+      // Return null if no credentials found
+      if (!wifiCredentials.ssid && !wifiCredentials.password) {
+        return null;
+      }
+
+      return wifiCredentials;
+    } catch (error) {
+      console.error(`Failed to get WiFi credentials for device ${deviceId}:`, error);
+      return null;
+    }
+  }
+
+  // Set WiFi credentials to device attributes
+  async setDeviceWifiCredentials(deviceId: string, ssid: string, password: string): Promise<void> {
+    try {
+      await this.setDeviceAttributes(deviceId, {
+        wifi_ssid: ssid,
+        wifi_password: password
+      }, 'SHARED_SCOPE');
+      
+      console.log(`WiFi credentials set for device ${deviceId}`);
+    } catch (error) {
+      console.error(`Failed to set WiFi credentials for device ${deviceId}:`, error);
+      throw error;
+    }
+  }
+
   async setDeviceAttributes(
     deviceId: string,
     attributes: Record<string, any>,
@@ -569,6 +621,9 @@ export const listDevices = async () => {
 export const latestTelemetry = (deviceId: string, keys: string[]) => thingsBoardService.getLatestTelemetry(deviceId, keys);
 export const updateSharedAttributes = (deviceId: string, attributes: Record<string, any>) => 
   thingsBoardService.setDeviceAttributes(deviceId, attributes, 'SHARED_SCOPE');
+export const getDeviceWifiCredentials = (deviceId: string) => thingsBoardService.getDeviceWifiCredentials(deviceId);
+export const setDeviceWifiCredentials = (deviceId: string, ssid: string, password: string) => 
+  thingsBoardService.setDeviceWifiCredentials(deviceId, ssid, password);
 
 // WebSocket function for telemetry - use proxy for development
 export const openTelemetryWS = (token: string) => {

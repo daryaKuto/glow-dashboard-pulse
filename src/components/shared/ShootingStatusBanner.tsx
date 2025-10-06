@@ -9,6 +9,7 @@ interface ShootingStatusBannerProps {
   currentInterval: number;
   activeShotsCount: number;
   recentShotsCount: number;
+  targetsCount?: number;
   onRefresh: () => void;
 }
 
@@ -19,6 +20,7 @@ const ShootingStatusBanner: React.FC<ShootingStatusBannerProps> = ({
   currentInterval,
   activeShotsCount,
   recentShotsCount,
+  targetsCount,
   onRefresh
 }) => {
   const getStatusInfo = () => {
@@ -71,6 +73,7 @@ const ShootingStatusBanner: React.FC<ShootingStatusBannerProps> = ({
             <span>{currentInterval}s</span>
             <span>Active: {activeShotsCount}</span>
             <span>Recent: {recentShotsCount}</span>
+            {targetsCount !== undefined && <span>Targets: {targetsCount}</span>}
           </div>
         </div>
       </div>
@@ -89,6 +92,7 @@ const ShootingStatusBanner: React.FC<ShootingStatusBannerProps> = ({
             <span>Interval: {currentInterval}s</span>
             <span>Active Shots: {activeShotsCount}</span>
             <span>Recent: {recentShotsCount}</span>
+            {targetsCount !== undefined && <span>Targets: {targetsCount}</span>}
             <Button 
               size="sm" 
               variant="outline" 

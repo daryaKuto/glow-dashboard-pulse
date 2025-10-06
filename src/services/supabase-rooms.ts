@@ -394,6 +394,18 @@ class SupabaseRoomsService {
       const { API } = await import('@/lib/api');
       const allTargets = await API.getTargets() as any[];
       
+      // Deduplicate targets by ID (fixes duplicate target issue)
+      const uniqueTargetsMap = new Map<string, any>();
+      allTargets.forEach(target => {
+        const targetId = this.getTargetId(target);
+        if (!uniqueTargetsMap.has(targetId)) {
+          uniqueTargetsMap.set(targetId, target);
+        }
+      });
+      const deduplicatedTargets = Array.from(uniqueTargetsMap.values());
+      
+      console.log(`📊 Targets: ${allTargets.length} total, ${deduplicatedTargets.length} unique`);
+      
       // Create a map of target_id -> room_id
       const assignmentMap = new Map<string, string>();
       if (assignments) {
@@ -405,7 +417,7 @@ class SupabaseRoomsService {
       console.log('🗺️ Assignment map:', Array.from(assignmentMap.entries()));
 
       // Merge target data with room assignments
-      const targetsWithAssignments = allTargets.map(target => {
+      const targetsWithAssignments = deduplicatedTargets.map(target => {
         const targetId = this.getTargetId(target);
         const roomId = assignmentMap.get(targetId);
         
@@ -491,6 +503,153 @@ class SupabaseRoomsService {
       return session.id;
     } catch (error) {
       console.error('Error storing session:', error);
+      throw error;
+    }
+  }
+
+  // Get game sessions for a user
+  async getGameSessions(limit: number = 10): Promise<any[]> {
+    try {
+      const userId = await this.getCurrentUserId();
+      
+      const { data: sessions, error } = await supabase
+        .from('game_sessions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('start_time', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        console.log('⚠️ Game sessions table might not exist, returning empty array');
+        return [];
+      }
+
+      return sessions || [];
+    } catch (error) {
+      console.error('Error fetching game sessions:', error);
+      return [];
+    }
+  }
+
+  // Store session data (wrapper for storeSession with different parameter structure)
+  async storeSessionData(sessionData: {
+    room_name: string;
+    scenario_name: string;
+    scenario_type: string;
+    score: number;
+    duration_ms: number;
+    hit_count: number;
+    miss_count: number;
+    total_shots: number;
+    avg_reaction_time_ms?: number;
+    best_reaction_time_ms?: number;
+    worst_reaction_time_ms?: number;
+    started_at: string;
+    ended_at?: string;
+    thingsboard_data?: any;
+    raw_sensor_data?: any;
+  }): Promise<string> {
+    // Transform the data to match the storeSession method signature
+    return this.storeSession({
+      room_id: null, // Will be set to null since we don't have room_id in this context
+      room_name: sessionData.room_name,
+      scenario_name: sessionData.scenario_name,
+      scenario_type: sessionData.scenario_type,
+      score: sessionData.score,
+      duration_ms: sessionData.duration_ms,
+      hit_count: sessionData.hit_count,
+      miss_count: sessionData.miss_count,
+      total_shots: sessionData.total_shots,
+      avg_reaction_time_ms: sessionData.avg_reaction_time_ms,
+      best_reaction_time_ms: sessionData.best_reaction_time_ms,
+      worst_reaction_time_ms: sessionData.worst_reaction_time_ms,
+      started_at: sessionData.started_at,
+      ended_at: sessionData.ended_at,
+      thingsboard_data: sessionData.thingsboard_data,
+      raw_sensor_data: sessionData.raw_sensor_data
+    });
+  }
+
+  // Store game summary data from Games page
+  async storeGameSummary(gameData: {
+    gameId: string;
+    gameName: string;
+    startTime: number;
+    endTime: number;
+    gameSummary: {
+      totalHits: number;
+      gameDuration: number;
+      averageHitInterval: number;
+      targetStats: Array<{
+        deviceId: string;
+        deviceName: string;
+        hitCount: number;
+        hitTimes: number[];
+        averageInterval: number;
+        firstHitTime: number;
+        lastHitTime: number;
+      }>;
+      crossTargetStats: {
+        totalSwitches: number;
+        averageSwitchTime: number;
+        switchTimes: number[];
+      };
+    };
+  }): Promise<string> {
+    try {
+      const { gameSummary } = gameData;
+      
+      // Calculate derived metrics
+      const totalShots = gameSummary.totalHits; // In demo mode, we assume all hits are successful shots
+      const missCount = 0; // Demo mode doesn't track misses
+      const score = gameSummary.totalHits * 10; // Simple scoring: 10 points per hit
+      
+      // Calculate reaction times from hit intervals
+      const allHitTimes = gameSummary.targetStats.flatMap(stat => stat.hitTimes);
+      const reactionTimes = allHitTimes.length > 1 
+        ? allHitTimes.slice(1).map((time, index) => time - allHitTimes[index])
+        : [];
+      
+      const avgReactionTime = reactionTimes.length > 0 
+        ? Math.round(reactionTimes.reduce((sum, time) => sum + time, 0) / reactionTimes.length)
+        : null;
+      
+      const bestReactionTime = reactionTimes.length > 0 
+        ? Math.min(...reactionTimes)
+        : null;
+      
+      const worstReactionTime = reactionTimes.length > 0 
+        ? Math.max(...reactionTimes)
+        : null;
+
+      // Store the session data
+      return await this.storeSessionData({
+        room_name: 'Demo Room', // Default room name for demo games
+        scenario_name: gameData.gameName,
+        scenario_type: 'demo',
+        score: score,
+        duration_ms: Math.round(gameSummary.gameDuration * 1000), // Convert seconds to milliseconds
+        hit_count: gameSummary.totalHits,
+        miss_count: missCount,
+        total_shots: totalShots,
+        avg_reaction_time_ms: avgReactionTime,
+        best_reaction_time_ms: bestReactionTime,
+        worst_reaction_time_ms: worstReactionTime,
+        started_at: new Date(gameData.startTime).toISOString(),
+        ended_at: new Date(gameData.endTime).toISOString(),
+        thingsboard_data: {
+          gameId: gameData.gameId,
+          targetStats: gameSummary.targetStats,
+          crossTargetStats: gameSummary.crossTargetStats,
+          averageHitInterval: gameSummary.averageHitInterval
+        },
+        raw_sensor_data: {
+          hitTimes: allHitTimes,
+          reactionTimes: reactionTimes
+        }
+      });
+    } catch (error) {
+      console.error('Error storing game summary:', error);
       throw error;
     }
   }

@@ -25,12 +25,21 @@ export interface UserProfileData {
 export interface RecentSession {
   id: string;
   scenarioName: string | null;
+  scenarioType: string | null;
+  roomName: string | null;
   score: number;
   accuracy: number;
   duration: number;
   hitCount: number;
+  totalShots: number;
+  missCount: number;
+  avgReactionTime: number | null;
+  bestReactionTime: number | null;
+  worstReactionTime: number | null;
   startedAt: string;
   endedAt: string | null;
+  thingsboardData?: any; // Contains detailed game summary data
+  rawSensorData?: any; // Contains hit times and reaction times
 }
 
 /**
@@ -169,12 +178,21 @@ export const fetchRecentSessions = async (userId: string, limit = 10): Promise<R
       .select(`
         id,
         scenario_name,
+        scenario_type,
+        room_name,
         score,
         accuracy_percentage,
         duration_ms,
         hit_count,
+        total_shots,
+        miss_count,
+        avg_reaction_time_ms,
+        best_reaction_time_ms,
+        worst_reaction_time_ms,
         started_at,
-        ended_at
+        ended_at,
+        thingsboard_data,
+        raw_sensor_data
       `)
       .eq('user_id', userId)
       .order('started_at', { ascending: false })
@@ -185,12 +203,21 @@ export const fetchRecentSessions = async (userId: string, limit = 10): Promise<R
     return sessions?.map(session => ({
       id: session.id,
       scenarioName: session.scenario_name,
+      scenarioType: session.scenario_type,
+      roomName: session.room_name,
       score: session.score,
       accuracy: Math.round(session.accuracy_percentage * 100) / 100,
       duration: session.duration_ms,
       hitCount: session.hit_count,
+      totalShots: session.total_shots,
+      missCount: session.miss_count,
+      avgReactionTime: session.avg_reaction_time_ms,
+      bestReactionTime: session.best_reaction_time_ms,
+      worstReactionTime: session.worst_reaction_time_ms,
       startedAt: session.started_at,
       endedAt: session.ended_at,
+      thingsboardData: session.thingsboard_data,
+      rawSensorData: session.raw_sensor_data,
     })) || [];
   } catch (error) {
     console.error('Error fetching recent sessions:', error);

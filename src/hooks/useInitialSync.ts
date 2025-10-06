@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { tbSupabaseSync } from '@/services/thingsboard-supabase-sync';
 import { useAuth } from '@/store/useAuth';
-import { toast } from '@/components/ui/sonner';
 
 export interface InitialSyncStatus {
   isComplete: boolean;
@@ -81,7 +80,7 @@ export const useInitialSync = () => {
         }
       });
 
-      toast.success(`Synced ${result.targets.length} targets from ThingsBoard`);
+      console.log(`✅ Synced ${result.targets.length} targets from ThingsBoard`);
       
     } catch (error) {
       console.error('❌ Initial sync failed:', error);
@@ -93,7 +92,7 @@ export const useInitialSync = () => {
         syncedData: null
       });
 
-      toast.error('Failed to sync - using local data');
+      console.log('⚠️ Failed to sync - using local data');
     }
   };
 

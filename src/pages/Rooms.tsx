@@ -1,7 +1,9 @@
 import React, { useEffect, useState, useMemo, startTransition } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useDemoMode } from '@/providers/DemoModeProvider';
 import { useRooms } from '@/store/useRooms';
 import { useTargets } from '@/store/useTargets';
+import { apiWrapper } from '@/services/api-wrapper';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -22,8 +24,9 @@ const Rooms: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+  const { isDemoMode } = useDemoMode();
   const { 
-    rooms, 
+    rooms: liveRooms, 
     isLoading, 
     fetchRooms, 
     createRoom, 
@@ -34,6 +37,9 @@ const Rooms: React.FC = () => {
     getAllTargetsWithAssignments
   } = useRooms();
   const { targets, refresh: refreshTargets } = useTargets();
+  
+  // Local state for demo mode
+  const [demoRooms, setDemoRooms] = useState<any[]>([]);
   const [createRoomModalOpen, setCreateRoomModalOpen] = useState(false);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<any>(null);
@@ -44,6 +50,9 @@ const Rooms: React.FC = () => {
   const [roomTargets, setRoomTargets] = useState<any[]>([]);
   const [targetsWithAssignments, setTargetsWithAssignments] = useState<any[]>([]);
   const [pendingAssignments, setPendingAssignments] = useState<Map<string, string | null>>(new Map()); // targetId -> roomId
+  
+  // Use demo or live rooms based on mode
+  const rooms = isDemoMode ? demoRooms : liveRooms;
 
   // Helper function to safely get target ID
   const getTargetId = (target: any) => {
@@ -72,61 +81,88 @@ const Rooms: React.FC = () => {
   // Function to refresh targets with assignments
   const refreshTargetsWithAssignments = async () => {
     try {
-      console.log('🔄 Refreshing targets with assignments...');
-      const targetsWithAssignmentsData = await getAllTargetsWithAssignments();
-      setTargetsWithAssignments(targetsWithAssignmentsData);
-      console.log('✅ Targets with assignments refreshed:', targetsWithAssignmentsData.length);
-      return targetsWithAssignmentsData;
+      console.log(`🔄 Refreshing targets with assignments (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+      
+      if (isDemoMode) {
+        // Demo mode: use mock data
+        const mockTargets = await apiWrapper.getTargetsWithAssignments(true);
+        setTargetsWithAssignments(mockTargets);
+        console.log('✅ Mock targets with assignments loaded:', mockTargets.length);
+        return mockTargets;
+      } else {
+        // Live mode: use real data
+        const targetsWithAssignmentsData = await getAllTargetsWithAssignments();
+        setTargetsWithAssignments(targetsWithAssignmentsData);
+        console.log('✅ Real targets with assignments refreshed:', targetsWithAssignmentsData.length);
+        return targetsWithAssignmentsData;
+      }
     } catch (error) {
       console.error('❌ Error refreshing targets with assignments:', error);
-      console.log('🔄 Fallback: Using ThingsBoard targets directly...');
-      
-      // Fallback to ThingsBoard targets if Supabase fails
-      try {
-        const { API } = await import('@/lib/api');
-        const thingsBoardTargets = await API.getTargets();
-        console.log('✅ ThingsBoard fallback targets loaded:', thingsBoardTargets.length);
-        setTargetsWithAssignments(thingsBoardTargets);
-        return thingsBoardTargets;
-      } catch (tbError) {
-        console.error('❌ ThingsBoard fallback also failed:', tbError);
-        setTargetsWithAssignments([]);
-        return [];
-      }
+      setTargetsWithAssignments([]);
+      return [];
     }
   };
 
   useEffect(() => {
     const fetchData = async () => {
-      console.log('🔄 Rooms page: Starting data fetch...');
+      console.log(`🔄 Rooms page: Mode changed to ${isDemoMode ? 'DEMO' : 'LIVE'}, clearing old data...`);
       
-      try {
-        console.log('🔄 Fetching rooms from Supabase...');
-        await fetchRooms();
-        console.log('✅ Rooms fetched successfully');
-      } catch (error) {
-        console.error('❌ Error fetching rooms:', error);
-        console.log('🔄 Creating fallback rooms for development...');
-        
-        // Create some default rooms for development when Supabase is not available
-        // This is temporary until Supabase authentication is fixed
-        // Note: This won't persist, it's just for viewing the data
-      }
+      // Clear all data when switching modes to prevent leakage
+      setTargetsWithAssignments([]);
+      setDemoRooms([]);
+      setPendingAssignments(new Map());
+      setSelectedTargets([]);
+      
+      console.log(`🧹 Rooms: Cleared old data. Fetching ${isDemoMode ? 'MOCK' : 'REAL'} data...`);
+      
+      if (isDemoMode) {
+        // Demo mode: load mock rooms and targets
+        try {
+          console.log('🎭 DEMO: Loading mock rooms...');
+          const mockRooms = await apiWrapper.getRooms(true);
+          
+          // Transform mock rooms to match the Room interface
+          const transformedRooms = mockRooms.map(room => ({
+            id: room.id,
+            name: room.name,
+            order: room.order_index,
+            targetCount: 0, // Will be calculated from assignments
+            icon: room.icon,
+            room_type: room.room_type
+          }));
+          
+          setDemoRooms(transformedRooms);
+          console.log('✅ DEMO: Loaded mock rooms:', transformedRooms.length);
+        } catch (error) {
+          console.error('❌ DEMO: Error loading mock rooms:', error);
+          setDemoRooms([]);
+        }
+      } else {
+        // Live mode: fetch real data
+        try {
+          console.log('🔄 Fetching rooms from Supabase...');
+          await fetchRooms();
+          console.log('✅ Rooms fetched successfully');
+        } catch (error) {
+          console.error('❌ Error fetching rooms:', error);
+        }
 
-      try {
-        console.log('🔄 Refreshing targets from ThingsBoard...');
-        await refreshTargets();
-        console.log('✅ Targets refreshed successfully');
-      } catch (error) {
-        console.error('❌ Error refreshing targets:', error);
+        try {
+          console.log('🔄 Refreshing targets from ThingsBoard...');
+          await refreshTargets();
+          console.log('✅ Targets refreshed successfully');
+        } catch (error) {
+          console.error('❌ Error refreshing targets:', error);
+        }
       }
       
-      // Fetch targets with proper room assignments
+      // Fetch targets with proper room assignments (works for both modes)
       await refreshTargetsWithAssignments();
     };
     
     fetchData();
-  }, [fetchRooms, refreshTargets, getAllTargetsWithAssignments]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemoMode]);
 
   const handleCreateRoom = (roomData: {
     name: string;
@@ -176,10 +212,11 @@ const Rooms: React.FC = () => {
     if (!selectedTarget || !selectedRoom) return;
     
     try {
-      await assignTargetToRoom(selectedTarget, selectedRoom.id);
+      await apiWrapper.assignTargetToRoom(isDemoMode, selectedTarget, selectedRoom.id);
       setAssignDialogOpen(false);
       setSelectedTarget('');
       setSelectedRoom(null);
+      await refreshTargetsWithAssignments();
       toast.success('Target assigned to room successfully');
     } catch (error) {
       console.error('Error assigning target:', error);
@@ -240,17 +277,17 @@ const Rooms: React.FC = () => {
     setSelectedTargets([]);
   };
 
-  // Save pending assignments to Supabase when modal closes
+  // Save pending assignments when modal closes
   const savePendingAssignments = async () => {
     if (pendingAssignments.size === 0) return;
     
-    console.log('💾 Saving pending assignments to Supabase...', Array.from(pendingAssignments.entries()));
+    console.log(`💾 Saving pending assignments (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`, Array.from(pendingAssignments.entries()));
     
     try {
-      // Save all pending assignments to Supabase
+      // Save all pending assignments
       for (const [targetId, roomId] of pendingAssignments.entries()) {
         console.log(`🔄 Saving: ${targetId} → ${roomId || 'unassigned'}`);
-        await assignTargetToRoom(targetId, roomId);
+        await apiWrapper.assignTargetToRoom(isDemoMode, targetId, roomId);
       }
       
       // Clear pending assignments
@@ -261,7 +298,7 @@ const Rooms: React.FC = () => {
         await refreshTargetsWithAssignments();
       });
       
-      console.log('✅ All pending assignments saved to Supabase');
+      console.log('✅ All pending assignments saved');
       
     } catch (error) {
       console.error('❌ Error saving pending assignments:', error);

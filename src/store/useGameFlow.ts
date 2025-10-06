@@ -38,7 +38,7 @@ interface GameFlowState {
   unsubscribeFromDevices: () => void;
   
   // History management
-  loadGameHistory: () => Promise<void>;
+  loadGameHistory: (isDemoMode?: boolean) => Promise<void>;
   saveGameToHistory: (session: GameSession) => void;
   addGameToHistory: (historyEntry: GameHistory) => void;
   
@@ -320,10 +320,14 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
     });
   },
 
-  loadGameHistory: async () => {
+  loadGameHistory: async (isDemoMode: boolean = true) => {
     try {
-      // Load demo game history for testing
-      const demoHistory: GameHistory[] = [
+      console.log(`🔄 Loading game history (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+      
+      if (isDemoMode) {
+        // Demo mode: Load mock game history
+        console.log('🎭 DEMO: Loading mock game history...');
+        const demoHistory: GameHistory[] = [
         {
           gameId: 'GM-demo-001',
           gameName: 'Training Session Alpha',
@@ -471,10 +475,46 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
             switchTimes: []
           }
         }
-      ];
-      
-      set({ gameHistory: demoHistory });
-      console.log('📊 Demo game history loaded:', demoHistory.length, 'games');
+        ];
+        
+        set({ gameHistory: demoHistory });
+        console.log('✅ DEMO: Loaded mock game history:', demoHistory.length, 'games');
+        
+      } else {
+        // Live mode: Load real game history from Supabase
+        console.log('🔗 LIVE: Loading real game history from Supabase...');
+        
+        try {
+          const { supabaseRoomsService } = await import('@/services/supabase-rooms');
+          const gameSessions = await supabaseRoomsService.getGameSessions();
+          
+          // Transform Supabase sessions to GameHistory format
+          const realHistory: GameHistory[] = gameSessions.map(session => ({
+            gameId: session.game_id,
+            gameName: session.game_name,
+            duration: session.duration || 0,
+            startTime: session.start_time,
+            endTime: session.end_time,
+            deviceResults: [], // Will be populated if we have device details
+            totalHits: session.total_hits || 0,
+            actualDuration: session.duration || 0,
+            averageHitInterval: 0,
+            targetStats: [],
+            crossTargetStats: {
+              totalSwitches: 0,
+              averageSwitchTime: 0,
+              switchTimes: []
+            }
+          }));
+          
+          set({ gameHistory: realHistory });
+          console.log('✅ LIVE: Loaded real game history:', realHistory.length, 'games');
+          
+        } catch (error) {
+          console.error('❌ LIVE: Failed to load game history from Supabase:', error);
+          set({ gameHistory: [] });
+        }
+      }
     } catch (error) {
       console.error('Failed to load game history:', error);
       set({ error: 'Failed to load game history' });

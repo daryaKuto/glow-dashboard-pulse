@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/providers/AuthProvider';
+import { useDemoMode } from '@/providers/DemoModeProvider';
 import { useStats } from '@/store/useStats';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -23,6 +24,7 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const { wsConnected } = useStats();
   const { user, signOut } = useAuth();
+  const { isDemoMode, toggleDemoMode } = useDemoMode();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const isDevelopment = import.meta.env.DEV;
@@ -92,7 +94,26 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
         </div>
       )}
       
-      <div className="flex items-center gap-2 md:gap-4">
+      <div className="flex items-center gap-1 md:gap-3">
+        {/* Demo Mode Toggle */}
+        <div className="flex items-center gap-1 md:gap-2">
+          <div className={`px-1.5 py-0.5 md:px-2 md:py-1 rounded-md text-xs font-body font-medium ${
+            isDemoMode 
+              ? 'bg-yellow-100 text-yellow-800' 
+              : 'bg-green-100 text-green-800'
+          }`}>
+            {isDemoMode ? '🎭 Demo' : '🔗 Live'}
+          </div>
+          <Button
+            onClick={toggleDemoMode}
+            variant="outline"
+            size="sm"
+            className="h-6 md:h-7 px-1.5 md:px-2 text-[10px] md:text-xs font-body border border-brand-secondary/30 text-brand-secondary hover:bg-brand-primary hover:text-white hover:border-brand-primary"
+          >
+            Toggle
+          </Button>
+        </div>
+
         {displayUser || isDevelopment ? (
           <Button 
             onClick={handleSignOut}

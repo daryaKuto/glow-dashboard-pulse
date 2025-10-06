@@ -5,14 +5,18 @@ import { useStats } from '@/store/useStats';
 import { useDashboardStats } from '@/store/useDashboardStats';
 import { useTargets, type Target } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
-import { useScenarios, type ScenarioHistory } from '@/scenarios - old/useScenarios';
+import { useGameFlow } from '@/store/useGameFlow';
 import { useAuth } from '@/providers/AuthProvider';
+import { useDemoMode } from '@/providers/DemoModeProvider';
+import { apiWrapper } from '@/services/api-wrapper';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useShootingActivityPolling } from '@/hooks/useShootingActivityPolling';
 import { useInitialSync } from '@/hooks/useInitialSync';
+import { useThingsBoardSync } from '@/hooks/useThingsBoardSync';
+import { fetchRecentSessions, type RecentSession } from '@/services/profile';
 import type { TargetShootingActivity } from '@/hooks/useShootingActivityPolling';
 import ShootingStatusBanner from '@/components/shared/ShootingStatusBanner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,7 +26,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import dayjs from 'dayjs';
 
-// Modern Stat Card Component
+// Modern Stat Card Component with Enhanced Skeleton
 const StatCard: React.FC<{
   title: string;
   value: string | number;
@@ -33,32 +37,45 @@ const StatCard: React.FC<{
 }> = ({ title, value, subtitle, icon, trend, isLoading = false }) => (
   <Card className="bg-white border-gray-200 shadow-sm hover:shadow-md transition-shadow rounded-md md:rounded-lg">
     <CardContent className="p-2 md:p-4">
-      <div className="flex items-start gap-2">
-        <div className="flex-1 space-y-0.5 md:space-y-1 text-center md:text-left">
-          <p className="text-xs font-medium text-brand-dark/70 font-body">{title}</p>
-          {isLoading ? (
-            <div className="h-4 md:h-6 w-10 md:w-14 bg-gray-200 rounded animate-pulse mx-auto md:mx-0"></div>
-          ) : (
-            <p className="text-sm md:text-xl lg:text-2xl font-bold text-brand-dark font-heading">{value}</p>
-          )}
-          {subtitle && (
-            <p className="text-xs text-brand-dark/50 font-body">{subtitle}</p>
-          )}
-        </div>
-        <div className="flex-shrink-0 p-1 md:p-2 bg-brand-secondary/10 rounded-sm md:rounded-lg">
-          <div className="text-brand-primary w-3 h-3 md:w-5 md:h-5">
-            {icon}
+      {isLoading ? (
+        <div className="animate-pulse">
+          <div className="flex items-start gap-2">
+            <div className="flex-1 space-y-0.5 md:space-y-1 text-center md:text-left">
+              <div className="h-3 md:h-4 bg-brand-secondary/20 rounded w-20 md:w-24 mx-auto md:mx-0"></div>
+              <div className="h-4 md:h-6 w-10 md:w-14 bg-brand-secondary/20 rounded mx-auto md:mx-0"></div>
+              <div className="h-3 md:h-4 bg-brand-secondary/20 rounded w-16 md:w-20 mx-auto md:mx-0"></div>
+            </div>
+            <div className="flex-shrink-0 p-1 md:p-2 bg-brand-secondary/10 rounded-sm md:rounded-lg">
+              <div className="w-3 h-3 md:w-5 md:h-5 bg-brand-secondary/20 rounded"></div>
+            </div>
           </div>
         </div>
-      </div>
-      {trend && !isLoading && (
-        <div className="mt-1 md:mt-3 flex items-center gap-1 md:gap-2">
-          <div className={`flex items-center gap-0.5 md:gap-1 text-xs ${trend.isPositive ? 'text-green-600' : 'text-red-600'}`}>
-            <TrendingUp className={`w-2.5 h-2.5 md:w-4 md:h-4 ${!trend.isPositive && 'rotate-180'}`} />
-            <span>{trend.value}%</span>
+      ) : (
+        <>
+          <div className="flex items-start gap-2">
+            <div className="flex-1 space-y-0.5 md:space-y-1 text-center md:text-left">
+              <p className="text-xs font-medium text-brand-dark/70 font-body">{title}</p>
+              <p className="text-sm md:text-xl lg:text-2xl font-bold text-brand-dark font-heading">{value}</p>
+              {subtitle && (
+                <p className="text-xs text-brand-dark/50 font-body">{subtitle}</p>
+              )}
+            </div>
+            <div className="flex-shrink-0 p-1 md:p-2 bg-brand-secondary/10 rounded-sm md:rounded-lg">
+              <div className="text-brand-primary w-3 h-3 md:w-5 md:h-5">
+                {icon}
+              </div>
+            </div>
           </div>
-          <span className="text-xs text-brand-dark/50 font-body">vs last week</span>
-        </div>
+          {trend && (
+            <div className="mt-1 md:mt-3 flex items-center gap-1 md:gap-2">
+              <div className={`flex items-center gap-0.5 md:gap-1 text-xs ${trend.isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                <TrendingUp className={`w-2.5 h-2.5 md:w-4 md:h-4 ${!trend.isPositive && 'rotate-180'}`} />
+                <span>{trend.value}%</span>
+              </div>
+              <span className="text-xs text-brand-dark/50 font-body">vs last week</span>
+            </div>
+          )}
+        </>
       )}
     </CardContent>
   </Card>
@@ -72,15 +89,42 @@ const ActivityChart: React.FC<{
 }> = ({ targetActivity, hitTrend, isLoading }) => {
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        <div className="animate-pulse">
-          <div className="h-6 bg-gray-200 rounded w-32 mb-2"></div>
-          <div className="h-4 bg-gray-200 rounded w-16"></div>
+      <div className="space-y-4 animate-pulse">
+        {/* Header Skeleton */}
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="h-6 bg-brand-secondary/20 rounded w-32 mb-2"></div>
+            <div className="h-4 bg-brand-secondary/20 rounded w-24"></div>
+          </div>
+          <div className="h-6 bg-brand-secondary/20 rounded w-16"></div>
         </div>
-        <div className="flex items-end justify-between gap-2 h-32">
-          {[...Array(7)].map((_, i) => (
-            <div key={i} className="flex-1 bg-gray-200 animate-pulse rounded-t-lg h-16"></div>
+        
+        {/* Activity Status Skeleton */}
+        <div className="space-y-3">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-brand-secondary/20 rounded-full"></div>
+                <div className="h-4 bg-brand-secondary/20 rounded w-20"></div>
+              </div>
+              <div className="h-4 bg-brand-secondary/20 rounded w-6"></div>
+            </div>
           ))}
+        </div>
+
+        {/* Chart Skeleton */}
+        <div className="pt-4 border-t border-gray-200">
+          <div className="h-4 bg-brand-secondary/20 rounded w-24 mb-3"></div>
+          <div className="flex items-end justify-between gap-2 h-20">
+            {[...Array(7)].map((_, i) => (
+              <div key={i} className="flex flex-col items-center gap-2 flex-1">
+                <div className="flex-1 flex items-end w-full">
+                  <div className="w-full bg-brand-secondary/20 rounded-t-lg h-12"></div>
+                </div>
+                <div className="h-3 bg-brand-secondary/20 rounded w-6"></div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -192,18 +236,32 @@ const ActivityChart: React.FC<{
 // System Overview using simple metric display
 const SystemOverview: React.FC<{
   targets: Target[];
-  scenarios: ScenarioHistory[];
+  gameSessionsCount: number;
   isLoading: boolean;
-}> = ({ targets, scenarios, isLoading }) => {
+}> = ({ targets, gameSessionsCount, isLoading }) => {
   if (isLoading) {
     return (
-      <div className="space-y-2 md:space-y-3">
+      <div className="space-y-2 md:space-y-3 animate-pulse">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="flex items-center justify-between p-2 md:p-3 bg-gray-50 rounded-sm md:rounded-lg animate-pulse">
-            <div className="h-3 md:h-4 w-20 md:w-24 bg-gray-200 rounded-sm md:rounded"></div>
-            <div className="h-4 md:h-5 w-10 md:w-12 bg-gray-200 rounded-sm md:rounded"></div>
+          <div key={i} className="flex items-center justify-between p-2 md:p-3 bg-brand-light/30 rounded-sm md:rounded-lg">
+            <div className="flex items-center gap-2 md:gap-3">
+              <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-brand-secondary/20 rounded-full"></div>
+              <div className="h-3 md:h-4 w-20 md:w-24 bg-brand-secondary/20 rounded-sm md:rounded"></div>
+            </div>
+            <div className="flex items-center gap-1 md:gap-2">
+              <div className="h-4 md:h-5 w-10 md:w-12 bg-brand-secondary/20 rounded-sm md:rounded"></div>
+              <div className="h-3 md:h-4 w-6 md:w-8 bg-brand-secondary/20 rounded-sm md:rounded"></div>
+            </div>
           </div>
         ))}
+        
+        {/* Quick Actions Skeleton */}
+        <div className="pt-2 md:pt-3 border-t border-gray-200">
+          <div className="grid grid-cols-2 gap-1.5 md:gap-2">
+            <div className="h-7 bg-brand-secondary/20 rounded-sm md:rounded"></div>
+            <div className="h-7 bg-brand-secondary/20 rounded-sm md:rounded"></div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -211,8 +269,8 @@ const SystemOverview: React.FC<{
   const onlineTargets = targets.filter(t => t.status === 'online').length;
   const offlineTargets = targets.filter(t => t.status === 'offline').length;
   const totalTargets = targets.length;
-  const completedScenarios = scenarios.filter(s => s.score > 0).length;
-  const totalScenarios = scenarios.length;
+  const totalSessions = gameSessionsCount;
+  const completedSessions = totalSessions; // All completed games count
 
   const metrics = [
     { 
@@ -231,14 +289,14 @@ const SystemOverview: React.FC<{
     },
     { 
       label: 'Completed Sessions', 
-      value: completedScenarios, 
-      total: totalScenarios,
+      value: completedSessions, 
+      total: totalSessions,
       color: 'text-brand-primary',
       bgColor: 'bg-orange-50'
     },
     { 
       label: 'Total Sessions', 
-      value: totalScenarios, 
+      value: totalSessions, 
       total: null,
       color: 'text-brand-secondary',
       bgColor: 'bg-purple-50'
@@ -415,7 +473,11 @@ const Dashboard: React.FC = () => {
   const [dismissedCards, setDismissedCards] = useState<string[]>([]);
   const [targets, setTargets] = useState<Target[]>([]);
   const [targetsLoading, setTargetsLoading] = useState(false);
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
   const isFetchingRef = useRef(false);
+  
+  // Get demo mode state
+  const { isDemoMode } = useDemoMode();
   
   // Real data from stores
   const { 
@@ -433,12 +495,15 @@ const Dashboard: React.FC = () => {
   const { slices, refresh: refreshDashboardStats } = useDashboardStats();
   const { targets: rawTargets, refresh: refreshTargets } = useTargets();
   const { rooms, isLoading: roomsLoading, fetchRooms, getAllTargetsWithAssignments } = useRooms();
-  const { scenarioHistory, isLoading: scenariosLoading, fetchScenarios } = useScenarios();
+  const { gameHistory, loadGameHistory } = useGameFlow();
   
   const { user } = useAuth();
   
   // Initial sync with ThingsBoard (only on dashboard)
   const { syncStatus, isReady } = useInitialSync();
+  
+  // ThingsBoard sync for manual refresh
+  const { forceSync: forceThingsBoardSync } = useThingsBoardSync();
 
   // Get ThingsBoard token from localStorage
   const tbToken = localStorage.getItem('tb_access');
@@ -447,18 +512,54 @@ const Dashboard: React.FC = () => {
   const fetchMergedTargets = useCallback(async () => {
     setTargetsLoading(true);
     try {
-      console.log('🔄 Dashboard: Fetching merged targets with assignments...');
-      const mergedTargets = await getAllTargetsWithAssignments();
-      setTargets(mergedTargets);
+      console.log(`🔄 Dashboard: Fetching targets (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+      
+      if (isDemoMode) {
+        // Demo mode: use mock targets
+        const mockTargets = await apiWrapper.getTargets(true);
+        setTargets(mockTargets);
+        console.log('✅ DEMO: Loaded mock targets:', mockTargets.length);
+      } else {
+        // Live mode: use real merged targets
+        const mergedTargets = await getAllTargetsWithAssignments();
+        setTargets(mergedTargets);
+        console.log('✅ LIVE: Merged targets loaded:', mergedTargets.length);
+      }
+      
       setTargetsLoading(false);
-      console.log('✅ Dashboard: Merged targets loaded:', mergedTargets.length);
     } catch (error) {
-      console.error('❌ Dashboard: Error fetching merged targets:', error);
-      // Fallback to empty array if merged fetch fails
+      console.error('❌ Dashboard: Error fetching targets:', error);
       setTargets([]);
       setTargetsLoading(false);
     }
-  }, [getAllTargetsWithAssignments]);
+  }, [isDemoMode, getAllTargetsWithAssignments]);
+
+  // Fetch recent sessions for average score calculation
+  const fetchRecentSessionsData = useCallback(async () => {
+    try {
+      console.log(`🔄 Dashboard: Fetching recent sessions (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+      
+      if (isDemoMode) {
+        // Demo mode: ALWAYS use mock sessions
+        const mockSessions = await apiWrapper.getRecentSessions(true, 'demo-user', 10);
+        setRecentSessions(mockSessions);
+        console.log('✅ DEMO: Loaded mock sessions:', mockSessions.length);
+      } else {
+        // Live mode: ONLY fetch real sessions if user is logged in
+        if (!user?.id) {
+          console.log('⚠️ LIVE: No user ID, clearing sessions');
+          setRecentSessions([]);
+          return;
+        }
+        const sessions = await fetchRecentSessions(user.id, 10);
+        setRecentSessions(sessions);
+        console.log('✅ LIVE: Recent sessions loaded:', sessions.length);
+      }
+    } catch (error) {
+      console.error('❌ Dashboard: Error fetching recent sessions:', error);
+      setRecentSessions([]);
+    }
+  }, [isDemoMode, user?.id]);
 
   // Smart polling system with heartbeat detection
   const fetchAllData = useCallback(async () => {
@@ -470,27 +571,40 @@ const Dashboard: React.FC = () => {
 
     isFetchingRef.current = true;
     try {
-      console.log('🔄 Dashboard: Fetching all data...');
+      console.log(`🔄 Dashboard: Fetching all data (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
       
-      // Always try to fetch from Supabase first (rooms, targets with assignments)
-      const promises = [
-        fetchRooms(), // This should work from Supabase
-        refreshDashboardStats() // This should work from Supabase
-      ];
+      if (isDemoMode) {
+        // Demo mode: only fetch mock data
+        console.log('🎭 DEMO: Using mock data for all dashboard stats');
+        await Promise.all([
+          fetchMergedTargets(),
+          fetchRecentSessionsData(),
+          loadGameHistory(true) // Load mock game history
+        ]);
+      } else {
+        // Live mode: fetch real data
+        const promises = [
+          fetchRooms(),
+          refreshDashboardStats(),
+          fetchRecentSessionsData()
+        ];
 
-      // Fetch merged targets separately to avoid dependency issues
-      fetchMergedTargets();
+        // Fetch merged targets separately
+        fetchMergedTargets();
 
-      // Try to fetch from ThingsBoard if available
-      if (tbToken) {
-        promises.push(
-          fetchStats(tbToken),
-          refreshTargets(),
-          fetchScenarios(tbToken)
-        );
+        // Try to fetch from ThingsBoard if available
+        if (tbToken) {
+          promises.push(
+            fetchStats(tbToken),
+            refreshTargets()
+          );
+        }
+        
+        // Load real game history from Supabase
+        promises.push(loadGameHistory(false));
+
+        await Promise.allSettled(promises);
       }
-
-      await Promise.allSettled(promises); // Use allSettled to not fail if some requests fail
       
       console.log('✅ Dashboard: Data fetch completed');
     } catch (error) {
@@ -498,8 +612,45 @@ const Dashboard: React.FC = () => {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [tbToken, fetchStats, refreshTargets, fetchRooms, fetchScenarios, refreshDashboardStats, fetchMergedTargets]);
+  }, [isDemoMode, tbToken, fetchStats, refreshTargets, fetchRooms, refreshDashboardStats, fetchMergedTargets, fetchRecentSessionsData, loadGameHistory]);
 
+  // Comprehensive refresh function for manual refresh button
+  const comprehensiveRefresh = useCallback(async () => {
+    console.log(`🔄 Dashboard: Starting comprehensive refresh (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+    
+    try {
+      if (isDemoMode) {
+        // Demo mode: only refresh mock data
+        console.log('🎭 DEMO: Refreshing mock data...');
+        await fetchAllData();
+      } else {
+        // Live mode: full sync
+        // 1. Sync with ThingsBoard (targets and sessions)
+        console.log('🔄 Syncing with ThingsBoard...');
+        await forceThingsBoardSync();
+        
+        // 2. Refresh Supabase rooms
+        console.log('🔄 Refreshing Supabase rooms...');
+        await fetchRooms();
+        
+        // 3. Refresh all other data
+        console.log('🔄 Refreshing all dashboard data...');
+        await fetchAllData();
+      }
+      
+      console.log('✅ Dashboard: Comprehensive refresh completed');
+    } catch (error) {
+      console.error('❌ Dashboard: Error during comprehensive refresh:', error);
+      // Still try to refresh basic data even if sync fails
+      try {
+        await fetchAllData();
+      } catch (fallbackError) {
+        console.error('❌ Dashboard: Fallback refresh also failed:', fallbackError);
+      }
+    }
+  }, [isDemoMode, forceThingsBoardSync, fetchRooms, fetchAllData]);
+
+  // Disable shooting activity polling in demo mode (no real-time data)
   const { 
     currentInterval, 
     currentMode, 
@@ -510,42 +661,113 @@ const Dashboard: React.FC = () => {
     activeShotsCount,
     recentShotsCount,
     forceUpdate 
-  } = useShootingActivityPolling(fetchAllData, {
-    activeInterval: 10000,     // 10 seconds during active shooting
-    recentInterval: 30000,     // 30 seconds if shot within last 30s but not active
-    standbyInterval: 60000,    // 60 seconds if no shots for 10+ minutes
-    activeThreshold: 30000,    // 30 seconds - active shooting threshold
-    standbyThreshold: 600000   // 10 minutes - standby mode threshold
-  });
+  } = useShootingActivityPolling(
+    isDemoMode ? async () => {} : fetchAllData, // Don't poll in demo mode
+    {
+      activeInterval: 10000,
+      recentInterval: 30000,
+      standbyInterval: 60000,
+      activeThreshold: 30000,
+      standbyThreshold: 600000
+    }
+  );
 
   // Initial data fetch - start immediately, don't wait for sync
+  // Re-fetch when demo mode changes and clear old data
   useEffect(() => {
-    console.log('🔄 Dashboard: Starting initial data fetch...');
+    console.log(`🔄 Dashboard: Mode changed to ${isDemoMode ? 'DEMO' : 'LIVE'}, clearing old data...`);
+    
+    // Clear all data when switching modes to prevent leakage
+    setTargets([]);
+    setRecentSessions([]);
+    setTargetsLoading(false);
+    
+    console.log(`🧹 Dashboard: Cleared old data. Fetching ${isDemoMode ? 'MOCK' : 'REAL'} data...`);
+    
+    // Fetch new data for the current mode
     fetchAllData();
-  }, [fetchAllData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemoMode]);
 
-  // Additional fetch after sync completes (if it does)
+  // Additional fetch after sync completes (if it does) - skip in demo mode
   useEffect(() => {
-    if (isReady && syncStatus.isComplete) {
+    if (!isDemoMode && isReady && syncStatus.isComplete) {
       console.log('🔄 Dashboard: Sync completed, refreshing data...');
       fetchAllData();
     }
-  }, [isReady, syncStatus.isComplete, fetchAllData]);
+  }, [isDemoMode, isReady, syncStatus.isComplete, fetchAllData]);
 
-  // Use merged targets if available, otherwise fallback to raw targets
-  const currentTargets = targets.length > 0 ? targets : rawTargets;
+  // Use targets based on mode
+  // In demo mode, always use our fetched mock targets
+  // In live mode, use merged targets if available, otherwise fallback to raw targets
+  const currentTargets = isDemoMode 
+    ? targets 
+    : (targets.length > 0 ? targets : rawTargets);
+  
+  // Generate mock target activity data for demo mode
+  const mockTargetActivity = isDemoMode ? [
+    {
+      deviceId: 'mock-target-001',
+      deviceName: 'Target Alpha',
+      isActivelyShooting: true, // Currently shooting
+      isRecentlyActive: true,
+      isStandby: false,
+      lastShotTime: Date.now() - 5000, // 5 seconds ago
+      totalShots: 45
+    },
+    {
+      deviceId: 'mock-target-002',
+      deviceName: 'Target Bravo',
+      isActivelyShooting: false,
+      isRecentlyActive: true, // Shot recently but not active now
+      isStandby: false,
+      lastShotTime: Date.now() - 25000, // 25 seconds ago
+      totalShots: 32
+    },
+    {
+      deviceId: 'mock-target-003',
+      deviceName: 'Target Charlie',
+      isActivelyShooting: true, // Currently shooting
+      isRecentlyActive: true,
+      isStandby: false,
+      lastShotTime: Date.now() - 8000, // 8 seconds ago
+      totalShots: 38
+    },
+    {
+      deviceId: 'mock-target-005',
+      deviceName: 'Target Echo',
+      isActivelyShooting: false,
+      isRecentlyActive: false,
+      isStandby: true, // Standby mode
+      lastShotTime: Date.now() - 800000, // 13+ minutes ago
+      totalShots: 12
+    },
+    {
+      deviceId: 'mock-target-006',
+      deviceName: 'Target Foxtrot',
+      isActivelyShooting: false,
+      isRecentlyActive: false,
+      isStandby: true, // Standby mode
+      lastShotTime: Date.now() - 1200000, // 20 minutes ago
+      totalShots: 8
+    }
+  ] : targetActivity;
+  
+  // Generate mock hit trend for demo mode with realistic progression
+  const mockHitTrend = isDemoMode ? apiWrapper.getHitTrend(true) : hitTrend;
   
   // Don't show loading if we have data
   const shouldShowTargetsLoading = targetsLoading && currentTargets.length === 0;
   
-  // Calculate real statistics
+  // Calculate statistics based on mode
   const onlineTargets = currentTargets.filter(target => target.status === 'online').length;
-  const totalRooms = rooms.length;
-  const recentScenarios = scenarioHistory.slice(0, 3);
+  // In demo mode, show mock room count (3), in live mode show real rooms
+  const totalRooms = isDemoMode ? 3 : rooms.length;
+  const recentGames = gameHistory.slice(0, 3);
   
-  // Calculate average score from recent scenarios
-  const avgScore = recentScenarios.length > 0 
-    ? Math.round(recentScenarios.reduce((sum, s) => sum + (s.score || 0), 0) / recentScenarios.length)
+  // Calculate average score from recent sessions (same data source as profile page)
+  const avgScore = recentSessions.length > 0 
+    ? Math.round(recentSessions.reduce((sum, s) => sum + (s.score || 0), 0) / recentSessions.length)
     : lastScenarioScore;
 
   // Calculate room utilization based on assigned targets vs total targets
@@ -585,8 +807,7 @@ const Dashboard: React.FC = () => {
     loadingStates: {
       targetsLoading,
       shouldShowTargetsLoading,
-      roomsLoading,
-      scenariosLoading
+      roomsLoading
     }
   });
 
@@ -595,50 +816,6 @@ const Dashboard: React.FC = () => {
 
   // Debug logging
   console.log('🏠 Dashboard render:', { isReady, syncStatus });
-  
-  // Show loading screen only if we have no data at all and sync is still loading
-  const hasAnyData = rooms.length > 0 || targets.length > 0 || scenarioHistory.length > 0;
-  const shouldShowLoading = !isReady && !hasAnyData && syncStatus.isLoading;
-
-  if (shouldShowLoading) {
-    return (
-      <div className="min-h-screen flex flex-col bg-brand-light">
-        <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
-        <div className="flex flex-1">
-          {!isMobile && <Sidebar />}
-          <MobileDrawer 
-            isOpen={isMobileMenuOpen} 
-            onClose={() => setIsMobileMenuOpen(false)} 
-          />
-          
-          <main className="flex-1 overflow-auto">
-            <div className="p-2 md:p-4 lg:p-6 max-w-7xl mx-auto">
-              <div className="text-center py-16">
-                <div className="bg-white rounded-lg p-8 mx-auto max-w-md shadow-sm border border-gray-200">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-primary mx-auto mb-4"></div>
-                  <div className="text-brand-primary mb-4 text-h3 font-heading">Loading Dashboard</div>
-                  <p className="text-brand-dark mb-4 font-body">
-                    {syncStatus.isLoading ? 'Syncing with ThingsBoard...' : 'Loading your data...'}
-                  </p>
-                  {syncStatus.error && (
-                    <div className="text-red-600 text-sm">
-                      <p>Sync failed - using available data</p>
-                      <button 
-                        onClick={() => window.location.reload()} 
-                        className="mt-2 px-3 py-1 bg-red-100 hover:bg-red-200 rounded text-xs"
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </main>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex flex-col bg-brand-light responsive-container">
@@ -653,16 +830,32 @@ const Dashboard: React.FC = () => {
         <main className="flex-1 overflow-y-auto responsive-container">
           <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
             
+            {/* Demo Mode Banner */}
+            {isDemoMode && (
+              <Card className="bg-yellow-50 border-yellow-200">
+                <CardContent className="p-3 md:p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="text-xl">🎭</div>
+                    <div>
+                      <div className="font-semibold text-yellow-800 text-sm">Demo Mode Active</div>
+                      <div className="text-xs text-yellow-700">You're viewing placeholder data. Toggle to Live mode to see real data.</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            
             {/* Shooting Activity Status Indicator */}
-            <ShootingStatusBanner
+            {!isDemoMode && <ShootingStatusBanner
               hasActiveShooters={hasActiveShooters}
               hasRecentActivity={hasRecentActivity}
               currentMode={currentMode}
               currentInterval={currentInterval}
               activeShotsCount={activeShotsCount}
               recentShotsCount={recentShotsCount}
-              onRefresh={forceUpdate}
-            />
+              targetsCount={targets.length}
+              onRefresh={comprehensiveRefresh}
+            />}
             
             {/* Stats Cards Grid - Using Real Data */}
             <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
@@ -682,10 +875,10 @@ const Dashboard: React.FC = () => {
               />
               <StatCard
                 title="Average Score"
-                value={avgScore ? `${avgScore}%` : 'N/A'}
-                subtitle="Recent sessions"
+                value={avgScore ? avgScore : 'N/A'}
+                subtitle="hits per session"
                 icon={<Trophy className="w-6 h-6 -ml-1.5 md:ml-0" />}
-                isLoading={scenariosLoading}
+                isLoading={false}
               />
               <StatCard
                 title="Target Assignment"
@@ -706,9 +899,9 @@ const Dashboard: React.FC = () => {
                 </CardHeader>
                 <CardContent className="p-2 md:p-4">
                   <ActivityChart 
-                    targetActivity={targetActivity} 
-                    hitTrend={hitTrend} 
-                    isLoading={statsLoading} 
+                    targetActivity={mockTargetActivity} 
+                    hitTrend={mockHitTrend} 
+                    isLoading={isDemoMode ? false : statsLoading} 
                   />
                 </CardContent>
               </Card>
@@ -721,71 +914,69 @@ const Dashboard: React.FC = () => {
                 <CardContent className="p-2 md:p-4">
             <SystemOverview 
               targets={currentTargets} 
-              scenarios={scenarioHistory} 
-              isLoading={shouldShowTargetsLoading || scenariosLoading} 
+              gameSessionsCount={gameHistory.length} 
+              isLoading={shouldShowTargetsLoading} 
             />
                 </CardContent>
               </Card>
 
-              {/* Recent Session/Course Progress */}
+              {/* Recent Game/Session Progress */}
               <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
                 <CardHeader className="space-y-1 md:space-y-3 pb-1 md:pb-3 p-2 md:p-4">
-                  <div className="flex items-center justify-between">
-                    <Badge className="bg-red-50 border-red-500 text-red-700 text-xs rounded-sm md:rounded">
-                      Latest Session
-                    </Badge>
-                    {recentScenarios[0]?.score !== undefined && (
-                      <Badge className={`${
-                        recentScenarios[0].score > 0 ? 'bg-green-600' : 'bg-brand-secondary'
-                      } text-white text-xs rounded-sm md:rounded`}>
-                        {recentScenarios[0].score > 0 ? 'Completed' : 'Pending'}
+                  <>
+                    <div className="flex items-center justify-between">
+                      <Badge className="bg-red-50 border-red-500 text-red-700 text-xs rounded-sm md:rounded">
+                        Latest Game
                       </Badge>
-                    )}
-                  </div>
-                  <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">
-                    {recentScenarios[0]?.name || 'No Recent Sessions'}
-                  </CardTitle>
+                      {recentGames[0] && (
+                        <Badge className="bg-green-600 text-white text-xs rounded-sm md:rounded">
+                          Completed
+                        </Badge>
+                      )}
+                    </div>
+                    <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">
+                      {recentGames[0]?.gameName || 'No Recent Games'}
+                    </CardTitle>
+                  </>
                 </CardHeader>
                 <CardContent className="space-y-2 md:space-y-4 p-2 md:p-4">
-                  {recentScenarios[0] ? (
+                  {recentGames[0] ? (
                     <>
                       <p className="text-xs md:text-sm text-brand-dark/70 font-body">
-                        Training session - Duration: {recentScenarios[0].duration}s
+                        Game session - Duration: {recentGames[0].duration}m
                       </p>
                       
                       <div className="space-y-1">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-brand-dark">Score</span>
+                          <span className="text-xs font-medium text-brand-dark">Total Hits</span>
                           <span className="text-xs font-bold text-brand-dark">
-                            {recentScenarios[0].score ? `${recentScenarios[0].score}%` : 'N/A'}
+                            {recentGames[0].deviceResults?.reduce((sum, r) => sum + r.hitCount, 0) || 0}
                           </span>
                         </div>
-                        {recentScenarios[0].score && (
-                          <Progress value={recentScenarios[0].score} className="h-1 md:h-2" />
-                        )}
+                        <Progress value={Math.min((recentGames[0].deviceResults?.reduce((sum, r) => sum + r.hitCount, 0) || 0), 100)} className="h-1 md:h-2" />
                       </div>
 
                       <div className="flex items-center gap-2">
                         <span className="text-xs md:text-sm text-brand-dark/70 font-body">
-                          {dayjs(recentScenarios[0].date).format('MMM D, YYYY')}
+                          {dayjs(recentGames[0].startTime).format('MMM D, YYYY')}
                         </span>
                       </div>
 
                       <Button 
                         className="w-full bg-brand-secondary hover:bg-brand-primary text-white font-body"
-                        onClick={() => window.location.href = '/dashboard/scenarios'}
+                        onClick={() => window.location.href = '/dashboard/games'}
                       >
-                        View All Sessions
+                        View All Games
                       </Button>
                     </>
                   ) : (
                     <div className="text-center py-2 md:py-6">
-                      <p className="text-xs text-brand-dark/70 font-body mb-2 md:mb-4">No sessions yet</p>
+                      <p className="text-xs text-brand-dark/70 font-body mb-2 md:mb-4">No games yet</p>
                       <Button 
                         className="bg-brand-secondary hover:bg-brand-primary text-white font-body"
-                        onClick={() => window.location.href = '/dashboard/scenarios'}
+                        onClick={() => window.location.href = '/dashboard/games'}
                       >
-                        Start Training
+                        Start Game
                       </Button>
                     </div>
                   )}
@@ -793,54 +984,113 @@ const Dashboard: React.FC = () => {
               </Card>
             </div>
 
-            {/* Recent Sessions List - Real Data */}
-            {recentScenarios.length > 0 && (
+            {/* Recent Games List - Enhanced Visual Design */}
+            {recentGames.length > 0 && (
               <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
                 <CardHeader className="pb-1 md:pb-3 p-2 md:p-4">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">Recent Sessions</CardTitle>
+                    <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark flex items-center gap-2">
+                      <Gamepad2 className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
+                      Recent Games
+                    </CardTitle>
                     <Button 
                       variant="ghost" 
                       size="sm"
                       className="text-brand-secondary hover:text-brand-primary text-xs h-6 px-2 rounded-sm md:rounded"
-                      onClick={() => window.location.href = '/dashboard/scenarios'}
+                      onClick={() => window.location.href = '/dashboard/games'}
                     >
                       View All
                     </Button>
                   </div>
                 </CardHeader>
                 <CardContent className="p-2 md:p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5 md:gap-3">
-                    {recentScenarios.map((session, index) => (
-                      <Card key={session.id} className="border-gray-200 bg-gray-50 rounded-sm md:rounded-lg">
-                        <CardContent className="p-1.5 md:p-3 space-y-1 md:space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-medium text-brand-dark/70">
-                              {dayjs(session.date).format('MMM D, HH:mm')}
-                            </span>
-                            <Badge 
-                              variant="outline" 
-                              className={`text-xs rounded-sm md:rounded ${
-                                session.score > 0 ? 'border-green-600 text-green-600' : 'border-brand-secondary text-brand-secondary'
-                              }`}
-                            >
-                              {session.score > 0 ? 'Completed' : 'Pending'}
-                            </Badge>
-                          </div>
-                          
-                          <h4 className="font-medium text-brand-dark text-xs leading-tight">
-                            {session.name}
-                          </h4>
-                          
-                          {session.score && (
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="text-brand-dark/70">Score:</span>
-                              <span className="font-bold text-brand-dark">{session.score}%</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 lg:gap-4">
+                    {recentGames.map((game, index) => {
+                      const totalHits = game.deviceResults?.reduce((sum, r) => sum + r.hitCount, 0) || 0;
+                      const deviceCount = game.deviceResults?.length || 0;
+                      const bestDeviceHits = game.deviceResults?.length > 0 
+                        ? Math.max(...game.deviceResults.map(d => d.hitCount))
+                        : 0;
+                      
+                      // Assign different brand colors to each game
+                      const cardColors = [
+                        'bg-gradient-to-br from-brand-primary/10 to-brand-primary/5 border-brand-primary/30 hover:border-brand-primary',
+                        'bg-gradient-to-br from-purple-100/50 to-purple-50/30 border-purple-300/50 hover:border-purple-400',
+                        'bg-gradient-to-br from-brand-secondary/10 to-brand-secondary/5 border-brand-secondary/30 hover:border-brand-secondary'
+                      ];
+                      
+                      const iconColors = [
+                        'bg-brand-primary/20 text-brand-primary',
+                        'bg-purple-200/60 text-purple-700',
+                        'bg-brand-secondary/20 text-brand-secondary'
+                      ];
+                      
+                      return (
+                        <Card 
+                          key={game.gameId} 
+                          className={`${cardColors[index % 3]} border-2 rounded-lg transition-all duration-300 hover:shadow-lg sm:hover:scale-105 cursor-pointer`}
+                        >
+                          <CardContent className="p-3 sm:p-4 space-y-2 sm:space-y-3">
+                            {/* Header */}
+                            <div className="flex items-center justify-between">
+                              <div className={`p-2 rounded-md ${iconColors[index % 3]}`}>
+                                <Trophy className="h-4 w-4 sm:h-5 sm:w-5" />
+                              </div>
+                              <Badge 
+                                className="text-[10px] sm:text-xs rounded bg-green-500 text-white border-0 px-2 py-0.5"
+                              >
+                                ✓ Complete
+                              </Badge>
                             </div>
-                          )}
-                        </CardContent>
-                      </Card>
-                    ))}
+                            
+                            {/* Game Name */}
+                            <h4 className="font-heading font-semibold text-brand-dark text-sm sm:text-base leading-tight truncate">
+                              {game.gameName}
+                            </h4>
+                            
+                            {/* Stats Grid */}
+                            <div className="space-y-2">
+                              {/* Total Hits - Primary Stat */}
+                              <div className="flex items-center justify-between bg-white/50 px-3 py-2 rounded-md shadow-sm">
+                                <span className="text-xs sm:text-sm text-brand-dark/70 font-body flex items-center gap-1.5">
+                                  <TargetIcon className="h-4 w-4" />
+                                  Total Hits
+                                </span>
+                                <span className="font-bold text-brand-primary text-lg sm:text-xl">{totalHits}</span>
+                              </div>
+                              
+                              {/* Duration & Devices */}
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="flex flex-col bg-white/50 px-3 py-2 rounded-md text-center">
+                                  <span className="text-[10px] sm:text-xs text-brand-dark/60 font-body mb-0.5">Duration</span>
+                                  <span className="font-semibold text-brand-dark text-sm sm:text-base">{game.duration}m</span>
+                                </div>
+                                <div className="flex flex-col bg-white/50 px-3 py-2 rounded-md text-center">
+                                  <span className="text-[10px] sm:text-xs text-brand-dark/60 font-body mb-0.5">Devices</span>
+                                  <span className="font-semibold text-brand-dark text-sm sm:text-base">{deviceCount}</span>
+                                </div>
+                              </div>
+                              
+                              {/* Best Score */}
+                              {bestDeviceHits > 0 && (
+                                <div className="flex items-center justify-between bg-yellow-50 px-3 py-2 rounded-md border border-yellow-200 shadow-sm">
+                                  <span className="text-xs sm:text-sm text-yellow-700 font-body flex items-center gap-1.5">
+                                    <Award className="h-4 w-4" />
+                                    Best Score
+                                  </span>
+                                  <span className="font-bold text-yellow-700 text-sm sm:text-base">{bestDeviceHits} hits</span>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Date Footer */}
+                            <div className="text-[10px] sm:text-xs text-brand-dark/50 text-center pt-2 border-t border-brand-dark/10 font-body">
+                              {dayjs(game.startTime).format('MMM D, YYYY • HH:mm')}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>

@@ -39,3 +39,7 @@ dist-ssr
 # misc
 misc/
 
+# add dryfire sys architecture
+dryfire-sys-architecture/
+
+

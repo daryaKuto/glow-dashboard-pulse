@@ -55,7 +55,6 @@ class ThingsBoardSupabaseSync {
       this.lastSyncTime = new Date();
       
       console.log('✅ Sync completed successfully');
-      toast.success(`Synced ${targets.length} targets and ${sessions.length} sessions`);
       
       return {
         targets,
@@ -338,4 +337,7 @@ class ThingsBoardSupabaseSync {
 }
 
 export const tbSupabaseSync = new ThingsBoardSupabaseSync();
+
+
+
 

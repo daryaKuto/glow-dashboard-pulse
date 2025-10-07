@@ -25,19 +25,18 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const isDevelopment = import.meta.env.DEV;
-
-  // In development mode, we auto-login as andrew.tam@gmail.com, so user should always exist
   const displayUser = user;
 
   const handleSignOut = async () => {
     try {
+      console.log('[Header] Starting logout process...');
       await signOut();
-      // toast.success('Logged out successfully'); // Disabled notifications
-      navigate('/login');
+      console.log('[Header] Logout completed, redirecting to login...');
+      // The AuthProvider will handle the redirect, so we don't need to navigate here
     } catch (error) {
-      // toast.error('Failed to log out'); // Disabled notifications
-      console.error('Logout error:', error);
+      console.error('[Header] Logout error:', error);
+      // Even if there's an error, try to redirect to login
+      navigate('/login');
     }
   };
 
@@ -69,11 +68,6 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
             <Menu className="w-4 h-4" />
           </button>
         )}
-        {isDevelopment && (
-          <div className="bg-yellow-100 text-yellow-800 px-1.5 py-0.5 md:px-2 md:py-1 rounded text-xs font-medium">
-            DEV
-          </div>
-        )}
         
         {/* Logo - Left aligned on desktop, centered on mobile */}
         {!isMobile && (
@@ -93,7 +87,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       )}
       
       <div className="flex items-center gap-2 md:gap-4">
-        {displayUser || isDevelopment ? (
+        {displayUser ? (
           <Button 
             onClick={handleSignOut}
             size="sm"

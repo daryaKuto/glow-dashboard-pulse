@@ -46,6 +46,15 @@ export default defineConfig(({ mode }) => ({
       }
     }
   },
+  preview: {
+    host: "::",
+    port: 8080,
+    allowedHosts: [
+      "dashboard-app-uel8h.ondigitalocean.app",
+      "localhost",
+      "127.0.0.1"
+    ]
+  },
   plugins: [
     react(),
     mode === 'development' &&

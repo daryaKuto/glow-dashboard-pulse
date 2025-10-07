@@ -35,14 +35,6 @@ class SupabaseRoomsService {
   private async getCurrentUserId(): Promise<string> {
     console.log('🔐 getCurrentUserId - Starting auth check...');
     
-    // In dev mode, always use the known user ID to bypass auth issues
-    if (import.meta.env.DEV) {
-      const testUserId = import.meta.env.VITE_TEST_USER_ID || '1dca810e-7f11-4ec9-8605-8633cf2b74f0';
-      console.log('🔧 Dev mode: Using known user ID:', testUserId);
-      return testUserId;
-    }
-    
-    // In production, use proper authentication
     const { data: { user }, error } = await supabase.auth.getUser();
     
     console.log('🔐 getCurrentUserId - Supabase auth check:', {

@@ -92,6 +92,12 @@ class ThingsBoardService {
           baseURL: error.config?.baseURL
         });
 
+        // If it's a 401 (unauthorized), don't retry - user doesn't exist
+        if (error.response?.status === 401) {
+          console.log('[ThingsBoard] User not found (401) - not retrying');
+          throw error; // Re-throw the original 401 error
+        }
+
         // If it's a 429 (rate limit), wait longer
         if (error.response?.status === 429) {
           console.log('[ThingsBoard] Rate limited, waiting 5 seconds...');
@@ -559,7 +565,8 @@ class ThingsBoardService {
 // Create a singleton instance
 const thingsBoardService = new ThingsBoardService();
 
-// Export the functions that are being imported by other files
+// Export the service instance and functions
+export { thingsBoardService };
 export const login = (username: string, password: string) => thingsBoardService.login(username, password);
 export const logout = () => thingsBoardService.logout();
 export const listDevices = async () => {

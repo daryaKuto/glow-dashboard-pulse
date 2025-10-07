@@ -12,6 +12,7 @@ export interface InitialSyncStatus {
     targetCount: number;
     roomCount: number;
     sessionCount: number;
+    userNotFound?: boolean; // Flag for 401 error from ThingsBoard
   } | null;
 }
 
@@ -58,16 +59,17 @@ export const useInitialSync = () => {
       // Actually sync with ThingsBoard to get real target count
       console.log('🔄 Fetching real data from ThingsBoard...');
       
-      const { tbSupabaseSync } = await import('@/services/thingsboard-supabase-sync');
-      const result = await tbSupabaseSync.syncAllData();
+      const { unifiedDataService } = await import('@/services/unified-data');
+      const thingsBoardData = await unifiedDataService.getThingsBoardData(user.email);
       
       // Store the synced targets in the rooms service
       const { supabaseRoomsService } = await import('@/services/supabase-rooms');
-      supabaseRoomsService.setSyncedTargets(result.targets);
+      supabaseRoomsService.setSyncedTargets(thingsBoardData?.targets || []);
       
       console.log('✅ Real sync completed:', {
-        targets: result.targets.length,
-        sessions: result.sessions.length
+        targets: thingsBoardData?.targets.length || 0,
+        sessions: thingsBoardData?.sessions.length || 0,
+        userNotFound: thingsBoardData?.userNotFound
       });
       
       setSyncStatus({
@@ -75,13 +77,14 @@ export const useInitialSync = () => {
         isLoading: false,
         error: null,
         syncedData: {
-          targetCount: result.targets.length, // Real target count from ThingsBoard
+          targetCount: thingsBoardData?.targets.length || 0, // Real target count from ThingsBoard
           roomCount: 0, // Will be loaded from Supabase
-          sessionCount: result.sessions.length // Real session count
+          sessionCount: thingsBoardData?.sessions.length || 0, // Real session count
+          userNotFound: thingsBoardData?.userNotFound // Flag for 401 error
         }
       });
 
-      toast.success(`Synced ${result.targets.length} targets from ThingsBoard`);
+      // Sync completed silently
       
     } catch (error) {
       console.error('❌ Initial sync failed:', error);
@@ -93,7 +96,7 @@ export const useInitialSync = () => {
         syncedData: null
       });
 
-      toast.error('Failed to sync - using local data');
+      // Sync failed silently
     }
   };
 

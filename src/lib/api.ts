@@ -9,12 +9,30 @@ import {
 import tbClient from './tbClient';
 import { cache, CACHE_KEYS } from './cache';
 import { supabase } from '@/integrations/supabase/client';
+import { unifiedDataService } from '@/services/unified-data';
 
 
 const controllerId = import.meta.env.VITE_TB_CONTROLLER_ID as string;
 
 // Export the WebSocket type for compatibility
 export type MockWebSocket = ReturnType<typeof openTelemetryWS>;
+
+// Helper function to ensure user-specific ThingsBoard authentication
+async function ensureUserThingsBoardAuth() {
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  
+  if (userError || !user) {
+    throw new Error('No authenticated user found. Please log in first.');
+  }
+  
+  console.log('🔐 Ensuring ThingsBoard auth for user:', user.email);
+  
+  // Use unified data service for user-specific ThingsBoard authentication
+  const thingsBoardData = await unifiedDataService.getThingsBoardData(user.email);
+  
+  // Always return data, even if ThingsBoard is not connected
+  return { user, thingsBoardData };
+}
 
 // Helper function to map ThingsBoard devices to room assignments from our database
 async function mapDevicesToRooms(devices: any[]) {
@@ -145,113 +163,33 @@ export const API = {
     }
 
     try {
-      // Check if ThingsBoard is properly configured
-      const tbBaseUrl = import.meta.env.VITE_TB_BASE_URL;
-      if (!tbBaseUrl) {
-        throw new Error('ThingsBoard not configured. Please set VITE_TB_BASE_URL in .env');
+      // Ensure user-specific ThingsBoard authentication
+      const { user, thingsBoardData } = await ensureUserThingsBoardAuth();
+      
+      console.log('✅ Got user-specific ThingsBoard data:', {
+        targetsCount: thingsBoardData.targets.length,
+        devicesCount: thingsBoardData.devices.length,
+        user: user.email,
+        isConnected: thingsBoardData.isConnected
+      });
+      
+      // If no ThingsBoard connection, return empty array
+      if (!thingsBoardData.isConnected || thingsBoardData.targets.length === 0) {
+        console.log('ℹ️ No ThingsBoard data available for user:', user.email);
+        cache.set(CACHE_KEYS.TARGETS, [], 30000);
+        return [];
       }
-      
-      // First, authenticate with ThingsBoard if not already authenticated
-      const thingsBoardService = (await import('@/services/thingsboard')).default;
-      if (!thingsBoardService.isAuthenticated()) {
-        console.log('🔐 Authenticating with ThingsBoard...');
-        const username = import.meta.env.VITE_TB_USERNAME;
-        const password = import.meta.env.VITE_TB_PASSWORD;
-        
-        if (!username || !password) {
-          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
-        }
-        
-        try {
-          const authResult = await thingsBoardService.login(username, password);
-          console.log('✅ ThingsBoard authentication successful:', {
-            tokenLength: authResult.token?.length,
-            refreshTokenLength: authResult.refreshToken?.length
-          });
-          
-          // Verify tokens are stored
-          const storedToken = localStorage.getItem('tb_access');
-          const storedRefresh = localStorage.getItem('tb_refresh');
-          console.log('🔍 Tokens stored in localStorage:', {
-            accessToken: storedToken ? `${storedToken.substring(0, 20)}...` : 'NOT FOUND',
-            refreshToken: storedRefresh ? `${storedRefresh.substring(0, 20)}...` : 'NOT FOUND'
-          });
-          
-        } catch (authError) {
-          console.error('❌ ThingsBoard authentication failed:', authError);
-          throw new Error(`Authentication failed: ${authError.message}`);
-        }
-      } else {
-        console.log('✅ Already authenticated with ThingsBoard');
-      }
-      
-      // Fetch devices from ThingsBoard
-      const devices = await listDevices();
-      console.log('🔍 Raw devices from ThingsBoard API:', {
-        count: devices.length,
-        devices: devices.map(d => ({
-          name: d.name,
-          id: d.id?.id || d.id,
-          type: d.type,
-          additionalInfo: d.additionalInfo,
-          hasRoomId: !!d.additionalInfo?.roomId
-        }))
-      });
-      
-      // Filter to show legitimate target devices (exclude test devices and system devices)
-      const targetDevices = devices.filter(device => {
-        // Include devices that are clearly targets
-        const isTargetDevice = 
-          device.name.startsWith('Dryfire-') || 
-          device.name === 'GAME-MANAGER' ||
-          device.name === 'GAME-HISTORY' ||
-          device.type === 'dryfire-provision' ||
-          (device.additionalInfo && device.additionalInfo.roomId);
-        
-        // Exclude test devices and temporary devices
-        const isTestDevice = 
-          device.name.includes('TestDevice_') ||
-          device.name.includes('Telemetry-test');
-        
-        // Special case: "Test Device {{$timestamp}}" should be included if it has roomId
-        const isSpecialTestDevice = device.name.includes('Test Device') && 
-          (!device.additionalInfo || !device.additionalInfo.roomId);
-        
-        const shouldInclude = isTargetDevice && !isTestDevice && !isSpecialTestDevice;
-        
-        if (shouldInclude) {
-          console.log('Including device:', { 
-            name: device.name, 
-            type: device.type, 
-            roomId: device.additionalInfo?.roomId,
-            isTargetDevice,
-            isTestDevice,
-            isSpecialTestDevice
-          });
-        }
-        
-        return shouldInclude;
-      });
-      
-      console.log('🔍 Filtered target devices:', {
-        count: targetDevices.length,
-        devices: targetDevices.map(d => ({ 
-          name: d.name, 
-          type: d.type, 
-          roomId: d.additionalInfo?.roomId,
-          hasRoomId: !!d.additionalInfo?.roomId
-        }))
-      });
       
       // Map the devices to include room information from our database
-      const mappedDevices = await mapDevicesToRooms(targetDevices);
+      const mappedDevices = await mapDevicesToRooms(thingsBoardData.targets);
       console.log('Mapped devices with room info:', mappedDevices);
       
       cache.set(CACHE_KEYS.TARGETS, mappedDevices, 30000);
       return mappedDevices;
     } catch (error) {
-      console.error('Error fetching targets from ThingsBoard:', error);
-      throw error;
+      console.log('ℹ️ ThingsBoard not available, returning empty targets:', error.message);
+      cache.set(CACHE_KEYS.TARGETS, [], 30000);
+      return [];
     }
   },
 
@@ -265,21 +203,16 @@ export const API = {
   
   renameTarget: async (id: number, name: string) => {
     try {
+      // Ensure user-specific ThingsBoard authentication
+      const { user, thingsBoardData } = await ensureUserThingsBoardAuth();
+      
+      // If no ThingsBoard connection, return error
+      if (!thingsBoardData.isConnected) {
+        throw new Error('ThingsBoard not available. Cannot rename target.');
+      }
       
       // Get the ThingsBoard service
       const thingsBoardService = (await import('@/services/thingsboard')).default;
-      
-      // Ensure we're authenticated
-      if (!thingsBoardService.isAuthenticated()) {
-        const username = import.meta.env.VITE_TB_USERNAME;
-        const password = import.meta.env.VITE_TB_PASSWORD;
-        
-        if (!username || !password) {
-          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
-        }
-        
-        await thingsBoardService.login(username, password);
-      }
       
       // Convert numeric ID to string (ThingsBoard uses string IDs)
       const deviceId = id.toString();
@@ -290,7 +223,7 @@ export const API = {
       // Clear the cache to force refresh
       clearTargetsCache();
       
-      console.log(`Successfully renamed device ${deviceId} to "${name}"`);
+      console.log(`Successfully renamed device ${deviceId} to "${name}" for user: ${user.email}`);
       return { success: true };
     } catch (error) {
       console.error('Error renaming target:', error);
@@ -313,21 +246,17 @@ export const API = {
   /* ----------  ROOM MANAGEMENT  ---------- */
   getRooms: async () => {
     try {
+      // Ensure user-specific ThingsBoard authentication
+      const { user, thingsBoardData } = await ensureUserThingsBoardAuth();
+      
+      // If no ThingsBoard connection, return empty array
+      if (!thingsBoardData.isConnected) {
+        console.log('ℹ️ No ThingsBoard data available for rooms, returning empty array');
+        return [];
+      }
       
       // Get the ThingsBoard service
       const thingsBoardService = (await import('@/services/thingsboard')).default;
-      
-      // Ensure we're authenticated
-      if (!thingsBoardService.isAuthenticated()) {
-        const username = import.meta.env.VITE_TB_USERNAME;
-        const password = import.meta.env.VITE_TB_PASSWORD;
-        
-        if (!username || !password) {
-          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
-        }
-        
-        await thingsBoardService.login(username, password);
-      }
       
       // Fetch all devices from ThingsBoard
       const devicesResponse = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/tenant/devices?pageSize=100&page=0`, {
@@ -400,21 +329,11 @@ export const API = {
   
   createRoom: async (name: string, icon: string = 'home') => {
     try {
+      // Ensure user-specific ThingsBoard authentication
+      const { user } = await ensureUserThingsBoardAuth();
       
       // Get the ThingsBoard service
       const thingsBoardService = (await import('@/services/thingsboard')).default;
-      
-      // Ensure we're authenticated
-      if (!thingsBoardService.isAuthenticated()) {
-        const username = import.meta.env.VITE_TB_USERNAME;
-        const password = import.meta.env.VITE_TB_PASSWORD;
-        
-        if (!username || !password) {
-          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
-        }
-        
-        await thingsBoardService.login(username, password);
-      }
       
       // Get existing rooms to determine new room ID
       const existingRooms = await API.getRooms();
@@ -462,21 +381,11 @@ export const API = {
   
   updateRoom: async (id: number, name: string) => {
     try {
+      // Ensure user-specific ThingsBoard authentication
+      const { user } = await ensureUserThingsBoardAuth();
       
       // Get the ThingsBoard service
       const thingsBoardService = (await import('@/services/thingsboard')).default;
-      
-      // Ensure we're authenticated
-      if (!thingsBoardService.isAuthenticated()) {
-        const username = import.meta.env.VITE_TB_USERNAME;
-        const password = import.meta.env.VITE_TB_PASSWORD;
-        
-        if (!username || !password) {
-          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
-        }
-        
-        await thingsBoardService.login(username, password);
-      }
       
       // Find all devices that belong to this room and update their roomName attribute
       const devicesResponse = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/tenant/devices?pageSize=100&page=0`, {
@@ -527,21 +436,11 @@ export const API = {
   
   deleteRoom: async (id: number) => {
     try {
+      // Ensure user-specific ThingsBoard authentication
+      const { user } = await ensureUserThingsBoardAuth();
       
       // Get the ThingsBoard service
       const thingsBoardService = (await import('@/services/thingsboard')).default;
-      
-      // Ensure we're authenticated
-      if (!thingsBoardService.isAuthenticated()) {
-        const username = import.meta.env.VITE_TB_USERNAME;
-        const password = import.meta.env.VITE_TB_PASSWORD;
-        
-        if (!username || !password) {
-          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
-        }
-        
-        await thingsBoardService.login(username, password);
-      }
       
       // Find all devices that belong to this room and remove their roomId
       const devicesResponse = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/tenant/devices?pageSize=100&page=0`, {
@@ -590,21 +489,11 @@ export const API = {
   
   updateRoomOrder: async (order: { id: number, order: number }[]) => {
     try {
+      // Ensure user-specific ThingsBoard authentication
+      const { user } = await ensureUserThingsBoardAuth();
       
       // Get the ThingsBoard service
       const thingsBoardService = (await import('@/services/thingsboard')).default;
-      
-      // Ensure we're authenticated
-      if (!thingsBoardService.isAuthenticated()) {
-        const username = import.meta.env.VITE_TB_USERNAME;
-        const password = import.meta.env.VITE_TB_PASSWORD;
-        
-        if (!username || !password) {
-          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
-        }
-        
-        await thingsBoardService.login(username, password);
-      }
       
       // Update order in ThingsBoard device groups
       // Note: ThingsBoard doesn't have built-in ordering, so we'll store it in additionalInfo
@@ -644,20 +533,11 @@ export const API = {
   
   assignTargetToRoom: async (targetId: string, roomId: string | null) => {
     try {
+      // Ensure user-specific ThingsBoard authentication
+      const { user } = await ensureUserThingsBoardAuth();
+      
       // Get the ThingsBoard service
       const thingsBoardService = (await import('@/services/thingsboard')).default;
-      
-      // Ensure we're authenticated
-      if (!thingsBoardService.isAuthenticated()) {
-        const username = import.meta.env.VITE_TB_USERNAME;
-        const password = import.meta.env.VITE_TB_PASSWORD;
-        
-        if (!username || !password) {
-          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
-        }
-        
-        await thingsBoardService.login(username, password);
-      }
       
       // First, get the current device to preserve existing additionalInfo
       const deviceResponse = await fetch(`${import.meta.env.VITE_TB_BASE_URL}/api/device/${targetId}`, {

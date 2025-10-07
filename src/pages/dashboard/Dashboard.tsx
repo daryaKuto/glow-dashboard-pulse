@@ -213,21 +213,24 @@ const SystemOverview: React.FC<{
   const totalTargets = targets.length;
   const completedScenarios = scenarios.filter(s => s.score > 0).length;
   const totalScenarios = scenarios.length;
+  
+  // If no targets available, show N/A
+  const hasTargets = totalTargets > 0;
 
   const metrics = [
     { 
       label: 'Online Targets', 
-      value: onlineTargets, 
-      total: totalTargets,
-      color: 'text-green-600',
-      bgColor: 'bg-green-50'
+      value: hasTargets ? onlineTargets : 'N/A', 
+      total: hasTargets ? totalTargets : null,
+      color: hasTargets ? 'text-green-600' : 'text-gray-400',
+      bgColor: hasTargets ? 'bg-green-50' : 'bg-gray-50'
     },
     { 
       label: 'Offline Targets', 
-      value: offlineTargets, 
-      total: totalTargets,
-      color: 'text-gray-600',
-      bgColor: 'bg-gray-50'
+      value: hasTargets ? offlineTargets : 'N/A', 
+      total: hasTargets ? totalTargets : null,
+      color: hasTargets ? 'text-gray-600' : 'text-gray-400',
+      bgColor: hasTargets ? 'bg-gray-50' : 'bg-gray-50'
     },
     { 
       label: 'Completed Sessions', 
@@ -596,49 +599,27 @@ const Dashboard: React.FC = () => {
   // Debug logging
   console.log('🏠 Dashboard render:', { isReady, syncStatus });
   
-  // Show loading screen only if we have no data at all and sync is still loading
-  const hasAnyData = rooms.length > 0 || targets.length > 0 || scenarioHistory.length > 0;
-  const shouldShowLoading = !isReady && !hasAnyData && syncStatus.isLoading;
-
-  if (shouldShowLoading) {
-    return (
-      <div className="min-h-screen flex flex-col bg-brand-light">
-        <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
-        <div className="flex flex-1">
-          {!isMobile && <Sidebar />}
-          <MobileDrawer 
-            isOpen={isMobileMenuOpen} 
-            onClose={() => setIsMobileMenuOpen(false)} 
-          />
-          
-          <main className="flex-1 overflow-auto">
-            <div className="p-2 md:p-4 lg:p-6 max-w-7xl mx-auto">
-              <div className="text-center py-16">
-                <div className="bg-white rounded-lg p-8 mx-auto max-w-md shadow-sm border border-gray-200">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-primary mx-auto mb-4"></div>
-                  <div className="text-brand-primary mb-4 text-h3 font-heading">Loading Dashboard</div>
-                  <p className="text-brand-dark mb-4 font-body">
-                    {syncStatus.isLoading ? 'Syncing with ThingsBoard...' : 'Loading your data...'}
-                  </p>
-                  {syncStatus.error && (
-                    <div className="text-red-600 text-sm">
-                      <p>Sync failed - using available data</p>
-                      <button 
-                        onClick={() => window.location.reload()} 
-                        className="mt-2 px-3 py-1 bg-red-100 hover:bg-red-200 rounded text-xs"
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </main>
-        </div>
-      </div>
-    );
-  }
+  // Check if ThingsBoard data is available
+  const hasThingsBoardData = targets.length > 0 || rooms.length > 0;
+  
+  // Show skeleton loading if we're still loading and have no data
+  const shouldShowSkeleton = (targetsLoading || roomsLoading || scenariosLoading) && !hasThingsBoardData;
+  
+  // Show ThingsBoard banner if user not found in ThingsBoard (401) or no data and not loading
+  const shouldShowThingsBoardBanner = syncStatus.syncedData?.userNotFound || 
+                                     (!hasThingsBoardData && !targetsLoading && !roomsLoading);
+  
+  // Debug logging for banner visibility
+  console.log('🔍 Banner visibility check:', {
+    hasThingsBoardData,
+    shouldShowSkeleton,
+    targetsCount: targets.length,
+    roomsCount: rooms.length,
+    targetsLoading,
+    roomsLoading,
+    userNotFound: syncStatus.syncedData?.userNotFound,
+    shouldShowBanner: shouldShowThingsBoardBanner
+  });
 
   return (
     <div className="min-h-screen flex flex-col bg-brand-light responsive-container">
@@ -666,35 +647,70 @@ const Dashboard: React.FC = () => {
             
             {/* Stats Cards Grid - Using Real Data */}
             <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
-              <StatCard
-                title="Total Registered Targets"
-                value={totalTargets}
-                subtitle={`${onlineTargets} online`}
-                icon={<TargetIcon className="w-6 h-6 -ml-1.5 md:ml-0" />}
-                isLoading={shouldShowTargetsLoading}
-              />
-              <StatCard
-                title="Total Rooms"
-                value={totalRooms}
-                subtitle="Configured spaces"
-                icon={<Activity className="w-6 h-6 -ml-1.5 md:ml-0" />}
-                isLoading={roomsLoading}
-              />
-              <StatCard
-                title="Average Score"
-                value={avgScore ? `${avgScore}%` : 'N/A'}
-                subtitle="Recent sessions"
-                icon={<Trophy className="w-6 h-6 -ml-1.5 md:ml-0" />}
-                isLoading={scenariosLoading}
-              />
-              <StatCard
-                title="Target Assignment"
-                value={`${roomUtilization}%`}
-                subtitle={`${assignedTargets}/${totalTargets} targets assigned`}
-                icon={<BarChart3 className="w-6 h-6 -ml-1.5 md:ml-0" />}
-                isLoading={shouldShowTargetsLoading || roomsLoading}
-              />
+              {shouldShowSkeleton ? (
+                // Skeleton loading for stats cards
+                [...Array(4)].map((_, i) => (
+                  <div key={i} className="bg-white rounded-lg p-4 md:p-6 shadow-sm border border-gray-200 animate-pulse">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="h-4 w-4 bg-gray-200 rounded"></div>
+                      <div className="h-6 w-16 bg-gray-200 rounded"></div>
+                    </div>
+                    <div className="h-8 w-20 bg-gray-200 rounded mb-1"></div>
+                    <div className="h-3 w-24 bg-gray-200 rounded"></div>
+                  </div>
+                ))
+              ) : (
+                <>
+                  <StatCard
+                    title="Total Registered Targets"
+                    value={totalTargets}
+                    subtitle={`${onlineTargets} online`}
+                    icon={<TargetIcon className="w-6 h-6 -ml-1.5 md:ml-0" />}
+                    isLoading={shouldShowTargetsLoading}
+                  />
+                  <StatCard
+                    title="Total Rooms"
+                    value={totalRooms}
+                    subtitle="Configured spaces"
+                    icon={<Activity className="w-6 h-6 -ml-1.5 md:ml-0" />}
+                    isLoading={roomsLoading}
+                  />
+                  <StatCard
+                    title="Average Score"
+                    value={avgScore ? `${avgScore}%` : 'N/A'}
+                    subtitle="Recent sessions"
+                    icon={<Trophy className="w-6 h-6 -ml-1.5 md:ml-0" />}
+                    isLoading={scenariosLoading}
+                  />
+                  <StatCard
+                    title="Target Assignment"
+                    value={`${roomUtilization}%`}
+                    subtitle={`${assignedTargets}/${totalTargets} targets assigned`}
+                    icon={<BarChart3 className="w-6 h-6 -ml-1.5 md:ml-0" />}
+                    isLoading={shouldShowTargetsLoading || roomsLoading}
+                  />
+                </>
+              )}
             </div>
+            
+            {/* ThingsBoard Data Not Available Message */}
+            {shouldShowThingsBoardBanner && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-5 h-5 text-yellow-600">
+                    <svg fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium text-yellow-800">ThingsBoard Not Connected</h3>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      ThingsBoard is not connected for this user. Contact your administrator to set up ThingsBoard access.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Main Content Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 md:gap-4 lg:gap-5">
@@ -705,11 +721,32 @@ const Dashboard: React.FC = () => {
                   <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">Target Activity</CardTitle>
                 </CardHeader>
                 <CardContent className="p-2 md:p-4">
-                  <ActivityChart 
-                    targetActivity={targetActivity} 
-                    hitTrend={hitTrend} 
-                    isLoading={statsLoading} 
-                  />
+                  {shouldShowSkeleton ? (
+                    <div className="space-y-4 animate-pulse">
+                      <div className="flex items-center justify-between">
+                        <div className="h-6 w-32 bg-gray-200 rounded"></div>
+                        <div className="h-4 w-16 bg-gray-200 rounded"></div>
+                      </div>
+                      <div className="space-y-3">
+                        {[...Array(3)].map((_, i) => (
+                          <div key={i} className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="w-3 h-3 bg-gray-200 rounded-full"></div>
+                              <div className="h-4 w-24 bg-gray-200 rounded"></div>
+                            </div>
+                            <div className="h-4 w-8 bg-gray-200 rounded"></div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="h-32 bg-gray-200 rounded"></div>
+                    </div>
+                  ) : (
+                    <ActivityChart 
+                      targetActivity={targetActivity} 
+                      hitTrend={hitTrend} 
+                      isLoading={statsLoading} 
+                    />
+                  )}
                 </CardContent>
               </Card>
 
@@ -719,75 +756,127 @@ const Dashboard: React.FC = () => {
                   <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">System Overview</CardTitle>
                 </CardHeader>
                 <CardContent className="p-2 md:p-4">
-            <SystemOverview 
-              targets={currentTargets} 
-              scenarios={scenarioHistory} 
-              isLoading={shouldShowTargetsLoading || scenariosLoading} 
-            />
+                  {shouldShowSkeleton ? (
+                    <div className="space-y-3 animate-pulse">
+                      {[...Array(4)].map((_, i) => (
+                        <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <div className="w-2 h-2 bg-gray-200 rounded-full"></div>
+                            <div className="h-4 w-24 bg-gray-200 rounded"></div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="h-5 w-8 bg-gray-200 rounded"></div>
+                            <div className="h-4 w-6 bg-gray-200 rounded"></div>
+                          </div>
+                        </div>
+                      ))}
+                      <div className="pt-3 border-t border-gray-200">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="h-7 bg-gray-200 rounded"></div>
+                          <div className="h-7 bg-gray-200 rounded"></div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <SystemOverview 
+                      targets={currentTargets} 
+                      scenarios={scenarioHistory} 
+                      isLoading={shouldShowTargetsLoading || scenariosLoading} 
+                    />
+                  )}
                 </CardContent>
               </Card>
 
               {/* Recent Session/Course Progress */}
               <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
                 <CardHeader className="space-y-1 md:space-y-3 pb-1 md:pb-3 p-2 md:p-4">
-                  <div className="flex items-center justify-between">
-                    <Badge className="bg-red-50 border-red-500 text-red-700 text-xs rounded-sm md:rounded">
-                      Latest Session
-                    </Badge>
-                    {recentScenarios[0]?.score !== undefined && (
-                      <Badge className={`${
-                        recentScenarios[0].score > 0 ? 'bg-green-600' : 'bg-brand-secondary'
-                      } text-white text-xs rounded-sm md:rounded`}>
-                        {recentScenarios[0].score > 0 ? 'Completed' : 'Pending'}
-                      </Badge>
-                    )}
-                  </div>
-                  <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">
-                    {recentScenarios[0]?.name || 'No Recent Sessions'}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2 md:space-y-4 p-2 md:p-4">
-                  {recentScenarios[0] ? (
+                  {shouldShowSkeleton ? (
+                    <div className="animate-pulse">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="h-5 w-20 bg-gray-200 rounded"></div>
+                        <div className="h-5 w-16 bg-gray-200 rounded"></div>
+                      </div>
+                      <div className="h-6 w-32 bg-gray-200 rounded"></div>
+                    </div>
+                  ) : (
                     <>
-                      <p className="text-xs md:text-sm text-brand-dark/70 font-body">
-                        Training session - Duration: {recentScenarios[0].duration}s
-                      </p>
-                      
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-brand-dark">Score</span>
-                          <span className="text-xs font-bold text-brand-dark">
-                            {recentScenarios[0].score ? `${recentScenarios[0].score}%` : 'N/A'}
-                          </span>
-                        </div>
-                        {recentScenarios[0].score && (
-                          <Progress value={recentScenarios[0].score} className="h-1 md:h-2" />
+                      <div className="flex items-center justify-between">
+                        <Badge className="bg-red-50 border-red-500 text-red-700 text-xs rounded-sm md:rounded">
+                          Latest Session
+                        </Badge>
+                        {recentScenarios[0]?.score !== undefined && (
+                          <Badge className={`${
+                            recentScenarios[0].score > 0 ? 'bg-green-600' : 'bg-brand-secondary'
+                          } text-white text-xs rounded-sm md:rounded`}>
+                            {recentScenarios[0].score > 0 ? 'Completed' : 'Pending'}
+                          </Badge>
                         )}
                       </div>
-
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs md:text-sm text-brand-dark/70 font-body">
-                          {dayjs(recentScenarios[0].date).format('MMM D, YYYY')}
-                        </span>
-                      </div>
-
-                      <Button 
-                        className="w-full bg-brand-secondary hover:bg-brand-primary text-white font-body"
-                        onClick={() => window.location.href = '/dashboard/scenarios'}
-                      >
-                        View All Sessions
-                      </Button>
+                      <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">
+                        {recentScenarios[0]?.name || 'No Recent Sessions'}
+                      </CardTitle>
                     </>
-                  ) : (
-                    <div className="text-center py-2 md:py-6">
-                      <p className="text-xs text-brand-dark/70 font-body mb-2 md:mb-4">No sessions yet</p>
-                      <Button 
-                        className="bg-brand-secondary hover:bg-brand-primary text-white font-body"
-                        onClick={() => window.location.href = '/dashboard/scenarios'}
-                      >
-                        Start Training
-                      </Button>
+                  )}
+                </CardHeader>
+                <CardContent className="space-y-2 md:space-y-4 p-2 md:p-4">
+                  {shouldShowSkeleton ? (
+                    <div className="space-y-4 animate-pulse">
+                      <div className="h-4 w-40 bg-gray-200 rounded"></div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="h-4 w-12 bg-gray-200 rounded"></div>
+                          <div className="h-4 w-8 bg-gray-200 rounded"></div>
+                        </div>
+                        <div className="h-2 w-full bg-gray-200 rounded"></div>
+                      </div>
+                      <div className="h-4 w-24 bg-gray-200 rounded"></div>
+                      <div className="h-8 w-full bg-gray-200 rounded"></div>
                     </div>
+                  ) : (
+                    <>
+                      {recentScenarios[0] ? (
+                        <>
+                          <p className="text-xs md:text-sm text-brand-dark/70 font-body">
+                            Training session - Duration: {recentScenarios[0].duration}s
+                          </p>
+                          
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium text-brand-dark">Score</span>
+                              <span className="text-xs font-bold text-brand-dark">
+                                {recentScenarios[0].score ? `${recentScenarios[0].score}%` : 'N/A'}
+                              </span>
+                            </div>
+                            {recentScenarios[0].score && (
+                              <Progress value={recentScenarios[0].score} className="h-1 md:h-2" />
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs md:text-sm text-brand-dark/70 font-body">
+                              {dayjs(recentScenarios[0].date).format('MMM D, YYYY')}
+                            </span>
+                          </div>
+
+                          <Button 
+                            className="w-full bg-brand-secondary hover:bg-brand-primary text-white font-body"
+                            onClick={() => window.location.href = '/dashboard/scenarios'}
+                          >
+                            View All Sessions
+                          </Button>
+                        </>
+                      ) : (
+                        <div className="text-center py-2 md:py-6">
+                          <p className="text-xs text-brand-dark/70 font-body mb-2 md:mb-4">No sessions yet</p>
+                          <Button 
+                            className="bg-brand-secondary hover:bg-brand-primary text-white font-body"
+                            onClick={() => window.location.href = '/dashboard/scenarios'}
+                          >
+                            Start Training
+                          </Button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </CardContent>
               </Card>

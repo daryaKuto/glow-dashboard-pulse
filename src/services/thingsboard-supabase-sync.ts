@@ -55,7 +55,7 @@ class ThingsBoardSupabaseSync {
       this.lastSyncTime = new Date();
       
       console.log('✅ Sync completed successfully');
-      toast.success(`Synced ${targets.length} targets and ${sessions.length} sessions`);
+      // Sync completed silently
       
       return {
         targets,
@@ -65,7 +65,7 @@ class ThingsBoardSupabaseSync {
       
     } catch (error) {
       console.error('❌ Sync failed:', error);
-      toast.error('Failed to sync with ThingsBoard');
+      // Sync failed silently
       throw error;
     }
   }
@@ -315,7 +315,7 @@ class ThingsBoardSupabaseSync {
    * Manual trigger for sync (for refresh buttons, etc.)
    */
   async forcSync(): Promise<void> {
-    toast.info('Syncing with ThingsBoard...');
+    // Syncing silently
     await this.syncAllData();
   }
 

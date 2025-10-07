@@ -1,0 +1,25 @@
+name: glow-dashboard-pulse
+services:
+- name: web
+  source_dir: /
+  github:
+    repo: daryaKuto/glow-dashboard-pulse
+    branch: main
+  run_command: npm start
+  build_command: npm run build
+  environment_slug: node-js
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  http_port: 8080
+  routes:
+  - path: /
+  envs:
+  - key: NODE_ENV
+    value: production
+  - key: VITE_TB_BASE_URL
+    value: https://thingsboard.cloud
+  - key: VITE_TB_WS_URL
+    value: wss://thingsboard.cloud
+  - key: VITE_DEMO_MODE
+    value: "false"
+

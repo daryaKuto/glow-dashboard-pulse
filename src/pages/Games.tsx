@@ -25,8 +25,10 @@ import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useDemoMode } from '@/providers/DemoModeProvider';
 import { useGameFlow } from '@/store/useGameFlow';
 import { GameHistory } from '@/services/device-game-flow';
+import { supabaseRoomsService } from '@/services/supabase-rooms';
 
 // Define GameSummary interface locally since it's from the popup component
 interface GameSummary {
@@ -62,6 +64,9 @@ const Games: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [currentStage, setCurrentStage] = useState<GameStage>('main-dashboard');
   
+  // Global demo mode state
+  const { isDemoMode } = useDemoMode();
+  
   // Game Flow State
   const {
     currentSession,
@@ -90,9 +95,6 @@ const Games: React.FC = () => {
   const [availableDevices, setAvailableDevices] = useState<DeviceStatus[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
   
-  // Demo mode state
-  const [isDemoMode, setIsDemoMode] = useState(true); // Default to demo mode
-  
   // Countdown popup state
   const [showCountdownPopup, setShowCountdownPopup] = useState(false);
   const [countdownGameData, setCountdownGameData] = useState<{
@@ -102,12 +104,18 @@ const Games: React.FC = () => {
   } | null>(null);
 
   // Load available devices (demo or real)
+  // Clear and reload when mode changes
   useEffect(() => {
     const loadDevices = async () => {
+      console.log(`🔄 Games: Mode changed to ${isDemoMode ? 'DEMO' : 'LIVE'}, clearing old data...`);
+      
+      // Clear old data when switching modes
+      setAvailableDevices([]);
       setLoadingDevices(true);
+      
       try {
         if (isDemoMode) {
-          // Demo mode - use mock devices
+          // Demo mode - use ONLY mock devices
           console.log('🎭 DEMO MODE: Loading mock devices...');
           const mockDevices = demoGameFlowService.getMockDevices();
           setAvailableDevices(mockDevices);
@@ -118,19 +126,19 @@ const Games: React.FC = () => {
           console.log(`✅ DEMO: Loaded ${mockDevices.length} mock devices`);
           
         } else {
-          // Live mode - use real ThingsBoard data
-          console.log('🔄 LIVE MODE: Loading devices from ThingsBoard...');
+          // Live mode - use ONLY real ThingsBoard data
+          console.log('🔗 LIVE MODE: Loading devices from ThingsBoard...');
           const targets = await API.getTargets() as Target[];
           
-          console.log('📊 Raw targets data:', targets);
-          console.log('📊 Target statuses:', targets.map(t => ({ name: t.name, status: t.status, id: t.id })));
+          console.log('📊 LIVE: Raw targets data:', targets);
+          console.log('📊 LIVE: Target statuses:', targets.map(t => ({ name: t.name, status: t.status, id: t.id })));
           
           // Convert targets to device statuses
           const deviceStatuses: DeviceStatus[] = targets.map(target => {
             // Check various possible status values
             const isOnline = target.status === 'online';
             
-            console.log(`🎯 Device ${target.name}: status="${target.status}", isOnline=${isOnline}`);
+            console.log(`🎯 LIVE Device ${target.name}: status="${target.status}", isOnline=${isOnline}`);
             
             return {
               deviceId: typeof target.id === 'string' ? target.id : (target.id as { id: string })?.id || String(target.id),
@@ -145,28 +153,28 @@ const Games: React.FC = () => {
             };
           });
 
-          console.log('🎮 Converted device statuses:', deviceStatuses);
-          console.log(`📈 Online devices: ${deviceStatuses.filter(d => d.isOnline).length}/${deviceStatuses.length}`);
+          console.log('🎮 LIVE: Converted device statuses:', deviceStatuses);
+          console.log(`📈 LIVE: Online devices: ${deviceStatuses.filter(d => d.isOnline).length}/${deviceStatuses.length}`);
 
           setAvailableDevices(deviceStatuses);
           await initializeDevices(deviceStatuses.map(d => d.deviceId));
           
-          console.log(`✅ Loaded ${deviceStatuses.length} devices from ThingsBoard`);
+          console.log(`✅ LIVE: Loaded ${deviceStatuses.length} devices from ThingsBoard`);
           
           // Show user feedback about device status
           const onlineCount = deviceStatuses.filter(d => d.isOnline).length;
           const offlineCount = deviceStatuses.length - onlineCount;
           
           if (deviceStatuses.length === 0) {
-            toast.warning('No devices found in ThingsBoard');
+            toast.warning('🔗 No devices found in ThingsBoard');
           } else if (onlineCount === 0) {
-            toast.warning('All devices are currently offline', {
+            toast.warning('🔗 All devices are currently offline', {
               description: 'At least 1 online device is required to create a game'
             });
           } else if (offlineCount > 0) {
-            toast.info(`${onlineCount} online, ${offlineCount} offline devices found`);
+            toast.info(`🔗 ${onlineCount} online, ${offlineCount} offline devices found`);
           } else {
-            toast.success(`${onlineCount} devices online and ready for games`);
+            toast.success(`🔗 ${onlineCount} devices online and ready for games`);
           }
         }
         
@@ -182,10 +190,11 @@ const Games: React.FC = () => {
     loadDevices();
   }, [initializeDevices, isDemoMode]);
 
-  // Load game history when component mounts
+  // Load game history when component mounts or mode changes
   useEffect(() => {
-    loadGameHistory();
-  }, [loadGameHistory]);
+    console.log(`🔄 Games: Loading game history (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+    loadGameHistory(isDemoMode);
+  }, [loadGameHistory, isDemoMode]);
 
   // Handle device selection
   const handleDeviceSelection = (deviceId: string, checked: boolean) => {
@@ -454,6 +463,22 @@ const Games: React.FC = () => {
         // Add to game history
         addGameToHistory(historyEntry);
         console.log('💾 Saved detailed game to history:', historyEntry);
+
+        // Save to Supabase
+        try {
+          const sessionId = await supabaseRoomsService.storeGameSummary({
+            gameId: session.gameId,
+            gameName: session.gameName,
+            startTime: session.startTime,
+            endTime: Date.now(),
+            gameSummary: gameSummary
+          });
+          console.log('✅ Game summary saved to Supabase with session ID:', sessionId);
+          toast.success('Game completed! Results saved to history and database.');
+        } catch (error) {
+          console.error('❌ Failed to save game summary to Supabase:', error);
+          toast.error('Game completed! Results saved to history, but failed to save to database.');
+        }
       }
       
       // Clean up resources
@@ -468,8 +493,6 @@ const Games: React.FC = () => {
     setCurrentStage('main-dashboard');
     setGameName('');
     selectDevices([]);
-    
-    toast.success('Game completed! Results saved to history.');
   };
 
   // Handle back to main dashboard
@@ -599,6 +622,21 @@ const Games: React.FC = () => {
               </Card>
             )}
 
+            {/* Demo Mode Banner */}
+            {isDemoMode && (
+              <Card className="bg-yellow-50 border-yellow-200 mb-6">
+                <CardContent className="p-3 md:p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="text-xl">🎭</div>
+                    <div>
+                      <div className="font-semibold text-yellow-800 text-sm">Demo Mode Active</div>
+                      <div className="text-xs text-yellow-700">Playing with mock devices. Toggle to Live mode for real ThingsBoard integration.</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Main Dashboard Stage */}
             {currentStage === 'main-dashboard' && (
               <div className="space-y-6">
@@ -614,26 +652,6 @@ const Games: React.FC = () => {
                   </div>
                   
                   <div className="flex items-center gap-2">
-                    {/* Demo Mode Toggle */}
-                    <div className="flex items-center gap-2">
-                      <div className={`px-2 py-1 rounded-lg text-xs font-body font-medium ${
-                        isDemoMode 
-                          ? 'bg-yellow-100 text-yellow-800' 
-                          : 'bg-green-100 text-green-800'
-                      }`}>
-                        {isDemoMode ? '🎭 Demo' : '🔗 Live'}
-                      </div>
-                      <Button
-                        onClick={() => setIsDemoMode(!isDemoMode)}
-                        disabled={isGameActive}
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-xs font-body border border-brand-secondary/30 text-brand-secondary hover:bg-brand-primary hover:text-white hover:border-brand-primary"
-                      >
-                        Toggle
-                      </Button>
-                    </div>
-
                     <Button
                       onClick={() => setCurrentStage('configuration')}
                       className="bg-brand-primary hover:bg-brand-primary/90 text-white"

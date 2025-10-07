@@ -24,10 +24,10 @@ export const useThingsBoardSync = () => {
 
   // Auto-sync when user logs in
   useEffect(() => {
-    if (user) {
+    if (user && !syncStatus.lastSync) {
       performInitialSync();
     }
-  }, [user]);
+  }, [user?.id]); // Only depend on user ID to prevent infinite loops
 
   // Perform initial sync on login
   const performInitialSync = useCallback(async () => {
@@ -134,4 +134,7 @@ export const useThingsBoardSync = () => {
     isLoading: syncStatus.isLoading
   };
 };
+
+
+
 

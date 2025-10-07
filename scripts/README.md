@@ -50,6 +50,52 @@ export SUPABASE_ACCESS_TOKEN="your-access-token"
 ./scripts/debug-profile-error.sh
 ```
 
+### 📡 test-wifi-credentials.sh / test-wifi-credentials.js
+Tests WiFi credentials retrieval from ThingsBoard device attributes using real API calls.
+
+**Features:**
+- Authenticates with ThingsBoard using real credentials
+- Fetches all devices from ThingsBoard
+- Retrieves WiFi credentials from device attributes (SHARED_SCOPE)
+- Tests both reading and writing WiFi credentials
+- Generates detailed test reports
+- No placeholder or fake data - uses real ThingsBoard API
+
+**Usage:**
+```bash
+# Using shell script (requires curl and jq)
+./scripts/test-wifi-credentials.sh
+
+# Using Node.js script (more comprehensive)
+npm run test:wifi-credentials
+# or
+node scripts/test-wifi-credentials.js
+
+# Using shell script via npm
+npm run test:wifi-credentials:shell
+```
+
+**Environment Variables:**
+```bash
+# Optional - defaults to andrew.tam@gmail.com / dryfire2025
+export VITE_TB_USERNAME="your-thingsboard-username"
+export VITE_TB_PASSWORD="your-thingsboard-password"
+export VITE_TB_BASE_URL="https://thingsboard.cloud"
+```
+
+**What it tests:**
+- ThingsBoard authentication
+- Device list retrieval
+- WiFi credentials reading from device attributes
+- WiFi credentials writing to device attributes (optional)
+- Attribute verification
+- Error handling and reporting
+
+**Output:**
+- Console logs with colored output
+- Detailed test report saved to `test-results/wifi-credentials-test-report.json`
+- Summary of devices processed and credentials found
+
 ## Environment Variables
 
 You need these environment variables set:

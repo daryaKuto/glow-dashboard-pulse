@@ -7,14 +7,8 @@ export interface TargetPreferences {
   ipAddress: string;
 }
 
-export interface HouseWifiSettings {
-  ssid: string;
-  password: string;
-}
-
 export interface UserPreferences {
-  houseWifi?: HouseWifiSettings;
-  [targetId: string]: TargetPreferences | HouseWifiSettings | undefined;
+  [targetId: string]: TargetPreferences | undefined;
 }
 
 interface UserPrefsState {
@@ -120,15 +114,4 @@ export const useUserPrefs = create<UserPrefsState>((set, get) => ({
     }));
   },
   
-  updateHouseWifi: (field: keyof HouseWifiSettings, value: string) => {
-    set(state => ({
-      prefs: {
-        ...state.prefs,
-        houseWifi: {
-          ...state.prefs.houseWifi,
-          [field]: value
-        }
-      }
-    }));
-  }
 })); 

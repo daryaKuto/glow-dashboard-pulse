@@ -2,11 +2,14 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useRooms, type Room } from '@/store/useRooms';
 import { toast } from '@/components/ui/sonner';
+import { useDemoMode } from '@/providers/DemoModeProvider';
+import { apiWrapper } from '@/services/api-wrapper';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useShootingActivityPolling, type TargetShootingActivity } from '@/hooks/useShootingActivityPolling';
+import { useThingsBoardSync } from '@/hooks/useThingsBoardSync';
 import ShootingStatusBanner from '@/components/shared/ShootingStatusBanner';
 import { Target } from '@/store/useTargets';
 import { Button } from '@/components/ui/button';
@@ -244,9 +247,17 @@ const Targets: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-  const { rooms, isLoading: roomsLoading, fetchRooms, getAllTargetsWithAssignments } = useRooms();
+  const { isDemoMode } = useDemoMode();
+  const { rooms: liveRooms, isLoading: roomsLoading, fetchRooms, getAllTargetsWithAssignments } = useRooms();
+  const { forceSync: forceThingsBoardSync } = useThingsBoardSync();
+  
+  // Local state
+  const [demoRooms, setDemoRooms] = useState<Room[]>([]);
   const [targets, setTargets] = useState<Target[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Use demo or live rooms based on mode
+  const rooms = isDemoMode ? demoRooms : liveRooms;
   const [searchTerm, setSearchTerm] = useState('');
   const [roomFilter, setRoomFilter] = useState<string>('all');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -263,29 +274,95 @@ const Targets: React.FC = () => {
   const fetchTargetsWithAssignments = useCallback(async () => {
     setIsLoading(true);
     try {
-      const targetsWithAssignments = await getAllTargetsWithAssignments();
-      setTargets(targetsWithAssignments);
+      console.log(`🔄 Targets page: Fetching targets (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+      
+      if (isDemoMode) {
+        // Demo mode: use mock targets
+        const mockTargets = await apiWrapper.getTargets(true);
+        setTargets(mockTargets);
+        console.log('✅ DEMO: Loaded mock targets:', mockTargets.length);
+      } else {
+        // Live mode: use real targets with assignments
+        const targetsWithAssignments = await getAllTargetsWithAssignments();
+        setTargets(targetsWithAssignments);
+        console.log('✅ LIVE: Loaded real targets:', targetsWithAssignments.length);
+      }
     } catch (error) {
-      console.error('Error fetching targets with assignments:', error);
-      // Set empty array if there's an error
+      console.error('Error fetching targets:', error);
       setTargets([]);
     } finally {
       setIsLoading(false);
     }
-  }, [getAllTargetsWithAssignments]);
+  }, [isDemoMode, getAllTargetsWithAssignments]);
 
   // Smart polling system for targets data
   const fetchTargetsData = useCallback(async () => {
     try {
-      await Promise.all([
-        fetchRooms(),
-        fetchTargetsWithAssignments()
-      ]);
+      console.log(`🔄 Polling targets data (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+      
+      if (isDemoMode) {
+        // Demo mode: fetch mock rooms and targets
+        const mockRooms = await apiWrapper.getRooms(true);
+        const transformedRooms = mockRooms.map((room) => ({
+          id: room.id,
+          name: room.name,
+          order: room.order_index || 0,
+          targetCount: 0,
+          icon: room.icon,
+          room_type: room.room_type
+        }));
+        setDemoRooms(transformedRooms);
+        
+        await fetchTargetsWithAssignments();
+      } else {
+        // Live mode: fetch both rooms and targets
+        await Promise.all([
+          fetchRooms(),
+          fetchTargetsWithAssignments()
+        ]);
+      }
     } catch (error) {
       console.error('Error fetching targets data:', error);
     }
-  }, [fetchRooms, fetchTargetsWithAssignments]);
+  }, [isDemoMode, fetchRooms, fetchTargetsWithAssignments]);
 
+  // Comprehensive refresh function for manual refresh button
+  const comprehensiveRefresh = useCallback(async () => {
+    console.log(`🔄 Targets: Starting comprehensive refresh (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+    
+    try {
+      if (isDemoMode) {
+        // Demo mode: just refresh mock data
+        console.log('🎭 DEMO: Refreshing mock data...');
+        await fetchTargetsWithAssignments();
+      } else {
+        // Live mode: full sync
+        // 1. Sync with ThingsBoard (targets and sessions)
+        console.log('🔄 Syncing with ThingsBoard...');
+        await forceThingsBoardSync();
+        
+        // 2. Refresh Supabase rooms
+        console.log('🔄 Refreshing Supabase rooms...');
+        await fetchRooms();
+        
+        // 3. Refresh targets data
+        console.log('🔄 Refreshing targets data...');
+        await fetchTargetsData();
+      }
+      
+      console.log('✅ Targets: Comprehensive refresh completed');
+    } catch (error) {
+      console.error('❌ Targets: Error during comprehensive refresh:', error);
+      // Still try to refresh basic data even if sync fails
+      try {
+        await fetchTargetsData();
+      } catch (fallbackError) {
+        console.error('❌ Targets: Fallback refresh also failed:', fallbackError);
+      }
+    }
+  }, [isDemoMode, forceThingsBoardSync, fetchRooms, fetchTargetsData, fetchTargetsWithAssignments]);
+
+  // Disable shooting activity polling in demo mode (no real-time data)
   const { 
     currentInterval, 
     currentMode, 
@@ -296,23 +373,43 @@ const Targets: React.FC = () => {
     activeShotsCount,
     recentShotsCount,
     forceUpdate 
-  } = useShootingActivityPolling(fetchTargetsData, {
-    activeInterval: 10000,     // 10 seconds during active shooting
-    recentInterval: 30000,     // 30 seconds if shot within last 30s but not active
-    standbyInterval: 60000,    // 60 seconds if no shots for 10+ minutes
-    activeThreshold: 30000,    // 30 seconds - active shooting threshold
-    standbyThreshold: 600000   // 10 minutes - standby mode threshold
-  });
+  } = useShootingActivityPolling(
+    isDemoMode ? async () => {} : fetchTargetsData, // Don't poll in demo mode
+    {
+      activeInterval: 10000,
+      recentInterval: 30000,
+      standbyInterval: 60000,
+      activeThreshold: 30000,
+      standbyThreshold: 600000
+    }
+  );
 
-  // Initial data fetch
+  // Initial data fetch - refetch when demo mode changes and clear old data
   useEffect(() => {
+    console.log(`🔄 Targets: Mode changed to ${isDemoMode ? 'DEMO' : 'LIVE'}, clearing old data...`);
+    
+    // Clear all data when switching modes to prevent leakage
+    setTargets([]);
+    setDemoRooms([]);
+    setIsLoading(false);
+    
+    console.log(`🧹 Targets: Cleared old data. Fetching ${isDemoMode ? 'MOCK' : 'REAL'} data...`);
+    
+    // Fetch new data for the current mode
     fetchTargetsData();
-  }, [fetchTargetsData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemoMode]);
 
   // Handle refresh
   const handleRefresh = async () => {
-    await forceUpdate();
-    toast.success('Targets refreshed from ThingsBoard');
+    if (isDemoMode) {
+      console.log('🎭 DEMO: Refreshing mock targets...');
+      await fetchTargetsWithAssignments();
+      toast.success('🎭 Demo targets refreshed');
+    } else {
+      await forceUpdate();
+      toast.success('🔗 Targets refreshed from ThingsBoard');
+    }
   };
 
   // Filter targets by search term and room
@@ -428,16 +525,32 @@ const Targets: React.FC = () => {
         <main className="flex-1 overflow-y-auto">
           <div className="p-3 md:p-4 lg:p-6 max-w-7xl mx-auto space-y-3 md:space-y-4 lg:space-y-6">
             
+            {/* Demo Mode Banner */}
+            {isDemoMode && (
+              <Card className="bg-yellow-50 border-yellow-200">
+                <CardContent className="p-3 md:p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="text-xl">🎭</div>
+                    <div>
+                      <div className="font-semibold text-yellow-800 text-sm">Demo Mode Active</div>
+                      <div className="text-xs text-yellow-700">Viewing 6 mock targets. Toggle to Live mode to see real ThingsBoard data.</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            
             {/* Shooting Activity Status Indicator */}
-            <ShootingStatusBanner
+            {!isDemoMode && <ShootingStatusBanner
               hasActiveShooters={hasActiveShooters}
               hasRecentActivity={hasRecentActivity}
               currentMode={currentMode}
               currentInterval={currentInterval}
               activeShotsCount={activeShotsCount}
               recentShotsCount={recentShotsCount}
-              onRefresh={forceUpdate}
-            />
+              targetsCount={targets.length}
+              onRefresh={comprehensiveRefresh}
+            />}
 
             {/* Page Header */}
             <div className="space-y-2">

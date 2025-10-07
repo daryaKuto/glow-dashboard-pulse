@@ -18,6 +18,11 @@ export interface Target {
   deviceType?: string;
   createdTime?: number;
   additionalInfo?: Record<string, any>;
+  // Properties for no data/error messages
+  type?: string;
+  isNoDataMessage?: boolean;
+  isErrorMessage?: boolean;
+  message?: string;
 }
 
 interface TargetsState {
@@ -57,6 +62,10 @@ export const useTargets = create<TargetsState>((set) => ({
           deviceType: d.deviceType || 'default',
           createdTime: d.createdTime || null,
           additionalInfo: d.additionalInfo || {},
+          // Map special properties for no data and error states
+          isNoDataMessage: d.isNoDataMessage || false,
+          isErrorMessage: d.isErrorMessage || false,
+          message: d.message || undefined,
         })),
         isLoading: false,
       });

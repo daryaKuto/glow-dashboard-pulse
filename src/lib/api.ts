@@ -10,6 +10,7 @@ import tbClient from './tbClient';
 import { cache, CACHE_KEYS } from './cache';
 import { supabase } from '@/integrations/supabase/client';
 import { unifiedDataService } from '@/services/unified-data';
+import { getThingsBoardCredentials } from '@/services/profile';
 
 
 const controllerId = import.meta.env.VITE_TB_CONTROLLER_ID as string;
@@ -28,7 +29,7 @@ async function ensureUserThingsBoardAuth() {
   console.log('🔐 Ensuring ThingsBoard auth for user:', user.email);
   
   // Use unified data service for user-specific ThingsBoard authentication
-  const thingsBoardData = await unifiedDataService.getThingsBoardData(user.email);
+  const thingsBoardData = await unifiedDataService.getThingsBoardData(user.id, user.email);
   
   // Always return data, even if ThingsBoard is not connected
   return { user, thingsBoardData };
@@ -158,36 +159,103 @@ export const API = {
     // Check cache first
     const cached = cache.get(CACHE_KEYS.TARGETS);
     if (cached) {
-      console.log('Using cached targets data:', cached);
+      console.log('🔍 API.getTargets - Using cached data:', cached.length, 'targets');
       return cached;
     }
 
     try {
-      // Ensure user-specific ThingsBoard authentication
-      const { user, thingsBoardData } = await ensureUserThingsBoardAuth();
-      
-      console.log('✅ Got user-specific ThingsBoard data:', {
-        targetsCount: thingsBoardData.targets.length,
-        devicesCount: thingsBoardData.devices.length,
-        user: user.email,
-        isConnected: thingsBoardData.isConnected
-      });
-      
-      // If no ThingsBoard connection, return empty array
-      if (!thingsBoardData.isConnected || thingsBoardData.targets.length === 0) {
-        console.log('ℹ️ No ThingsBoard data available for user:', user.email);
-        cache.set(CACHE_KEYS.TARGETS, [], 30000);
+      // Check if we have a valid ThingsBoard token first
+      const tbToken = localStorage.getItem('tb_access');
+      if (!tbToken) {
+        console.log('🔍 API.getTargets - No ThingsBoard token, returning empty targets');
+        // Don't cache empty results - let it retry when token becomes available
         return [];
       }
+
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        console.log('🔍 API.getTargets - No authenticated user, returning empty targets');
+        // Don't cache empty results - let it retry when user becomes available
+        return [];
+      }
+
+      // Try to use existing ThingsBoard service without re-authentication
+      const thingsBoardService = (await import('@/services/thingsboard')).default;
+      
+      // Verify token is still valid by making a test call
+      let isTokenValid = false;
+      try {
+        await thingsBoardService.getDevices(1, 0); // Fetch 1 device as validation
+        isTokenValid = true;
+        console.log('🔍 API.getTargets - Existing token is valid, using it');
+      } catch (error) {
+        console.log('🔍 API.getTargets - Token invalid, will need re-authentication:', error.message);
+      }
+
+      if (!isTokenValid) {
+        // Fall back to full authentication if token is invalid
+        console.log('🔍 API.getTargets - Token invalid, falling back to full auth');
+        const { user: authUser, thingsBoardData } = await ensureUserThingsBoardAuth();
+        
+        if (!thingsBoardData.isConnected || thingsBoardData.targets.length === 0) {
+          console.log('🔍 API.getTargets - No data available after auth for user:', authUser.email);
+          cache.set(CACHE_KEYS.TARGETS, [], 30000);
+          return [];
+        }
+        
+        // Map the devices to include room information from our database
+        const mappedDevices = await mapDevicesToRooms(thingsBoardData.targets);
+        console.log('🔍 API.getTargets - Mapped devices result (after auth):', {
+          originalCount: thingsBoardData.targets.length,
+          mappedCount: mappedDevices.length,
+          mappedDevices: mappedDevices.map(d => ({
+            name: d.name,
+            id: d.id?.id || d.id,
+            status: d.status,
+            roomId: d.roomId
+          }))
+        });
+        
+        cache.set(CACHE_KEYS.TARGETS, mappedDevices, 30000);
+        return mappedDevices;
+      }
+
+      // Token is valid, fetch data directly
+      console.log('🔍 API.getTargets - Fetching data with valid token for user:', user.email);
+      
+      // Fetch devices directly from ThingsBoard
+      const devicesResponse = await thingsBoardService.getDevices();
+      const devices = devicesResponse.data || [];
+      
+      // Show all devices from ThingsBoard (no filtering)
+      console.log('🔍 API.getTargets - All devices (no filtering):', {
+        totalDevices: devices.length,
+        devices: devices.map(d => ({
+          name: d.name,
+          type: d.type,
+          status: d.status,
+          id: d.id?.id || d.id
+        }))
+      });
       
       // Map the devices to include room information from our database
-      const mappedDevices = await mapDevicesToRooms(thingsBoardData.targets);
-      console.log('Mapped devices with room info:', mappedDevices);
+      const mappedDevices = await mapDevicesToRooms(devices);
+      console.log('🔍 API.getTargets - Mapped devices result (direct fetch):', {
+        originalCount: devices.length,
+        mappedCount: mappedDevices.length,
+        mappedDevices: mappedDevices.map(d => ({
+          name: d.name,
+          id: d.id?.id || d.id,
+          status: d.status,
+          roomId: d.roomId
+        }))
+      });
       
       cache.set(CACHE_KEYS.TARGETS, mappedDevices, 30000);
       return mappedDevices;
     } catch (error) {
-      console.log('ℹ️ ThingsBoard not available, returning empty targets:', error.message);
+      console.log('🔍 API.getTargets - Error, returning empty targets:', error.message);
       cache.set(CACHE_KEYS.TARGETS, [], 30000);
       return [];
     }
@@ -628,14 +696,19 @@ export const API = {
       
       // Ensure we're authenticated
       if (!thingsBoardService.isAuthenticated()) {
-        const username = import.meta.env.VITE_TB_USERNAME;
-        const password = import.meta.env.VITE_TB_PASSWORD;
-        
-        if (!username || !password) {
-          throw new Error('ThingsBoard credentials not configured. Please set VITE_TB_USERNAME and VITE_TB_PASSWORD in .env.local');
+        // Get current user from Supabase
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          throw new Error('No authenticated user');
+        }
+
+        // Fetch ThingsBoard credentials from Supabase
+        const credentials = await getThingsBoardCredentials(user.id);
+        if (!credentials) {
+          throw new Error('ThingsBoard credentials not found in user profile');
         }
         
-        await thingsBoardService.login(username, password);
+        await thingsBoardService.login(credentials.email, credentials.password);
       }
       
       // Get all devices and filter by roomId

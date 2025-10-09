@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ScenarioTemplate } from '@/data/scenarios';
+import { GameTemplate } from '@/data/games';
 import API from '@/lib/api';
 import { useRooms } from '@/store/useRooms';
 import { scenarioApiService } from '@/services/scenario-api';
@@ -9,7 +9,7 @@ import type { ScenarioSession, ScenarioResults } from '@/types/scenario-data';
 
 interface RunState {
   active: boolean;
-  current?: ScenarioTemplate;
+  current?: GameTemplate;
   currentSession?: ScenarioSession;
   error?: string;
   results?: ScenarioResults;
@@ -17,7 +17,7 @@ interface RunState {
   timeRemaining: number;
   useMockData: boolean;
   
-  start: (tpl: ScenarioTemplate, roomId: string, selectedTargetIds?: string[]) => Promise<void>;
+  start: (tpl: GameTemplate, roomId: string, selectedTargetIds?: string[]) => Promise<void>;
   stop: () => Promise<void>;
   getStatus: () => Promise<void>;
   toggleMockMode: () => void;
@@ -29,7 +29,7 @@ export const useScenarioRun = create<RunState>((set, get) => ({
   timeRemaining: 0,
   useMockData: true, // Default to mock mode since ThingsBoard isn't implemented yet
 
-  start: async (tpl, roomId, selectedTargetIds) => {
+  start: async (tpl: GameTemplate, roomId: string, selectedTargetIds?: string[]) => {
     try {
       // Validate room capacity
       const { rooms } = useRooms.getState();

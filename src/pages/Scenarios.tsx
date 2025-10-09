@@ -10,7 +10,7 @@ import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { SCENARIOS, type ScenarioTemplate } from '@/data/scenarios';
+import { GAMES, type GameTemplate } from '@/data/games';
 import { useScenarioRun } from '@/store/useScenarioRun';
 import { useRooms } from '@/store/useRooms';
 import { useGameFlow } from '@/store/useGameFlow';
@@ -66,7 +66,7 @@ const Scenarios: React.FC = () => {
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const [loadingTargets, setLoadingTargets] = useState(false);
   const [showCountdown, setShowCountdown] = useState(false);
-  const [pendingScenario, setPendingScenario] = useState<ScenarioTemplate | null>(null);
+  const [pendingGame, setPendingGame] = useState<GameTemplate | null>(null);
   const [countdownState, setCountdownState] = useState<{
     phase: 'ready' | 'countdown' | 'go' | 'complete';
     count: number;
@@ -298,7 +298,7 @@ const Scenarios: React.FC = () => {
     }
   };
 
-  const handleStartScenario = async (scenarioTemplate: ScenarioTemplate) => {
+  const handleStartGame = async (gameTemplate: GameTemplate) => {
     if (selectedRoomId === null) {
       toast.error('Please select a room first');
       return;
@@ -306,8 +306,8 @@ const Scenarios: React.FC = () => {
 
     const roomIdToUse = selectedRoomId;
 
-    if (selectedTargets.length < scenarioTemplate.targetCount) {
-      toast.error(`Please select ${scenarioTemplate.targetCount} targets for this scenario`);
+    if (selectedTargets.length < gameTemplate.targetCount) {
+      toast.error(`Please select ${gameTemplate.targetCount} targets for this game`);
       return;
     }
 
@@ -315,16 +315,16 @@ const Scenarios: React.FC = () => {
       t => selectedTargets.includes(t.id) && t.status === 'online'
     );
 
-    if (onlineSelectedTargets.length < scenarioTemplate.targetCount) {
-      toast.error(`${scenarioTemplate.targetCount} online targets required. Only ${onlineSelectedTargets.length} selected targets are online.`);
+    if (onlineSelectedTargets.length < gameTemplate.targetCount) {
+      toast.error(`${gameTemplate.targetCount} online targets required. Only ${onlineSelectedTargets.length} selected targets are online.`);
       return;
     }
 
     if (isDemoMode) {
       // Demo mode - use existing countdown flow
-      setPendingScenario(scenarioTemplate);
+      setPendingGame(gameTemplate);
       setShowCountdown(true);
-      startInlineCountdown(scenarioTemplate);
+      startInlineCountdown(gameTemplate);
     } else {
       // Live mode - use ThingsBoard game flow according to DeviceManagement.md
       console.log('🔴 LIVE MODE: Starting ThingsBoard game flow');
@@ -333,13 +333,13 @@ const Scenarios: React.FC = () => {
       const gameId = `GM-${Date.now()}`;
       
       // Start the game flow according to documentation
-      await startLiveModeGame(scenarioTemplate, gameId, selectedTargets, gameDuration);
+      await startLiveModeGame(gameTemplate, gameId, selectedTargets, gameDuration);
     }
   };
 
   // Live mode game flow according to DeviceManagement.md
   const startLiveModeGame = async (
-    scenarioTemplate: ScenarioTemplate, 
+    gameTemplate: GameTemplate, 
     gameId: string, 
     targetIds: string[], 
     duration: number = 30
@@ -351,7 +351,7 @@ const Scenarios: React.FC = () => {
       console.log('📋 Step 1: Creating game session');
       const { createGame, configureDevices, startGame } = useGameFlow.getState();
       
-      const gameCreated = await createGame(scenarioTemplate.name, duration);
+      const gameCreated = await createGame(gameTemplate.name, duration);
       if (!gameCreated) {
         toast.error('Failed to create game session');
         return;
@@ -369,11 +369,11 @@ const Scenarios: React.FC = () => {
       
       // Step 3: Wait for device responses and start countdown
       console.log('⏳ Step 3: Starting countdown');
-      setPendingScenario(scenarioTemplate);
+      setPendingGame(gameTemplate);
       setShowCountdown(true);
       
       // Custom countdown for live mode
-      startLiveModeCountdown(scenarioTemplate, startGame);
+      startLiveModeCountdown(gameTemplate, startGame);
       
     } catch (error) {
       console.error('❌ Live mode game flow failed:', error);
@@ -383,7 +383,7 @@ const Scenarios: React.FC = () => {
 
   // Live mode countdown that integrates with ThingsBoard
   const startLiveModeCountdown = async (
-    scenarioTemplate: ScenarioTemplate, 
+    gameTemplate: GameTemplate, 
     startGameFn: () => Promise<boolean>
   ) => {
     // Initial ready state
@@ -420,7 +420,7 @@ const Scenarios: React.FC = () => {
               setCountdownState({ phase: 'complete', count: 0, message: 'Game Active!' });
               setTimeout(() => {
                 setShowCountdown(false);
-                setPendingScenario(null);
+                setPendingGame(null);
               }, 500);
             }, 1000);
           }, 1000);
@@ -433,23 +433,23 @@ const Scenarios: React.FC = () => {
   const handleCountdownComplete = React.useCallback(async () => {
     setShowCountdown(false);
     
-    if (!pendingScenario) return;
+    if (!pendingGame) return;
 
     const roomIdToUse = selectedRoomId;
 
     try {
-      // Now actually start the scenario after countdown
-      await start(pendingScenario, roomIdToUse!.toString(), selectedTargets);
-      toast.success(`${pendingScenario.name} scenario started!`);
+      // Now actually start the game after countdown
+      await start(pendingGame, roomIdToUse!.toString(), selectedTargets);
+      toast.success(`${pendingGame.name} game started!`);
     } catch (err) {
       toast.error('Failed to start scenario');
     } finally {
-      setPendingScenario(null);
+      setPendingGame(null);
     }
-  }, [pendingScenario, selectedRoomId, selectedTargets, start]);
+  }, [pendingGame, selectedRoomId, selectedTargets, start]);
 
   // Start inline countdown within the scenario card
-  const startInlineCountdown = React.useCallback(async (scenarioTemplate: ScenarioTemplate) => {
+  const startInlineCountdown = React.useCallback(async (gameTemplate: GameTemplate) => {
     // Initial ready state
     setCountdownState({ phase: 'ready', count: 3, message: 'Get Ready' });
     
@@ -569,9 +569,9 @@ const Scenarios: React.FC = () => {
                   <div className="w-px h-8 sm:h-10 lg:h-12 bg-gray-200"></div>
                   <div className="text-center">
                     <div className="text-lg sm:text-xl lg:text-2xl font-heading font-bold text-brand-primary mb-1">
-                      {SCENARIOS.length}
+                      {GAMES.length}
                     </div>
-                    <div className="text-xs sm:text-sm text-brand-text/60 font-body">Training Scenarios</div>
+                    <div className="text-xs sm:text-sm text-brand-text/60 font-body">Available Games</div>
                   </div>
                 </div>
               </div>
@@ -753,9 +753,15 @@ const Scenarios: React.FC = () => {
                   </div>
               </div>
 
-              {/* Right Column - Double Tap Scenario */}
+              {/* Right Column - Available Games */}
               <div className="lg:col-span-9">
-                {SCENARIOS.map((template, index) => (
+                <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    <strong>Select a game to start a new session.</strong> Each game has specific rules, target requirements, and time limits. 
+                    Choose your room and targets, then click "Start Game" to begin.
+                  </p>
+                </div>
+                {GAMES.map((template, index) => (
                   <div key={template.id} className={`bg-brand-surface rounded-xl p-4 lg:p-6 shadow-subtle border border-gray-100 hover:shadow-lg transition-all duration-300 ${index > 0 ? 'mt-4' : ''}`}>
                     
                     {/* Header - Compact */}
@@ -857,7 +863,7 @@ const Scenarios: React.FC = () => {
 
                     {/* Start Session Button - Bottom */}
                     <Button 
-                      onClick={() => handleStartScenario(template)}
+                      onClick={() => handleStartGame(template)}
                       disabled={
                         active || 
                         showCountdown || 
@@ -868,7 +874,7 @@ const Scenarios: React.FC = () => {
                     >
                       <TargetIcon className="h-5 w-5 mr-2" />
                       {active && current?.id === template.id ? 'Scenario Running...' : 
-                       showCountdown && pendingScenario?.id === template.id ? 'Starting...' : 'Start Session'}
+                       showCountdown && pendingGame?.id === template.id ? 'Starting...' : 'Start Game'}
                     </Button>
                   </div>
                 ))}
@@ -901,11 +907,11 @@ const Scenarios: React.FC = () => {
       </div>
 
       {/* Full-Screen Countdown Modal */}
-      {showCountdown && pendingScenario && (
+      {showCountdown && pendingGame && (
         <div className="fixed inset-0 z-50 bg-purple-600 bg-gradient-to-br from-purple-600 via-purple-700 to-purple-800 flex items-center justify-center">
           <div className="text-center text-white">
             <h1 className="text-4xl md:text-6xl font-heading font-bold mb-8">
-              {pendingScenario.name}
+              {pendingGame.name}
             </h1>
             
             <div className="mb-8">
@@ -954,15 +960,15 @@ const Scenarios: React.FC = () => {
             <div className="mt-12 p-6 bg-white/10 rounded-lg backdrop-blur-sm">
               <div className="grid grid-cols-3 gap-4 text-center">
                 <div>
-                  <div className="text-2xl font-heading font-bold">{pendingScenario.targetCount}</div>
+                  <div className="text-2xl font-heading font-bold">{pendingGame.targetCount}</div>
                   <div className="text-sm opacity-75">Targets</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-heading font-bold">{pendingScenario.shotsPerTarget}</div>
+                  <div className="text-2xl font-heading font-bold">{pendingGame.shotsPerTarget}</div>
                   <div className="text-sm opacity-75">Shots Each</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-heading font-bold">{Math.round(pendingScenario.timeLimitMs / 1000)}s</div>
+                  <div className="text-2xl font-heading font-bold">{Math.round(pendingGame.timeLimitMs / 1000)}s</div>
                   <div className="text-sm opacity-75">Time Limit</div>
                 </div>
               </div>

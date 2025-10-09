@@ -1,5 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
+import { encryptPassword, decryptPassword, hasThingsBoardCredentials } from './credentials';
+import { getWifiFromSupabase } from './wifi-credentials';
 
 type UserAnalytics = Database['public']['Tables']['user_analytics']['Row'];
 type Session = Database['public']['Tables']['sessions']['Row'];
@@ -40,6 +42,11 @@ export interface RecentSession {
   endedAt: string | null;
   thingsboardData?: any; // Contains detailed game summary data
   rawSensorData?: any; // Contains hit times and reaction times
+}
+
+export interface WifiCredentials {
+  ssid: string;
+  password: string;
 }
 
 /**
@@ -169,7 +176,8 @@ export const fetchUserProfileData = async (userId: string): Promise<UserProfileD
 };
 
 /**
- * Fetch recent user sessions
+ * Fetch recent user sessions (game instances played by the user)
+ * Sessions are stored in Supabase with complete analytics from ThingsBoard
  */
 export const fetchRecentSessions = async (userId: string, limit = 10): Promise<RecentSession[]> => {
   try {
@@ -285,5 +293,176 @@ export const getUserStatsTrend = async (
   } catch (error) {
     console.error('Error fetching user stats trend:', error);
     return [];
+  }
+};
+
+/**
+ * Save ThingsBoard credentials for a user
+ */
+export const saveThingsBoardCredentials = async (
+  userId: string, 
+  email: string, 
+  password: string
+): Promise<boolean> => {
+  try {
+    console.log('[Profile Service] Saving ThingsBoard credentials for user:', userId);
+    
+    const encryptedPassword = encryptPassword(password);
+    
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({
+        thingsboard_email: email,
+        thingsboard_password_encrypted: encryptedPassword,
+        thingsboard_last_sync: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
+      
+    if (error) {
+      console.error('[Profile Service] Error saving ThingsBoard credentials:', error);
+      throw error;
+    }
+    
+    console.log('[Profile Service] ThingsBoard credentials saved successfully');
+    return true;
+  } catch (error) {
+    console.error('[Profile Service] Error saving ThingsBoard credentials:', error);
+    return false;
+  }
+};
+
+/**
+ * Get ThingsBoard credentials for a user
+ */
+export const getThingsBoardCredentials = async (userId: string): Promise<{
+  email: string;
+  password: string;
+} | null> => {
+  try {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('thingsboard_email, thingsboard_password_encrypted')
+      .eq('id', userId)
+      .single();
+      
+    if (error) {
+      console.error('[Profile Service] Error fetching ThingsBoard credentials:', error);
+      return null;
+    }
+    
+    if (!hasThingsBoardCredentials(data.thingsboard_email, data.thingsboard_password_encrypted)) {
+      console.log('[Profile Service] No ThingsBoard credentials found for user');
+      return null;
+    }
+    
+    // Decrypt password
+    const password = decryptPassword(data.thingsboard_password_encrypted);
+    
+    return {
+      email: data.thingsboard_email,
+      password: password
+    };
+  } catch (error) {
+    console.error('[Profile Service] Error getting ThingsBoard credentials:', error);
+    return null;
+  }
+};
+
+/**
+ * Check if user has ThingsBoard credentials configured
+ */
+export const hasUserThingsBoardCredentials = async (userId: string): Promise<boolean> => {
+  try {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('thingsboard_email, thingsboard_password_encrypted')
+      .eq('id', userId)
+      .single();
+      
+    if (error || !data) return false;
+    
+    return hasThingsBoardCredentials(data.thingsboard_email, data.thingsboard_password_encrypted);
+  } catch (error) {
+    console.error('[Profile Service] Error checking ThingsBoard credentials:', error);
+    return false;
+  }
+};
+
+/**
+ * Update ThingsBoard last sync timestamp
+ */
+export const updateThingsBoardLastSync = async (userId: string): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({ 
+        thingsboard_last_sync: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
+      
+    if (error) {
+      console.error('[Profile Service] Error updating last sync time:', error);
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('[Profile Service] Error updating last sync time:', error);
+    return false;
+  }
+};
+
+/**
+ * Remove ThingsBoard credentials for a user
+ */
+export const removeThingsBoardCredentials = async (userId: string): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({
+        thingsboard_email: null,
+        thingsboard_password_encrypted: null,
+        thingsboard_last_sync: null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
+      
+    if (error) {
+      console.error('[Profile Service] Error removing ThingsBoard credentials:', error);
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('[Profile Service] Error removing ThingsBoard credentials:', error);
+    return false;
+  }
+};
+
+/**
+ * Get WiFi credentials for a user from Supabase
+ */
+export const getWifiCredentials = async (userId: string): Promise<WifiCredentials | null> => {
+  try {
+    console.log('[Profile Service] Getting WiFi credentials for user:', userId);
+    
+    const wifiCredentials = await getWifiFromSupabase(userId);
+    
+    if (!wifiCredentials) {
+      console.log('[Profile Service] No WiFi credentials found for user');
+      return null;
+    }
+    
+    console.log('[Profile Service] WiFi credentials retrieved:', {
+      ssid: wifiCredentials.ssid,
+      hasPassword: !!wifiCredentials.password
+    });
+    
+    return wifiCredentials;
+  } catch (error) {
+    console.error('[Profile Service] Error getting WiFi credentials:', error);
+    return null;
   }
 };

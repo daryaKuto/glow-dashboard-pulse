@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { tbSupabaseSync } from '@/services/thingsboard-supabase-sync';
-import { useAuth } from '@/store/useAuth';
+import { useAuth } from '@/providers/AuthProvider';
 import { toast } from '@/components/ui/sonner';
 
 export interface InitialSyncStatus {
@@ -21,31 +21,60 @@ export interface InitialSyncStatus {
  * After this completes, all data operations use ONLY Supabase
  */
 export const useInitialSync = () => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const [syncStatus, setSyncStatus] = useState<InitialSyncStatus>({
     isComplete: false,
     isLoading: false,
     error: null,
     syncedData: null
   });
+  
+  // Use ref to track if sync has been started to prevent infinite loops
+  const syncStartedRef = useRef(false);
 
-  // Perform ONE-TIME sync immediately (don't wait for user)
+  // Reset sync started flag when user changes
+  useEffect(() => {
+    syncStartedRef.current = false;
+  }, [user?.id]);
+
+  // Perform ONE-TIME sync when user is available
   useEffect(() => {
     console.log('🔄 useInitialSync useEffect:', { 
-      user: !!user, 
+      user: user?.email, 
       isComplete: syncStatus.isComplete, 
-      isLoading: syncStatus.isLoading 
+      isLoading: syncStatus.isLoading,
+      loading: loading,
+      syncStarted: syncStartedRef.current
     });
     
-    // Start sync immediately, don't wait for user
-    if (!syncStatus.isComplete && !syncStatus.isLoading) {
-      console.log('🔄 Triggering immediate sync');
+    // Check if ThingsBoard is already authenticated
+    const tbToken = localStorage.getItem('tb_access');
+    if (tbToken) {
+      console.log('🔄 ThingsBoard already authenticated, skipping sync');
+      setSyncStatus({
+        isComplete: true,
+        isLoading: false,
+        error: null,
+        syncedData: { targetCount: 0, roomCount: 0, sessionCount: 0 }
+      });
+      return;
+    }
+    
+    // Only start sync when user is available and not already syncing
+    if (user && !syncStatus.isComplete && !syncStatus.isLoading && !loading && !syncStartedRef.current) {
+      console.log('🔄 Triggering sync for user:', user.email);
+      syncStartedRef.current = true;
       performInitialSync();
     }
-  }, [syncStatus.isComplete, syncStatus.isLoading]);
+  }, [user, loading]); // Removed syncStatus dependencies to prevent infinite loop
 
   const performInitialSync = async () => {
-    console.log('🔄 Starting ONE-TIME sync on login for:', user?.email);
+    if (!user) {
+      console.log('🔄 No user available for sync');
+      return;
+    }
+    
+    console.log('🔄 Starting ONE-TIME sync on login for:', user.email);
     
     setSyncStatus({
       isComplete: false,
@@ -60,16 +89,24 @@ export const useInitialSync = () => {
       console.log('🔄 Fetching real data from ThingsBoard...');
       
       const { unifiedDataService } = await import('@/services/unified-data');
-      const thingsBoardData = await unifiedDataService.getThingsBoardData(user.email);
+      const thingsBoardData = await unifiedDataService.getThingsBoardData(user.id, user.email);
       
       // Store the synced targets in the rooms service
       const { supabaseRoomsService } = await import('@/services/supabase-rooms');
       supabaseRoomsService.setSyncedTargets(thingsBoardData?.targets || []);
       
-      console.log('✅ Real sync completed:', {
+      console.log('🔍 INITIAL SYNC - Real sync completed:', {
+        user: user.email,
         targets: thingsBoardData?.targets.length || 0,
         sessions: thingsBoardData?.sessions.length || 0,
-        userNotFound: thingsBoardData?.userNotFound
+        userNotFound: thingsBoardData?.userNotFound,
+        isConnected: thingsBoardData?.isConnected,
+        rawTargets: thingsBoardData?.targets.map(t => ({
+          name: t.name,
+          id: t.id?.id || t.id,
+          status: t.status,
+          type: t.type
+        }))
       });
       
       setSyncStatus({

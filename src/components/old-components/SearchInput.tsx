@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import UserSearchResult from './UserSearchResult';
 import { useFriends } from '@/store/useFriends';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/providers/AuthProvider';
 
 interface SearchInputProps {
   placeholder?: string;

@@ -7,6 +7,7 @@ import thingsBoardService from './thingsboard';
 import { supabaseRoomsService } from './supabase-rooms';
 import { fetchUserProfileData, fetchRecentSessions } from './profile';
 import { supabase } from '@/integrations/supabase/client';
+import { decryptPassword, hasThingsBoardCredentials } from './credentials';
 
 export interface ThingsBoardData {
   targets: any[];
@@ -32,23 +33,18 @@ export interface UnifiedData {
 }
 
 class UnifiedDataService {
-  // Map of user emails to their ThingsBoard passwords
-  private userPasswords: Record<string, string> = {
-    'andrew.tam@gmail.com': 'dryfire2025',
-    'd777914w@gmail.com': 'test12345'
-  };
-
   /**
-   * Get ThingsBoard data for a user
+   * Get ThingsBoard data for a user using stored credentials
    */
-  async getThingsBoardData(userEmail: string): Promise<ThingsBoardData | null> {
+  async getThingsBoardData(userId: string, userEmail: string): Promise<ThingsBoardData | null> {
     try {
-      console.log(`🔗 Attempting ThingsBoard connection for: ${userEmail}`);
+      console.log(`🔗 Attempting ThingsBoard connection for: ${userEmail} (${userId})`);
       
-      // Get the correct password for this user
-      const password = this.userPasswords[userEmail];
-      if (!password) {
-        console.log(`ℹ️ No ThingsBoard password configured for user: ${userEmail} - returning empty data`);
+      // Fetch ThingsBoard credentials from Supabase
+      const credentials = await this.getThingsBoardCredentials(userId);
+      
+      if (!credentials) {
+        console.log(`ℹ️ No ThingsBoard credentials configured for user: ${userEmail} - returning empty data`);
         return {
           targets: [],
           devices: [],
@@ -58,13 +54,30 @@ class UnifiedDataService {
         };
       }
       
-      // Clear any existing ThingsBoard authentication to ensure clean state
-      console.log(`🧹 Clearing existing ThingsBoard authentication for: ${userEmail}`);
-      await thingsBoardService.logout();
+      // Check if we already have a valid ThingsBoard token
+      const existingToken = localStorage.getItem('tb_access');
+      if (!existingToken) {
+        console.log(`🧹 No existing ThingsBoard token, will authenticate fresh for: ${userEmail}`);
+        // Try to authenticate with ThingsBoard using stored credentials
+        const auth = await thingsBoardService.login(credentials.email, credentials.password);
+        console.log(`✅ ThingsBoard connected for: ${userEmail} using stored credentials`);
+      } else {
+        console.log(`🔑 Existing ThingsBoard token found, will try to use it for: ${userEmail}`);
+        // Try to verify token is still valid by making a test call
+        try {
+          await thingsBoardService.getDevices(1, 0); // Fetch 1 device as validation
+          console.log(`✅ Existing token is valid, skipping re-authentication`);
+        } catch (error) {
+          console.log(`🔄 Cached token invalid, will re-authenticate: ${error.message}`);
+          await thingsBoardService.logout(); // Clear invalid token
+          // Try to authenticate with ThingsBoard using stored credentials
+          const auth = await thingsBoardService.login(credentials.email, credentials.password);
+          console.log(`✅ ThingsBoard connected for: ${userEmail} using stored credentials`);
+        }
+      }
       
-      // Try to authenticate with ThingsBoard using user's email and password
-      const auth = await thingsBoardService.login(userEmail, password);
-      console.log(`✅ ThingsBoard connected for: ${userEmail}`);
+      // Update last sync timestamp
+      await this.updateLastSyncTime(userId);
       
       // Fetch all ThingsBoard data
       const [targets, devices, sessions, stats] = await Promise.all([
@@ -99,6 +112,57 @@ class UnifiedDataService {
         isConnected: false,
         userNotFound: isUserNotFound
       };
+    }
+  }
+
+  /**
+   * Get ThingsBoard credentials from user profile
+   */
+  private async getThingsBoardCredentials(userId: string): Promise<{ email: string, password: string } | null> {
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('thingsboard_email, thingsboard_password_encrypted')
+        .eq('id', userId)
+        .single();
+        
+      if (error) {
+        console.error('Error fetching ThingsBoard credentials:', error);
+        return null;
+      }
+      
+      if (!hasThingsBoardCredentials(data.thingsboard_email, data.thingsboard_password_encrypted)) {
+        console.log('No ThingsBoard credentials found for user');
+        return null;
+      }
+      
+      // Decrypt password
+      const password = decryptPassword(data.thingsboard_password_encrypted);
+      
+      return {
+        email: data.thingsboard_email,
+        password: password
+      };
+    } catch (error) {
+      console.error('Error getting ThingsBoard credentials:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Update last sync timestamp for ThingsBoard
+   */
+  private async updateLastSyncTime(userId: string): Promise<void> {
+    try {
+      await supabase
+        .from('user_profiles')
+        .update({ 
+          thingsboard_last_sync: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+    } catch (error) {
+      console.error('Error updating last sync time:', error);
     }
   }
 
@@ -141,7 +205,7 @@ class UnifiedDataService {
     console.log(`🔄 Fetching unified data for user: ${userEmail} (${userId})`);
     
     const [thingsBoardData, supabaseData] = await Promise.all([
-      this.getThingsBoardData(userEmail),
+      this.getThingsBoardData(userId, userEmail),
       this.getSupabaseData(userId)
     ]);
 
@@ -165,21 +229,38 @@ class UnifiedDataService {
   private async fetchTargets(): Promise<any[]> {
     try {
       const { thingsBoardService } = await import('@/services/thingsboard');
-      const devices = await thingsBoardService.getDevices();
+      const devicesResponse = await thingsBoardService.getDevices();
+      const devices = devicesResponse.data || [];
       
-      // Filter to show legitimate target devices
-      return devices.filter((device: any) => {
-        const deviceName = device.name?.toLowerCase() || '';
-        const deviceType = device.type?.toLowerCase() || '';
-        
-        // Exclude test devices and system devices
-        return !deviceName.includes('test') && 
-               !deviceName.includes('system') &&
-               !deviceType.includes('test') &&
-               device.status === 'online';
+      console.log('🔍 FETCH TARGETS - Raw devices from ThingsBoard:', {
+        totalDevices: devices.length,
+        devices: devices.map(d => ({
+          name: d.name,
+          type: d.type,
+          status: d.status,
+          id: d.id?.id || d.id
+        }))
       });
+      
+      // Show all devices from ThingsBoard (no filtering)
+      console.log('🔍 FETCH TARGETS - All devices (no filtering):', {
+        totalDevices: devices.length,
+        devices: devices.map(d => ({
+          name: d.name,
+          type: d.type,
+          status: d.status,
+          id: d.id?.id || d.id
+        }))
+      });
+      
+      return devices;
     } catch (error) {
       console.error('Error fetching targets:', error);
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        response: error.response?.data
+      });
       return [];
     }
   }
@@ -190,7 +271,8 @@ class UnifiedDataService {
   private async fetchDevices(): Promise<any[]> {
     try {
       const { thingsBoardService } = await import('@/services/thingsboard');
-      return await thingsBoardService.getDevices();
+      const devicesResponse = await thingsBoardService.getDevices();
+      return devicesResponse.data || [];
     } catch (error) {
       console.error('Error fetching devices:', error);
       return [];

@@ -42,35 +42,57 @@ export const useTargets = create<TargetsState>((set) => ({
     set({ isLoading: true, error: null });
     try {
       const devices = await API.getTargets();
-      console.log('Raw devices from API:', devices);
+      console.log('🔍 useTargets.refresh - Raw devices from API:', {
+        count: devices.length,
+        devices: devices.map(d => ({
+          name: d.name,
+          id: d.id?.id || d.id,
+          status: d.status,
+          type: d.type,
+          roomId: d.roomId
+        }))
+      });
+      
+      const mappedTargets = devices.map((d: any) => ({
+        id: d.id?.id || d.id,
+        name: d.name,
+        status: d.status || 'online', // Default to online if not specified
+        battery: d.battery || 100, // Default battery level
+        roomId: d.roomId || null,
+        // Map telemetry data
+        telemetry: d.telemetry || {},
+        lastEvent: d.lastEvent || null,
+        lastGameId: d.lastGameId || null,
+        lastGameName: d.lastGameName || null,
+        lastHits: d.lastHits || null,
+        lastActivity: d.lastActivity || null,
+        deviceName: d.deviceName || d.name,
+        deviceType: d.deviceType || 'default',
+        createdTime: d.createdTime || null,
+        additionalInfo: d.additionalInfo || {},
+        // Map special properties for no data and error states
+        isNoDataMessage: d.isNoDataMessage || false,
+        isErrorMessage: d.isErrorMessage || false,
+        message: d.message || undefined,
+      }));
+      
+      console.log('🔍 useTargets.refresh - Mapped targets for store:', {
+        count: mappedTargets.length,
+        targets: mappedTargets.map(t => ({
+          name: t.name,
+          id: t.id,
+          status: t.status,
+          type: t.deviceType,
+          roomId: t.roomId
+        }))
+      });
       
       set({
-        targets: devices.map((d: any) => ({
-          id: d.id?.id || d.id,
-          name: d.name,
-          status: d.status || 'online', // Default to online if not specified
-          battery: d.battery || 100, // Default battery level
-          roomId: d.roomId || null,
-          // Map telemetry data
-          telemetry: d.telemetry || {},
-          lastEvent: d.lastEvent || null,
-          lastGameId: d.lastGameId || null,
-          lastGameName: d.lastGameName || null,
-          lastHits: d.lastHits || null,
-          lastActivity: d.lastActivity || null,
-          deviceName: d.deviceName || d.name,
-          deviceType: d.deviceType || 'default',
-          createdTime: d.createdTime || null,
-          additionalInfo: d.additionalInfo || {},
-          // Map special properties for no data and error states
-          isNoDataMessage: d.isNoDataMessage || false,
-          isErrorMessage: d.isErrorMessage || false,
-          message: d.message || undefined,
-        })),
+        targets: mappedTargets,
         isLoading: false,
       });
     } catch (err) {
-      console.error('Error in useTargets refresh:', err);
+      console.error('🔍 useTargets.refresh - Error:', err);
       set({ error: err as Error, isLoading: false });
     }
   },

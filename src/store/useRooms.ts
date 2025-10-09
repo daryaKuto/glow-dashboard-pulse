@@ -26,6 +26,7 @@ interface RoomsState {
   getRoomTargets: (roomId: string) => Promise<any[]>;
   getUnassignedTargets: () => Promise<any[]>;
   getAllTargetsWithAssignments: () => Promise<any[]>;
+  updateRoomTargetCount: (roomId: string) => Promise<void>;
 }
 
 export const useRooms = create<RoomsState>((set, get) => ({
@@ -36,36 +37,19 @@ export const useRooms = create<RoomsState>((set, get) => ({
   fetchRooms: async () => {
     set({ isLoading: true, error: null });
     try {
-      console.log('🔄 useRooms: Fetching rooms from Supabase...');
-      const userRooms = await supabaseRoomsService.getUserRooms();
-      console.log('✅ useRooms: Fetched rooms:', userRooms.length);
+      console.log('🔄 useRooms: Fetching rooms with target counts from Supabase...');
+      const userRooms = await supabaseRoomsService.getRoomsWithTargetCounts();
+      console.log('✅ useRooms: Fetched rooms with counts:', userRooms.length);
       
-      // Get target counts from Supabase assignments for each room
-      const rooms: Room[] = await Promise.all(
-        userRooms.map(async (room) => {
-          try {
-            const roomTargets = await supabaseRoomsService.getRoomTargets(room.id);
-            return {
-              id: room.id,
-              name: room.name,
-              order: room.order_index,
-              targetCount: roomTargets.length, // Use actual count from Supabase
-              icon: room.icon,
-              room_type: room.room_type
-            };
-          } catch (error) {
-            console.error(`Error getting target count for room ${room.id}:`, error);
-            return {
-              id: room.id,
-              name: room.name,
-              order: room.order_index,
-              targetCount: 0, // Fallback to 0 if error
-              icon: room.icon,
-              room_type: room.room_type
-            };
-          }
-        })
-      );
+      // Transform to Room format
+      const rooms: Room[] = userRooms.map(room => ({
+        id: room.id,
+        name: room.name,
+        order: room.order_index,
+        targetCount: room.target_count || 0, // Use pre-calculated count
+        icon: room.icon,
+        room_type: room.room_type
+      }));
       
       set({ rooms, isLoading: false, error: null });
       console.log('✅ useRooms: Rooms loaded successfully:', rooms.length);
@@ -222,6 +206,25 @@ export const useRooms = create<RoomsState>((set, get) => ({
     } catch (error) {
       console.error('Error fetching targets with assignments:', error);
       return [];
+    }
+  },
+
+  // Update target count for a specific room (optimized)
+  updateRoomTargetCount: async (roomId: string) => {
+    try {
+      const roomTargets = await supabaseRoomsService.getRoomTargets(roomId);
+      const newCount = roomTargets.length;
+      
+      // Update the room in state with new target count
+      set(state => ({
+        rooms: state.rooms.map(room => 
+          room.id === roomId ? { ...room, targetCount: newCount } : room
+        )
+      }));
+      
+      console.log(`✅ Updated target count for room ${roomId}: ${newCount}`);
+    } catch (error) {
+      console.error(`Error updating target count for room ${roomId}:`, error);
     }
   }
 }));

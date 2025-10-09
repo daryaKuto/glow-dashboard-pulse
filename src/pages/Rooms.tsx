@@ -34,7 +34,8 @@ const Rooms: React.FC = () => {
     deleteRoom,
     updateRoomOrder,
     assignTargetToRoom,
-    getAllTargetsWithAssignments
+    getAllTargetsWithAssignments,
+    updateRoomTargetCount
   } = useRooms();
   const { targets, refresh: refreshTargets } = useTargets();
   
@@ -50,6 +51,7 @@ const Rooms: React.FC = () => {
   const [roomTargets, setRoomTargets] = useState<any[]>([]);
   const [targetsWithAssignments, setTargetsWithAssignments] = useState<any[]>([]);
   const [pendingAssignments, setPendingAssignments] = useState<Map<string, string | null>>(new Map()); // targetId -> roomId
+  const [targetsLoading, setTargetsLoading] = useState(false);
   
   // Use demo or live rooms based on mode
   const rooms = isDemoMode ? demoRooms : liveRooms;
@@ -80,6 +82,7 @@ const Rooms: React.FC = () => {
 
   // Function to refresh targets with assignments
   const refreshTargetsWithAssignments = async () => {
+    setTargetsLoading(true);
     try {
       console.log(`🔄 Refreshing targets with assignments (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
       
@@ -100,6 +103,8 @@ const Rooms: React.FC = () => {
       console.error('❌ Error refreshing targets with assignments:', error);
       setTargetsWithAssignments([]);
       return [];
+    } finally {
+      setTargetsLoading(false);
     }
   };
 
@@ -138,26 +143,28 @@ const Rooms: React.FC = () => {
           setDemoRooms([]);
         }
       } else {
-        // Live mode: fetch real data
+        // Live mode: fetch real data in parallel for better performance
         try {
-          console.log('🔄 Fetching rooms from Supabase...');
-          await fetchRooms();
-          console.log('✅ Rooms fetched successfully');
+          console.log('🔄 Fetching rooms and targets in parallel...');
+          
+          // Fetch rooms and targets simultaneously
+          await Promise.all([
+            fetchRooms().then(() => console.log('✅ Rooms fetched successfully')),
+            refreshTargets().then(() => console.log('✅ Targets refreshed successfully'))
+          ]);
+          
+          // Then fetch targets with assignments (this will use the cached targets)
+          await refreshTargetsWithAssignments();
         } catch (error) {
-          console.error('❌ Error fetching rooms:', error);
-        }
-
-        try {
-          console.log('🔄 Refreshing targets from ThingsBoard...');
-          await refreshTargets();
-          console.log('✅ Targets refreshed successfully');
-        } catch (error) {
-          console.error('❌ Error refreshing targets:', error);
+          console.error('❌ Error fetching data:', error);
+          // Still try to fetch assignments even if other calls failed
+          try {
+            await refreshTargetsWithAssignments();
+          } catch (assignError) {
+            console.error('❌ Error fetching assignments:', assignError);
+          }
         }
       }
-      
-      // Fetch targets with proper room assignments (works for both modes)
-      await refreshTargetsWithAssignments();
     };
     
     fetchData();
@@ -284,18 +291,31 @@ const Rooms: React.FC = () => {
     console.log(`💾 Saving pending assignments (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`, Array.from(pendingAssignments.entries()));
     
     try {
+      // Track which rooms need target count updates
+      const affectedRooms = new Set<string>();
+      
       // Save all pending assignments
       for (const [targetId, roomId] of pendingAssignments.entries()) {
         console.log(`🔄 Saving: ${targetId} → ${roomId || 'unassigned'}`);
         await apiWrapper.assignTargetToRoom(isDemoMode, targetId, roomId);
+        
+        // Track affected rooms for targeted updates
+        if (roomId) {
+          affectedRooms.add(roomId);
+        }
       }
       
       // Clear pending assignments
       setPendingAssignments(new Map());
       
-      // Smooth refresh - use startTransition to prevent jerkiness
+      // Refresh targets and update specific room counts (optimized)
       startTransition(async () => {
         await refreshTargetsWithAssignments();
+        
+        // Update target counts for affected rooms only
+        for (const roomId of affectedRooms) {
+          await updateRoomTargetCount(roomId);
+        }
       });
       
       console.log('✅ All pending assignments saved');
@@ -333,9 +353,12 @@ const Rooms: React.FC = () => {
   // Debug logging
   console.log('🔍 Rooms page debug:');
   console.log('  - targetsWithAssignments:', targetsWithAssignments.length);
+  console.log('  - Targets with roomId:', targetsWithAssignments.filter(t => t.roomId).length);
+  console.log('  - Targets without roomId:', targetsWithAssignments.filter(t => !t.roomId).length);
   console.log('  - unassignedTargets:', unassignedTargets.length);
   console.log('  - rooms:', rooms.length);
   console.log('  - roomForDetails:', roomForDetails?.id);
+  console.log('  - Sample target:', targetsWithAssignments[0]);
   if (roomForDetails) {
     console.log('  - targets for current room:', targetsWithAssignments.filter(t => t.roomId === roomForDetails.id).length);
   }
@@ -388,35 +411,52 @@ const Rooms: React.FC = () => {
             
             {/* Stats Overview - Mobile Optimized */}
             <div className="responsive-grid grid-cols-3 mb-6">
-              <div className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200">
-                <div className="flex flex-col items-center text-center">
-                  <div className="p-2 bg-brand-secondary/10 rounded-lg mb-2">
-                    <Users className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
+              {isLoading || targetsLoading ? (
+                // Loading skeleton for stats cards
+                <>
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200 animate-pulse">
+                      <div className="flex flex-col items-center text-center">
+                        <div className="p-2 bg-gray-200 rounded-lg mb-2 w-8 h-8 md:w-10 md:h-10"></div>
+                        <div className="h-3 w-12 bg-gray-200 rounded mb-1"></div>
+                        <div className="h-6 w-8 bg-gray-200 rounded"></div>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <div className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="p-2 bg-brand-secondary/10 rounded-lg mb-2">
+                        <Users className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
+                      </div>
+                      <p className="text-xs md:text-sm text-brand-dark/70 font-body">Rooms</p>
+                      <p className="text-lg md:text-h2 font-heading text-brand-dark">{rooms.length}</p>
+                    </div>
                   </div>
-                  <p className="text-xs md:text-sm text-brand-dark/70 font-body">Rooms</p>
-                  <p className="text-lg md:text-h2 font-heading text-brand-dark">{rooms.length}</p>
-                </div>
-              </div>
-              
-              <div className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200">
-                <div className="flex flex-col items-center text-center">
-                  <div className="p-2 bg-brand-secondary/10 rounded-lg mb-2">
-                    <Target className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
+                  
+                  <div className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="p-2 bg-brand-secondary/10 rounded-lg mb-2">
+                        <Target className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
+                      </div>
+                      <p className="text-xs md:text-sm text-brand-dark/70 font-body">Targets</p>
+                      <p className="text-lg md:text-h2 font-heading text-brand-dark">{targetsWithAssignments.length}</p>
+                    </div>
                   </div>
-                  <p className="text-xs md:text-sm text-brand-dark/70 font-body">Targets</p>
-                  <p className="text-lg md:text-h2 font-heading text-brand-dark">{targetsWithAssignments.length}</p>
-                </div>
-              </div>
-              
-              <div className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200">
-                <div className="flex flex-col items-center text-center">
-                  <div className="p-2 bg-brand-secondary/10 rounded-lg mb-2">
-                    <Target className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
+                  
+                  <div className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="p-2 bg-brand-secondary/10 rounded-lg mb-2">
+                        <Target className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
+                      </div>
+                      <p className="text-xs md:text-sm text-brand-dark/70 font-body">Unassigned</p>
+                      <p className="text-lg md:text-h2 font-heading text-brand-dark">{unassignedTargets.length}</p>
+                    </div>
                   </div>
-                  <p className="text-xs md:text-sm text-brand-dark/70 font-body">Unassigned</p>
-                  <p className="text-lg md:text-h2 font-heading text-brand-dark">{unassignedTargets.length}</p>
-                </div>
-              </div>
+                </>
+              )}
             </div>
             
             <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -433,7 +473,47 @@ const Rooms: React.FC = () => {
             </div>
             
             {isLoading ? (
-              <div className="text-center py-8 text-brand-dark font-body">Loading rooms...</div>
+              <div className="space-y-4">
+                {/* Loading skeleton for rooms */}
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="bg-white border border-gray-200 rounded-lg p-4 animate-pulse">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-gray-200 rounded-lg"></div>
+                        <div className="space-y-2">
+                          <div className="h-4 w-32 bg-gray-200 rounded"></div>
+                          <div className="h-3 w-20 bg-gray-200 rounded"></div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="h-6 w-16 bg-gray-200 rounded"></div>
+                        <div className="h-8 w-8 bg-gray-200 rounded"></div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                
+                {/* Loading skeleton for targets */}
+                <div className="mt-6">
+                  <div className="h-4 w-48 bg-gray-200 rounded mb-4 animate-pulse"></div>
+                  <div className="space-y-3">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i} className="bg-white border border-gray-200 rounded-lg p-3 animate-pulse">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-6 h-6 bg-gray-200 rounded"></div>
+                            <div className="space-y-1">
+                              <div className="h-3 w-24 bg-gray-200 rounded"></div>
+                              <div className="h-2 w-16 bg-gray-200 rounded"></div>
+                            </div>
+                          </div>
+                          <div className="h-6 w-20 bg-gray-200 rounded"></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             ) : rooms.length === 0 ? (
               <div className="text-center py-8">
                 <div className="bg-white rounded-lg p-8 mx-auto max-w-md shadow-sm border border-gray-200">
@@ -583,7 +663,24 @@ const Rooms: React.FC = () => {
                   <h3 className="text-base sm:text-lg font-heading text-brand-dark">Assigned Targets</h3>
                 </div>
                 
-                {(() => {
+                {targetsLoading ? (
+                  <div className="space-y-3">
+                    {[...Array(3)].map((_, i) => (
+                      <div key={i} className="bg-white border border-gray-200 rounded-lg p-3 animate-pulse">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-6 h-6 bg-gray-200 rounded"></div>
+                            <div className="space-y-1">
+                              <div className="h-3 w-24 bg-gray-200 rounded"></div>
+                              <div className="h-2 w-16 bg-gray-200 rounded"></div>
+                            </div>
+                          </div>
+                          <div className="h-6 w-20 bg-gray-200 rounded"></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (() => {
                   const roomTargets = getRoomTargets(roomForDetails.id);
                   
                   return roomTargets.length === 0 ? (
@@ -648,7 +745,34 @@ const Rooms: React.FC = () => {
               </div>
 
               {/* Available Targets to Assign */}
-              {unassignedTargets.length > 0 && (
+              {targetsLoading ? (
+                <div>
+                  <div className="flex items-center justify-between mb-2 sm:mb-4">
+                    <h3 className="text-xs sm:text-sm font-heading text-brand-dark">Available Targets to Assign</h3>
+                    <div className="flex items-center gap-2">
+                      <div className="h-6 w-12 bg-gray-200 rounded animate-pulse"></div>
+                      <div className="h-6 w-16 bg-gray-200 rounded animate-pulse"></div>
+                    </div>
+                  </div>
+                  <div className="space-y-2 sm:space-y-3 max-h-60 sm:max-h-80 overflow-y-auto">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i} className="bg-brand-secondary/5 border border-gray-200 rounded-lg p-3 animate-pulse">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-4 h-4 bg-gray-200 rounded"></div>
+                            <div className="w-6 h-6 bg-gray-200 rounded"></div>
+                            <div className="space-y-1">
+                              <div className="h-3 w-24 bg-gray-200 rounded"></div>
+                              <div className="h-2 w-16 bg-gray-200 rounded"></div>
+                            </div>
+                          </div>
+                          <div className="h-6 w-16 bg-gray-200 rounded"></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : unassignedTargets.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-2 sm:mb-4">
                     <h3 className="text-xs sm:text-sm font-heading text-brand-dark">Available Targets to Assign</h3>

@@ -256,6 +256,14 @@ const Targets: React.FC = () => {
   const [targets, setTargets] = useState<Target[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   
+  // Data caching for performance optimization
+  const [dataCache, setDataCache] = useState<{
+    targets: Target[];
+    fetchTime: number;
+  } | null>(null);
+  
+  const CACHE_DURATION = 30000; // 30 seconds
+  
   // Use demo or live rooms based on mode
   const rooms = isDemoMode ? demoRooms : liveRooms;
   const [searchTerm, setSearchTerm] = useState('');
@@ -270,8 +278,15 @@ const Targets: React.FC = () => {
   const roomIdParam = params.get('roomId');
   const roomId = roomIdParam ? Number(roomIdParam) : undefined;
 
-  // Fetch targets with room assignments
+  // Fetch targets with room assignments (optimized with caching)
   const fetchTargetsWithAssignments = useCallback(async () => {
+    // Check cache first
+    if (dataCache && Date.now() - dataCache.fetchTime < CACHE_DURATION) {
+      console.log('✅ Using cached targets data');
+      setTargets(dataCache.targets);
+      return;
+    }
+
     setIsLoading(true);
     try {
       console.log(`🔄 Targets page: Fetching targets (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
@@ -280,11 +295,13 @@ const Targets: React.FC = () => {
         // Demo mode: use mock targets
         const mockTargets = await apiWrapper.getTargets(true);
         setTargets(mockTargets);
+        setDataCache({ targets: mockTargets, fetchTime: Date.now() });
         console.log('✅ DEMO: Loaded mock targets:', mockTargets.length);
       } else {
         // Live mode: use real targets with assignments
         const targetsWithAssignments = await getAllTargetsWithAssignments();
         setTargets(targetsWithAssignments);
+        setDataCache({ targets: targetsWithAssignments, fetchTime: Date.now() });
         console.log('✅ LIVE: Loaded real targets:', targetsWithAssignments.length);
       }
     } catch (error) {
@@ -293,16 +310,22 @@ const Targets: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [isDemoMode, getAllTargetsWithAssignments]);
+  }, [isDemoMode, getAllTargetsWithAssignments, dataCache]);
 
-  // Smart polling system for targets data
+  // Smart polling system for targets data (optimized with parallel fetching)
   const fetchTargetsData = useCallback(async () => {
+    console.log('🔄 Setting loading to true');
+    setIsLoading(true);
     try {
       console.log(`🔄 Polling targets data (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
       
       if (isDemoMode) {
-        // Demo mode: fetch mock rooms and targets
-        const mockRooms = await apiWrapper.getRooms(true);
+        // Demo mode: fetch in parallel
+        const [mockRooms, mockTargets] = await Promise.all([
+          apiWrapper.getRooms(true),
+          apiWrapper.getTargets(true)
+        ]);
+        
         const transformedRooms = mockRooms.map((room) => ({
           id: room.id,
           name: room.name,
@@ -311,24 +334,37 @@ const Targets: React.FC = () => {
           icon: room.icon,
           room_type: room.room_type
         }));
-        setDemoRooms(transformedRooms);
         
-        await fetchTargetsWithAssignments();
+        setDemoRooms(transformedRooms);
+        setTargets(mockTargets);
+        setDataCache({ targets: mockTargets, fetchTime: Date.now() });
+        console.log('✅ DEMO: Set targets and cache:', mockTargets.length, 'targets');
       } else {
-        // Live mode: fetch both rooms and targets
-        await Promise.all([
+        // Live mode: fetch in parallel with proper error handling
+        const [, targetsData] = await Promise.all([
           fetchRooms(),
-          fetchTargetsWithAssignments()
+          getAllTargetsWithAssignments()
         ]);
+        
+        setTargets(targetsData);
+        setDataCache({ targets: targetsData, fetchTime: Date.now() });
+        console.log('✅ LIVE: Set targets and cache:', targetsData.length, 'targets');
       }
     } catch (error) {
       console.error('Error fetching targets data:', error);
+      setTargets([]);
+    } finally {
+      console.log('🔄 Setting loading to false');
+      setIsLoading(false);
     }
-  }, [isDemoMode, fetchRooms, fetchTargetsWithAssignments]);
+  }, [isDemoMode, fetchRooms, getAllTargetsWithAssignments]);
 
-  // Comprehensive refresh function for manual refresh button
+  // Comprehensive refresh function for manual refresh button (optimized)
   const comprehensiveRefresh = useCallback(async () => {
-    console.log(`🔄 Targets: Starting comprehensive refresh (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+    console.log(`🔄 Targets: Starting comprehensive refresh...`);
+    
+    // Invalidate cache
+    setDataCache(null);
     
     try {
       if (isDemoMode) {
@@ -336,29 +372,20 @@ const Targets: React.FC = () => {
         console.log('🎭 DEMO: Refreshing mock data...');
         await fetchTargetsWithAssignments();
       } else {
-        // Live mode: full sync
-        // 1. Sync with ThingsBoard (targets and sessions)
-        console.log('🔄 Syncing with ThingsBoard...');
-        await forceThingsBoardSync();
+        // Live mode: parallel execution for faster refresh
+        await Promise.all([
+          forceThingsBoardSync(),
+          fetchRooms()
+        ]);
         
-        // 2. Refresh Supabase rooms
-        console.log('🔄 Refreshing Supabase rooms...');
-        await fetchRooms();
-        
-        // 3. Refresh targets data
-        console.log('🔄 Refreshing targets data...');
         await fetchTargetsData();
       }
       
       console.log('✅ Targets: Comprehensive refresh completed');
     } catch (error) {
       console.error('❌ Targets: Error during comprehensive refresh:', error);
-      // Still try to refresh basic data even if sync fails
-      try {
-        await fetchTargetsData();
-      } catch (fallbackError) {
-        console.error('❌ Targets: Fallback refresh also failed:', fallbackError);
-      }
+      // Fallback to basic refresh
+      await fetchTargetsData();
     }
   }, [isDemoMode, forceThingsBoardSync, fetchRooms, fetchTargetsData, fetchTargetsWithAssignments]);
 
@@ -384,21 +411,36 @@ const Targets: React.FC = () => {
     }
   );
 
-  // Initial data fetch - refetch when demo mode changes and clear old data
+  // Handle cache updates
   useEffect(() => {
-    console.log(`🔄 Targets: Mode changed to ${isDemoMode ? 'DEMO' : 'LIVE'}, clearing old data...`);
+    if (dataCache && dataCache.targets.length > 0) {
+      console.log('✅ Cache updated, setting targets:', dataCache.targets.length);
+      setTargets(dataCache.targets);
+      setIsLoading(false);
+    }
+  }, [dataCache]);
+
+  // Initial data fetch - optimized with cache checking
+  useEffect(() => {
+    // Skip if data is fresh
+    if (dataCache && Date.now() - dataCache.fetchTime < CACHE_DURATION) {
+      console.log('✅ Using cached data on mount');
+      setTargets(dataCache.targets);
+      setIsLoading(false);
+      return;
+    }
+
+    console.log(`🔄 Targets: Mode changed to ${isDemoMode ? 'DEMO' : 'LIVE'}, fetching data...`);
     
-    // Clear all data when switching modes to prevent leakage
+    // Clear old data and set loading state
     setTargets([]);
     setDemoRooms([]);
-    setIsLoading(false);
+    setIsLoading(true);
     
-    console.log(`🧹 Targets: Cleared old data. Fetching ${isDemoMode ? 'MOCK' : 'REAL'} data...`);
-    
-    // Fetch new data for the current mode
+    // Fetch new data
     fetchTargetsData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDemoMode]);
+  }, [isDemoMode]); // Remove dataCache from deps to prevent infinite loop
 
   // Handle refresh
   const handleRefresh = async () => {
@@ -422,12 +464,23 @@ const Targets: React.FC = () => {
   });
 
 
-  // Debug: Log the actual assignments
+  // Debug: Log the actual assignments and check for duplicates
   console.log('🔍 Debugging room assignments:');
-  console.log('📋 All targets with roomId:', targets.map(t => ({ name: t.name, roomId: t.roomId, roomIdType: typeof t.roomId })));
+  console.log('📋 All targets with roomId:', targets.map(t => ({ name: t.name, id: t.id, roomId: t.roomId, roomIdType: typeof t.roomId })));
   console.log('🏠 Available rooms:', rooms.map(r => ({ id: r.id, name: r.name, idType: typeof r.id })));
   
-  // Debug: Check specific target
+  // Check for duplicates in the raw targets data
+  const targetIds = targets.map(t => t.id);
+  const duplicateIds = targetIds.filter((id, index) => targetIds.indexOf(id) !== index);
+  if (duplicateIds.length > 0) {
+    console.warn('🚨 Duplicate target IDs found in raw data:', duplicateIds);
+    duplicateIds.forEach(dupId => {
+      const duplicates = targets.filter(t => t.id === dupId);
+      console.log(`   ID ${dupId}:`, duplicates.map(t => ({ name: t.name, roomId: t.roomId })));
+    });
+  }
+  
+  // Debug: Check specific targets
   const dryfire4 = targets.find(t => t.name === 'Dryfire-4');
   if (dryfire4) {
     console.log('🔍 Dryfire-4 details:', {
@@ -438,9 +491,43 @@ const Targets: React.FC = () => {
       allKeys: Object.keys(dryfire4)
     });
   }
+  
+  // Debug: Check for Game manager targets specifically
+  const gameManagers = targets.filter(t => t.name === 'Game manager');
+  if (gameManagers.length > 0) {
+    console.log(`🔍 Found ${gameManagers.length} Game manager targets:`, gameManagers.map((gm, i) => ({
+      index: i,
+      id: gm.id,
+      name: gm.name,
+      roomId: gm.roomId,
+      status: gm.status
+    })));
+  }
+
+  // Deduplicate targets by ID before grouping
+  const uniqueTargets = filteredTargets.reduce((acc: Target[], target) => {
+    const existingIndex = acc.findIndex(t => t.id === target.id);
+    if (existingIndex === -1) {
+      acc.push(target);
+    } else {
+      console.warn(`⚠️ Duplicate target found: ${target.name} (ID: ${target.id})`);
+      // Keep the one with more complete data (has roomId or more properties)
+      const existing = acc[existingIndex];
+      if (target.roomId && !existing.roomId) {
+        acc[existingIndex] = target; // Replace with the one that has roomId
+        console.log(`   → Replaced with version that has roomId: ${target.roomId}`);
+      } else if (Object.keys(target).length > Object.keys(existing).length) {
+        acc[existingIndex] = target; // Replace with more complete data
+        console.log(`   → Replaced with more complete version`);
+      }
+    }
+    return acc;
+  }, []);
+
+  console.log(`🔍 Deduplication: ${filteredTargets.length} → ${uniqueTargets.length} targets`);
 
   // Group targets by room
-  const groupedTargets = filteredTargets.reduce((groups: Record<string, Target[]>, target) => {
+  const groupedTargets = uniqueTargets.reduce((groups: Record<string, Target[]>, target) => {
     const roomId = target.roomId || 'unassigned';
     if (!groups[roomId]) {
       groups[roomId] = [];
@@ -468,6 +555,14 @@ const Targets: React.FC = () => {
     targets: groupedTargets[roomId].map((t: Target) => ({ name: t.name, roomId: t.roomId }))
   })));
   
+  console.log('🔍 Current state:', {
+    isLoading,
+    targetsCount: targets.length,
+    roomsCount: rooms.length,
+    hasDataCache: !!dataCache,
+    cacheTargetsCount: dataCache?.targets?.length || 0
+  });
+  
   // Debug: Check what's in each group
   Object.entries(sortedGroupedTargets).forEach(([roomId, targets]) => {
     console.log(`📊 Sorted Group "${roomId}":`, targets.map((t: Target) => ({ name: t.name, roomId: t.roomId })));
@@ -494,22 +589,7 @@ const Targets: React.FC = () => {
     setIsAddDialogOpen(false);
   };
 
-  if (isLoading && targets.length === 0) {
-    return (
-      <div className="min-h-screen flex flex-col bg-brand-light">
-        <Header />
-        <div className="flex flex-1">
-          {!isMobile && <Sidebar />}
-          <main className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-primary mx-auto mb-4"></div>
-              <p className="text-brand-dark/70 font-body">Loading targets...</p>
-            </div>
-          </main>
-        </div>
-      </div>
-    );
-  }
+  // Remove simple loading spinner - use inline conditional rendering instead
 
   return (
     <div className="min-h-screen flex flex-col bg-brand-light">
@@ -610,38 +690,123 @@ const Targets: React.FC = () => {
             </div>
 
             {/* Stats Summary */}
-            <TargetsSummary targets={targets} rooms={rooms} />
+            {isLoading ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 mb-3 md:mb-6">
+                {[...Array(4)].map((_, i) => (
+                  <Card key={i} className="bg-white border-gray-200 shadow-sm rounded-sm md:rounded-lg animate-pulse">
+                    <CardContent className="p-2 md:p-4 text-center">
+                      <div className="h-6 md:h-8 w-12 md:w-16 bg-gray-200 rounded mx-auto mb-2"></div>
+                      <div className="h-3 md:h-4 w-16 md:w-20 bg-gray-200 rounded mx-auto"></div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <TargetsSummary targets={targets} rooms={rooms} />
+            )}
 
             {/* Search and Filters */}
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-brand-dark/50" />
-                <Input
-                  placeholder="Search targets..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 bg-white border-gray-200 text-brand-dark placeholder:text-brand-dark/50"
-                />
+            {isLoading ? (
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex-1 h-10 bg-gray-200 rounded animate-pulse"></div>
+                <div className="w-full md:w-48 h-10 bg-gray-200 rounded animate-pulse"></div>
               </div>
-              
-              <Select value={roomFilter} onValueChange={setRoomFilter}>
-                <SelectTrigger className="w-full md:w-48 bg-white border-gray-200 text-brand-dark">
-                  <SelectValue placeholder="Filter by room" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Rooms</SelectItem>
-                  <SelectItem value="unassigned">Unassigned</SelectItem>
-                  {rooms.map(room => (
-                    <SelectItem key={room.id} value={room.id.toString()}>
-                      {room.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            ) : (
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-brand-dark/50" />
+                  <Input
+                    placeholder="Search targets..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10 bg-white border-gray-200 text-brand-dark placeholder:text-brand-dark/50"
+                  />
+                </div>
+                
+                <Select value={roomFilter} onValueChange={setRoomFilter}>
+                  <SelectTrigger className="w-full md:w-48 bg-white border-gray-200 text-brand-dark">
+                    <SelectValue placeholder="Filter by room" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Rooms</SelectItem>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {rooms.map(room => (
+                      <SelectItem key={room.id} value={room.id.toString()}>
+                        {room.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {/* Targets Grid */}
-            {Object.keys(groupedTargets).length === 0 ? (
+            {isLoading ? (
+              <div className="space-y-8">
+                {/* Skeleton for 2 room sections */}
+                {[...Array(2)].map((_, sectionIndex) => (
+                  <div key={sectionIndex}>
+                    {/* Room section header skeleton */}
+                    <div className="flex items-center gap-2 mb-2 md:mb-4">
+                      <div className="h-5 md:h-6 w-32 md:w-40 bg-gray-200 rounded animate-pulse"></div>
+                      <div className="h-6 w-16 bg-gray-200 rounded-full animate-pulse"></div>
+                    </div>
+                    
+                    {/* Target cards skeleton - 3 cards per row */}
+                    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
+                      {[...Array(3)].map((_, cardIndex) => (
+                        <Card key={cardIndex} className="bg-white border-gray-200 shadow-sm rounded-sm md:rounded-lg animate-pulse">
+                          <CardContent className="p-2 md:p-6">
+                            {/* Target name with status dot */}
+                            <div className="flex items-center justify-between mb-2 md:mb-4">
+                              <div className="flex-1 flex flex-col items-center">
+                                <div className="flex items-center gap-1 md:gap-2 mb-1">
+                                  <div className="w-2 h-2 md:w-4 md:h-4 rounded-full bg-gray-200"></div>
+                                  <div className="h-3 md:h-4 w-24 md:w-32 bg-gray-200 rounded"></div>
+                                </div>
+                              </div>
+                              <div className="h-5 w-5 md:h-8 md:w-8 bg-gray-200 rounded"></div>
+                            </div>
+
+                            <div className="space-y-1 md:space-y-3">
+                              {/* Status indicators */}
+                              <div className="flex items-center justify-center gap-2 md:gap-4">
+                                <div className="h-3 md:h-4 w-20 md:w-24 bg-gray-200 rounded"></div>
+                                <div className="h-3 md:h-4 w-16 md:w-20 bg-gray-200 rounded"></div>
+                              </div>
+
+                              {/* Room and activity */}
+                              <div className="flex justify-center gap-4">
+                                <div className="h-3 md:h-4 w-16 md:w-20 bg-gray-200 rounded"></div>
+                                <div className="h-3 md:h-4 w-16 md:w-20 bg-gray-200 rounded"></div>
+                              </div>
+
+                              {/* Stats section */}
+                              <div className="space-y-1 md:space-y-2 pt-1 md:pt-2 border-t border-gray-100">
+                                <div className="text-center">
+                                  <div className="h-6 md:h-8 w-12 bg-gray-200 rounded mx-auto mb-1"></div>
+                                  <div className="h-3 w-20 md:w-28 bg-gray-200 rounded mx-auto"></div>
+                                </div>
+                                
+                                <div className="text-center pt-0.5 md:pt-2">
+                                  <div className="h-3 w-32 md:w-40 bg-gray-200 rounded mx-auto"></div>
+                                </div>
+                              </div>
+
+                              {/* Status badges */}
+                              <div className="pt-1 md:pt-2 flex justify-center gap-1 md:gap-2">
+                                <div className="h-5 w-14 md:w-16 bg-gray-200 rounded"></div>
+                                <div className="h-5 w-14 md:w-16 bg-gray-200 rounded"></div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : Object.keys(groupedTargets).length === 0 ? (
               <Card className="bg-white border-gray-200 shadow-sm">
                 <CardContent className="p-12 text-center">
                   <div className="text-brand-dark/50 mb-4">

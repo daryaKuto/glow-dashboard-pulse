@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { tbSupabaseSync } from '@/services/thingsboard-supabase-sync';
-import { useAuth } from '@/store/useAuth';
+import { useAuth } from '@/providers/AuthProvider';
 
 export interface SyncStatus {
   isLoading: boolean;

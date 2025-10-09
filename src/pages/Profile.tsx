@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/providers/AuthProvider';
 import { useDemoMode } from '@/providers/DemoModeProvider';
 import { apiWrapper } from '@/services/api-wrapper';
 import { useRooms } from '@/store/useRooms';
@@ -49,7 +49,7 @@ import {
   Award
 } from 'lucide-react';
 import type { UserPreferences, TargetPreferences } from '@/store/useUserPrefs';
-import { getDeviceWifiCredentials } from '@/services/thingsboard';
+import { getWifiCredentials } from '@/services/profile';
 
 const Profile: React.FC = () => {
   const isMobile = useIsMobile();
@@ -124,10 +124,10 @@ const Profile: React.FC = () => {
   const [wifiError, setWifiError] = useState<string | null>(null);
   const [wifiFetched, setWifiFetched] = useState(false); // Track if WiFi has been fetched
 
-  // Fetch WiFi credentials from ThingsBoard
+  // Fetch WiFi credentials from Supabase (synced from ThingsBoard on login)
   const fetchWifiCredentials = useCallback(async () => {
-    if (rooms.length === 0) {
-      setWifiError('No rooms available. Please ensure you have access to at least one room.');
+    if (!authUser?.id) {
+      setWifiError('No authenticated user found.');
       return;
     }
     
@@ -135,74 +135,26 @@ const Profile: React.FC = () => {
     setWifiError(null);
     
     try {
-      console.log('Attempting to fetch WiFi credentials from ThingsBoard...');
+      console.log('Fetching WiFi credentials from Supabase for user:', authUser.id);
       
-      // Check ThingsBoard authentication first
-      const tbToken = localStorage.getItem('tb_access');
-      if (!tbToken) {
-        setWifiError('Not authenticated with ThingsBoard. Please refresh the page to re-authenticate.');
-        return;
-      }
+      const wifiCredentials = await getWifiCredentials(authUser.id);
       
-      // Get all devices from ThingsBoard to find WiFi credentials
-      const { listDevices } = await import('@/services/thingsboard');
-      const devices = await listDevices();
-      
-      console.log('Available devices:', devices.map(d => ({ id: d.id?.id || d.id, name: d.name })));
-      
-      if (!devices || devices.length === 0) {
-        setWifiError('No devices found in ThingsBoard. Please ensure devices are properly registered.');
-        return;
-      }
-      
-      // Try to get WiFi credentials from devices
-      let credentialsFound = false;
-      let lastError = null;
-      
-      for (const device of devices) {
-        const rawId = device.id;
-        const deviceId: string = typeof rawId === 'string' ? rawId : (typeof rawId === 'object' && rawId?.id ? rawId.id : String(rawId));
-        
-        if (deviceId) {
-          console.log(`Trying to fetch WiFi credentials from device: ${device.name} (${deviceId})`);
-          
-          try {
-            const wifiCreds = await getDeviceWifiCredentials(deviceId);
-            if (wifiCreds && (wifiCreds.ssid || wifiCreds.password)) {
-              console.log('Found WiFi credentials:', { ssid: wifiCreds.ssid, hasPassword: !!wifiCreds.password });
-              setWifiCredentials(wifiCreds);
-              credentialsFound = true;
-              break; // Use the first device with WiFi credentials
-            }
-          } catch (error) {
-            console.log(`No WiFi credentials found for device ${device.name}:`, error.message);
-            lastError = error;
-          }
-        }
-      }
-      
-      if (!credentialsFound) {
-        if (lastError) {
-          setWifiError(`No WiFi credentials found. Last error: ${lastError.message}`);
-        } else {
-          setWifiError('No WiFi credentials found in any devices. Devices may not be provisioned with WiFi credentials yet.');
-        }
+      if (wifiCredentials) {
+        console.log('WiFi credentials found:', { 
+          ssid: wifiCredentials.ssid, 
+          hasPassword: !!wifiCredentials.password 
+        });
+        setWifiCredentials(wifiCredentials);
+      } else {
+        setWifiError('No WiFi credentials found. Please ensure your devices are provisioned with WiFi credentials.');
       }
     } catch (error) {
       console.error('Error fetching WiFi credentials:', error);
-      if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
-        setWifiError('Authentication failed. Please refresh the page to re-authenticate with ThingsBoard.');
-      } else if (error.message?.includes('403') || error.message?.includes('Forbidden')) {
-        setWifiError('Access denied. Please check your ThingsBoard permissions.');
-      } else if (error.message?.includes('Network') || error.message?.includes('fetch')) {
-        setWifiError('Network error. Please check your internet connection and try again.');
-      } else {
-        setWifiError(`Failed to fetch WiFi credentials: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      setWifiError(`Failed to fetch WiFi credentials: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setLoadingWifi(false);
     }
-  }, [rooms.length]);
+  }, [authUser?.id]);
 
   // Fetch data when component mounts or mode changes
   useEffect(() => {
@@ -228,30 +180,32 @@ const Profile: React.FC = () => {
           const mockRoomsList = await apiWrapper.getRooms(true);
           
           // Transform mock profile to match expected UserProfileData format
+          // Use real data from Supabase, not hardcoded values
           const transformedProfile = {
             userId: mockProfile.id,
             email: mockProfile.email,
             name: mockProfile.full_name,
             avatarUrl: mockProfile.avatar_url,
-            totalSessions: 15,
-            totalHits: 850,
-            totalShots: 1000,
-            averageScore: 56,
-            bestScore: 92,
-            avgAccuracy: 85,
-            avgReactionTime: 320,
-            bestReactionTime: 180,
-            totalDuration: 450 * 60 * 1000,
-            scoreImprovement: 12,
-            accuracyImprovement: 8
+            totalSessions: mockProfile.total_sessions || 0,
+            totalHits: mockProfile.total_hits || 0,
+            totalShots: mockProfile.total_shots || 0,
+            averageScore: mockProfile.average_score || 0,
+            bestScore: mockProfile.best_score || 0,
+            avgAccuracy: mockProfile.avg_accuracy || 0,
+            avgReactionTime: mockProfile.avg_reaction_time || null,
+            bestReactionTime: mockProfile.best_reaction_time || null,
+            totalDuration: mockProfile.total_duration || 0,
+            scoreImprovement: mockProfile.score_improvement || 0,
+            accuracyImprovement: mockProfile.accuracy_improvement || 0
           };
           
           // Transform mock rooms to match Room interface with target counts
-          const transformedRooms = mockRoomsList.map((room, index) => ({
+          // Use real target count from Supabase data, not hardcoded values
+          const transformedRooms = mockRoomsList.map((room) => ({
             id: room.id,
             name: room.name,
             order: room.order_index,
-            targetCount: index === 0 ? 3 : index === 1 ? 2 : 1,
+            targetCount: room.target_count || 0, // Use real target count from database
             icon: room.icon,
             room_type: room.room_type
           }));
@@ -310,10 +264,10 @@ const Profile: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDemoMode, authUser?.id]);
 
-  // Fetch WiFi credentials ONCE when rooms are loaded (skip in demo mode)
+  // Fetch WiFi credentials ONCE when user is authenticated
   useEffect(() => {
     if (isDemoMode) {
-      console.log('🎭 DEMO: Using mock WiFi credentials');
+      console.log('🎭 DEMO: Using demo WiFi credentials');
       // Set mock WiFi credentials for demo mode
       setWifiCredentials({
         ssid: 'DryFire-Demo-Network',
@@ -324,18 +278,13 @@ const Profile: React.FC = () => {
       return;
     }
     
-    // Only fetch once per mode/room change
-    if (rooms.length > 0 && authUser?.id && !wifiFetched && !loadingWifi) {
-      const tbToken = localStorage.getItem('tb_access');
-      if (tbToken) {
-        console.log('🔗 LIVE: Fetching WiFi credentials (one-time)...');
-        setWifiFetched(true); // Mark as fetched before calling
-        fetchWifiCredentials();
-      } else {
-        setWifiError('Not authenticated with ThingsBoard. Please refresh the page.');
-      }
+    // Only fetch once per user authentication
+    if (authUser?.id && !wifiFetched && !loadingWifi) {
+      console.log('🔗 LIVE: Fetching WiFi credentials from Supabase (one-time)...');
+      setWifiFetched(true); // Mark as fetched before calling
+      fetchWifiCredentials();
     }
-  }, [isDemoMode, rooms.length, authUser?.id, wifiFetched, loadingWifi, fetchWifiCredentials]);
+  }, [isDemoMode, authUser?.id, wifiFetched, loadingWifi, fetchWifiCredentials]);
 
   // Initialize form preferences when prefs are loaded
   useEffect(() => {
@@ -465,7 +414,7 @@ const Profile: React.FC = () => {
               <TabsList className="grid w-full grid-cols-3 bg-brand-surface border border-brand-secondary/20">
                 <TabsTrigger value="overview" className="text-brand-secondary data-[state=active]:bg-brand-primary data-[state=active]:text-brand-surface hover:text-brand-primary hover:bg-brand-primary/10 transition-colors">Overview</TabsTrigger>
                 <TabsTrigger value="preferences" className="text-brand-secondary data-[state=active]:bg-brand-primary data-[state=active]:text-brand-surface hover:text-brand-primary hover:bg-brand-primary/10 transition-colors">Target Preferences</TabsTrigger>
-                <TabsTrigger value="sessions" className="text-brand-secondary data-[state=active]:bg-brand-primary data-[state=active]:text-brand-surface hover:text-brand-primary hover:bg-brand-primary/10 transition-colors">Recent Sessions</TabsTrigger>
+                <TabsTrigger value="sessions" className="text-brand-secondary data-[state=active]:bg-brand-primary data-[state=active]:text-brand-surface hover:text-brand-primary hover:bg-brand-primary/10 transition-colors">Games Played</TabsTrigger>
               </TabsList>
               
               <TabsContent value="overview" className="space-y-6">
@@ -874,7 +823,7 @@ const Profile: React.FC = () => {
               <TabsContent value="sessions" className="space-y-6">
                 <Card className="bg-brand-surface border-brand-secondary/20 shadow-sm">
                   <CardHeader>
-                    <CardTitle className="text-brand-dark">Recent Sessions</CardTitle>
+                    <CardTitle className="text-brand-dark">Games Played</CardTitle>
                   </CardHeader>
                   <CardContent>
                     {isLoadingSessions ? (
@@ -997,7 +946,7 @@ const Profile: React.FC = () => {
                           if (index === 0) {
                             console.log(`🎯 Profile: Rendering session in ${isDemoMode ? 'DEMO' : 'LIVE'} mode:`, {
                               id: session.id,
-                              name: session.scenarioName || session.game_name,
+                              name: session.gameName || session.scenarioName || session.game_name,
                               isDemoId: session.id.startsWith('mock-'),
                               source: isDemoMode ? 'Demo Array' : 'Live Array'
                             });
@@ -1015,7 +964,7 @@ const Profile: React.FC = () => {
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
                               <div className="font-medium text-brand-dark font-body">
-                                {session.scenarioName || 'Untitled Session'}
+                                {session.gameName || session.scenarioName || 'Untitled Game'}
                                   </div>
                                   {session.scenarioType && (
                                     <Badge variant="outline" className="text-xs border-brand-primary/40 text-brand-primary bg-brand-primary/5">

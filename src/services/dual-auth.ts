@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { login as tbLogin, logout as tbLogout } from '@/services/thingsboard';
 import thingsBoardService from '@/services/thingsboard';
+import { getThingsBoardCredentials } from '@/services/profile';
 import type { User, Session } from '@supabase/supabase-js';
 
 export interface DualAuthResult {
@@ -116,21 +117,30 @@ class DualAuthService {
 
     // Attempt ThingsBoard authentication
     try {
-      const tbUsername = import.meta.env.VITE_TB_USERNAME;
-      const tbPassword = import.meta.env.VITE_TB_PASSWORD;
-      
-      if (tbUsername && tbPassword) {
-        const tbAuth = await tbLogin(tbUsername, tbPassword);
-        result.thingsboard = {
-          success: true,
-          token: tbAuth.token,
-          refreshToken: tbAuth.refreshToken
-        };
-        this.setAuthStatus({ thingsboard: 'success' });
+      // Only attempt ThingsBoard auth if Supabase auth was successful
+      if (result.supabase?.success && result.supabase?.user) {
+        // Fetch ThingsBoard credentials from Supabase for this specific user
+        const credentials = await getThingsBoardCredentials(result.supabase.user.id);
+        
+        if (credentials) {
+          const tbAuth = await tbLogin(credentials.email, credentials.password);
+          result.thingsboard = {
+            success: true,
+            token: tbAuth.token,
+            refreshToken: tbAuth.refreshToken
+          };
+          this.setAuthStatus({ thingsboard: 'success' });
+        } else {
+          result.thingsboard = {
+            success: false,
+            error: 'ThingsBoard credentials not found in user profile'
+          };
+          this.setAuthStatus({ thingsboard: 'idle' });
+        }
       } else {
         result.thingsboard = {
           success: false,
-          error: 'ThingsBoard credentials not configured'
+          error: 'Supabase authentication required for ThingsBoard access'
         };
         this.setAuthStatus({ thingsboard: 'idle' });
       }

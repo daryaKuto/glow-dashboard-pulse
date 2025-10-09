@@ -6,6 +6,7 @@ import { useDashboardStats } from '@/store/useDashboardStats';
 import { useTargets, type Target } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
 import { useScenarios, type ScenarioHistory } from '@/scenarios - old do not use/useScenarios';
+import { useSessions, type Session } from '@/store/useSessions';
 import { useAuth } from '@/providers/AuthProvider';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
@@ -192,9 +193,9 @@ const ActivityChart: React.FC<{
 // System Overview using simple metric display
 const SystemOverview: React.FC<{
   targets: Target[];
-  scenarios: ScenarioHistory[];
+  sessions: Session[];
   isLoading: boolean;
-}> = ({ targets, scenarios, isLoading }) => {
+}> = ({ targets, sessions, isLoading }) => {
   if (isLoading) {
     return (
       <div className="space-y-2 md:space-y-3">
@@ -211,8 +212,8 @@ const SystemOverview: React.FC<{
   const onlineTargets = targets.filter(t => t.status === 'online').length;
   const offlineTargets = targets.filter(t => t.status === 'offline').length;
   const totalTargets = targets.length;
-  const completedScenarios = scenarios.filter(s => s.score > 0).length;
-  const totalScenarios = scenarios.length;
+  const completedSessions = sessions.filter(s => s.score > 0).length;
+  const totalSessions = sessions.length;
   
   // If no targets available, show N/A
   const hasTargets = totalTargets > 0;
@@ -234,14 +235,14 @@ const SystemOverview: React.FC<{
     },
     { 
       label: 'Completed Sessions', 
-      value: completedScenarios, 
-      total: totalScenarios,
+      value: completedSessions, 
+      total: totalSessions,
       color: 'text-brand-primary',
       bgColor: 'bg-orange-50'
     },
     { 
       label: 'Total Sessions', 
-      value: totalScenarios, 
+      value: totalSessions, 
       total: null,
       color: 'text-brand-secondary',
       bgColor: 'bg-purple-50'
@@ -437,6 +438,7 @@ const Dashboard: React.FC = () => {
   const { targets: rawTargets, refresh: refreshTargets } = useTargets();
   const { rooms, isLoading: roomsLoading, fetchRooms, getAllTargetsWithAssignments } = useRooms();
   const { scenarioHistory, isLoading: scenariosLoading, fetchScenarios } = useScenarios();
+  const { sessions, isLoading: sessionsLoading, fetchSessions } = useSessions();
   
   const { user } = useAuth();
   
@@ -475,9 +477,10 @@ const Dashboard: React.FC = () => {
     try {
       console.log('🔄 Dashboard: Fetching all data...');
       
-      // Always try to fetch from Supabase first (rooms, targets with assignments)
+      // Always try to fetch from Supabase first (rooms, sessions, targets with assignments)
       const promises = [
         fetchRooms(), // This should work from Supabase
+        user?.id ? fetchSessions(user.id, 10) : Promise.resolve(), // Fetch recent sessions
         refreshDashboardStats() // This should work from Supabase
       ];
 
@@ -488,9 +491,17 @@ const Dashboard: React.FC = () => {
       if (tbToken) {
         promises.push(
           fetchStats(tbToken),
-          refreshTargets(),
           fetchScenarios(tbToken)
         );
+        
+        // Only refresh targets if we don't have any loaded yet
+        // This prevents redundant API calls since targets are already fetched during login
+        if (rawTargets.length === 0) {
+          console.log('🔄 Dashboard: No targets loaded, refreshing from ThingsBoard...');
+          promises.push(refreshTargets());
+        } else {
+          console.log('🔄 Dashboard: Targets already loaded, skipping refresh:', rawTargets.length, 'targets');
+        }
       }
 
       await Promise.allSettled(promises); // Use allSettled to not fail if some requests fail
@@ -501,7 +512,7 @@ const Dashboard: React.FC = () => {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [tbToken, fetchStats, refreshTargets, fetchRooms, fetchScenarios, refreshDashboardStats, fetchMergedTargets]);
+  }, [tbToken, fetchStats, refreshTargets, fetchRooms, fetchScenarios, refreshDashboardStats, rawTargets.length]);
 
   const { 
     currentInterval, 
@@ -535,6 +546,14 @@ const Dashboard: React.FC = () => {
     }
   }, [isReady, syncStatus.isComplete, fetchAllData]);
 
+  // Ensure targets are loaded on initial mount if not already available
+  useEffect(() => {
+    if (tbToken && rawTargets.length === 0) {
+      console.log('🔄 Dashboard: No targets loaded on mount, refreshing...');
+      refreshTargets();
+    }
+  }, [tbToken, rawTargets.length, refreshTargets]);
+
   // Use merged targets if available, otherwise fallback to raw targets
   const currentTargets = targets.length > 0 ? targets : rawTargets;
   
@@ -544,16 +563,27 @@ const Dashboard: React.FC = () => {
   // Calculate real statistics
   const onlineTargets = currentTargets.filter(target => target.status === 'online').length;
   const totalRooms = rooms.length;
-  const recentScenarios = scenarioHistory.slice(0, 3);
   
-  // Calculate average score from recent scenarios
+  // Use Supabase sessions instead of ThingsBoard scenarios
+  const recentScenarios = sessions.slice(0, 3);
+  
+  // Calculate average score from recent sessions
   const avgScore = recentScenarios.length > 0 
     ? Math.round(recentScenarios.reduce((sum, s) => sum + (s.score || 0), 0) / recentScenarios.length)
     : lastScenarioScore;
 
   // Calculate room utilization based on assigned targets vs total targets
-  const assignedTargets = currentTargets.filter(target => target.roomId).length;
-  const totalTargets = currentTargets.length;
+  let assignedTargets = currentTargets.filter(target => target.roomId).length;
+  let totalTargets = currentTargets.length;
+  
+  // Fallback: If no ThingsBoard targets, calculate from Supabase room assignments
+  if (totalTargets === 0) {
+    // Calculate from rooms data (each room has targetCount from Supabase)
+    totalTargets = rooms.reduce((sum, room) => sum + (room.targetCount || 0), 0);
+    assignedTargets = totalTargets; // All targets in rooms are assigned
+    console.log('📊 Using Supabase fallback for targets:', { totalTargets, assignedTargets });
+  }
+  
   const roomUtilization = totalTargets > 0 ? Math.round((assignedTargets / totalTargets) * 100) : 0;
   
   // Debug logging for room utilization
@@ -567,24 +597,31 @@ const Dashboard: React.FC = () => {
     targetDetails: currentTargets.map(t => ({ name: t.name, roomId: t.roomId, hasRoomId: !!t.roomId }))
   });
 
-  // Debug logging for raw data from ThingsBoard
-  console.log('🔍 Raw ThingsBoard Data Debug:', {
-    rawTargetsCount: rawTargets.length,
-    rawTargets: rawTargets.map(t => ({ 
-      name: t.name, 
-      id: t.id, 
-      status: t.status, 
-      roomId: t.roomId,
-      hasRoomId: !!t.roomId 
-    })),
-    mergedTargetsCount: targets.length,
-    mergedTargets: targets.map(t => ({ 
-      name: t.name, 
-      id: t.id, 
-      status: t.status, 
-      roomId: t.roomId,
-      hasRoomId: !!t.roomId 
-    })),
+  // Debug logging for andrew.tam ThingsBoard data
+  console.log('🔍 ANDREW.TAM DATA DEBUG:', {
+    user: user?.email,
+    rawTargetsFromThingsBoard: {
+      count: rawTargets.length,
+      devices: rawTargets.map(t => ({ 
+        name: t.name, 
+        id: t.id, 
+        status: t.status, 
+        type: t.type,
+        roomId: t.roomId,
+        hasRoomId: !!t.roomId 
+      }))
+    },
+    filteredTargetsForDisplay: {
+      count: targets.length,
+      devices: targets.map(t => ({ 
+        name: t.name, 
+        id: t.id, 
+        status: t.status, 
+        type: t.type,
+        roomId: t.roomId,
+        hasRoomId: !!t.roomId 
+      }))
+    },
     loadingStates: {
       targetsLoading,
       shouldShowTargetsLoading,
@@ -596,21 +633,26 @@ const Dashboard: React.FC = () => {
   // Note: Authentication is handled at the route level in App.tsx
   // If we reach this component, the user is already authenticated
 
-  // Debug logging
-  console.log('🏠 Dashboard render:', { isReady, syncStatus });
+  // Debug logging for sync status
+  console.log('🏠 DASHBOARD SYNC STATUS:', { 
+    isReady, 
+    syncStatus,
+    userEmail: user?.email,
+    hasThingsBoardToken: !!localStorage.getItem('tb_access')
+  });
   
   // Check if ThingsBoard data is available
   const hasThingsBoardData = targets.length > 0 || rooms.length > 0;
   
   // Show skeleton loading if we're still loading and have no data
-  const shouldShowSkeleton = (targetsLoading || roomsLoading || scenariosLoading) && !hasThingsBoardData;
+  const shouldShowSkeleton = (targetsLoading || roomsLoading || sessionsLoading) && !hasThingsBoardData;
   
   // Show ThingsBoard banner if user not found in ThingsBoard (401) or no data and not loading
   const shouldShowThingsBoardBanner = syncStatus.syncedData?.userNotFound || 
                                      (!hasThingsBoardData && !targetsLoading && !roomsLoading);
   
-  // Debug logging for banner visibility
-  console.log('🔍 Banner visibility check:', {
+  // Debug logging for banner visibility and data availability
+  console.log('🔍 BANNER & DATA AVAILABILITY:', {
     hasThingsBoardData,
     shouldShowSkeleton,
     targetsCount: targets.length,
@@ -618,7 +660,9 @@ const Dashboard: React.FC = () => {
     targetsLoading,
     roomsLoading,
     userNotFound: syncStatus.syncedData?.userNotFound,
-    shouldShowBanner: shouldShowThingsBoardBanner
+    shouldShowBanner: shouldShowThingsBoardBanner,
+    rawTargetsCount: rawTargets.length,
+    syncComplete: syncStatus.isComplete
   });
 
   return (
@@ -680,7 +724,7 @@ const Dashboard: React.FC = () => {
                     value={avgScore ? `${avgScore}%` : 'N/A'}
                     subtitle="Recent sessions"
                     icon={<Trophy className="w-6 h-6 -ml-1.5 md:ml-0" />}
-                    isLoading={scenariosLoading}
+                    isLoading={sessionsLoading}
                   />
                   <StatCard
                     title="Target Assignment"
@@ -705,7 +749,7 @@ const Dashboard: React.FC = () => {
                   <div>
                     <h3 className="text-sm font-medium text-yellow-800">ThingsBoard Not Connected</h3>
                     <p className="text-sm text-yellow-700 mt-1">
-                      ThingsBoard is not connected for this user. Contact your administrator to set up ThingsBoard access.
+                      Your ThingsBoard account is not connected yet. Contact your administrator to set up ThingsBoard access for your account.
                     </p>
                   </div>
                 </div>
@@ -780,8 +824,8 @@ const Dashboard: React.FC = () => {
                   ) : (
                     <SystemOverview 
                       targets={currentTargets} 
-                      scenarios={scenarioHistory} 
-                      isLoading={shouldShowTargetsLoading || scenariosLoading} 
+                      sessions={sessions} 
+                      isLoading={shouldShowTargetsLoading || sessionsLoading} 
                     />
                   )}
                 </CardContent>
@@ -813,7 +857,7 @@ const Dashboard: React.FC = () => {
                         )}
                       </div>
                       <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">
-                        {recentScenarios[0]?.name || 'No Recent Sessions'}
+                        {recentScenarios[0]?.gameName || recentScenarios[0]?.scenarioName || 'No Recent Games'}
                       </CardTitle>
                     </>
                   )}
@@ -837,7 +881,7 @@ const Dashboard: React.FC = () => {
                       {recentScenarios[0] ? (
                         <>
                           <p className="text-xs md:text-sm text-brand-dark/70 font-body">
-                            Training session - Duration: {recentScenarios[0].duration}s
+                            Training session - Duration: {Math.round((recentScenarios[0].duration || 0) / 1000)}s
                           </p>
                           
                           <div className="space-y-1">
@@ -854,7 +898,7 @@ const Dashboard: React.FC = () => {
 
                           <div className="flex items-center gap-2">
                             <span className="text-xs md:text-sm text-brand-dark/70 font-body">
-                              {dayjs(recentScenarios[0].date).format('MMM D, YYYY')}
+                              {dayjs(recentScenarios[0].startedAt).format('MMM D, YYYY')}
                             </span>
                           </div>
 
@@ -905,7 +949,7 @@ const Dashboard: React.FC = () => {
                         <CardContent className="p-1.5 md:p-3 space-y-1 md:space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-medium text-brand-dark/70">
-                              {dayjs(session.date).format('MMM D, HH:mm')}
+                              {dayjs(session.startedAt).format('MMM D, HH:mm')}
                             </span>
                             <Badge 
                               variant="outline" 
@@ -918,7 +962,7 @@ const Dashboard: React.FC = () => {
                           </div>
                           
                           <h4 className="font-medium text-brand-dark text-xs leading-tight">
-                            {session.name}
+                            {session.gameName || session.scenarioName}
                           </h4>
                           
                           {session.score && (

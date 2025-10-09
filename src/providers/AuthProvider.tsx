@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import supabaseAuthService from '@/services/supabase-auth';
+import { saveThingsBoardCredentials } from '@/services/profile';
 import { performCompleteLogout } from '@/utils/logout';
 import type { User, Session } from '@supabase/supabase-js';
 
@@ -93,6 +94,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Clear all application state using comprehensive logout utility
       performCompleteLogout();
       
+      // Clear ThingsBoard tokens
+      localStorage.removeItem('tb_access');
+      localStorage.removeItem('tb_refresh');
+      console.log('[AuthProvider] ThingsBoard tokens cleared');
+      
       // Clear local auth state
       setUser(null);
       setSession(null);
@@ -125,6 +131,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (result.user && result.session) {
         setUser(result.user);
         setSession(result.session);
+        
+        // Trigger ThingsBoard authentication in background
+        try {
+          const { unifiedDataService } = await import('@/services/unified-data');
+          await unifiedDataService.getThingsBoardData(result.user.id, result.user.email);
+          console.log('[AuthProvider] ThingsBoard authentication completed');
+          
+          // Sync WiFi credentials after ThingsBoard authentication
+          try {
+            const { syncWifiCredentialsOnLogin } = await import('@/services/wifi-credentials');
+            await syncWifiCredentialsOnLogin(result.user.id);
+            console.log('[AuthProvider] WiFi credentials sync completed');
+          } catch (wifiError) {
+            console.warn('[AuthProvider] WiFi sync failed (non-blocking):', wifiError);
+            // Don't block login if WiFi sync fails
+          }
+        } catch (tbError) {
+          console.warn('[AuthProvider] ThingsBoard authentication failed (non-blocking):', tbError);
+          // Don't block login if ThingsBoard fails
+        }
       }
 
       console.log('[AuthProvider] Sign in successful:', result.message);
@@ -146,6 +172,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (result.user && result.session) {
         setUser(result.user);
         setSession(result.session);
+        
+        // Save ThingsBoard credentials using the same email/password
+        try {
+          console.log('[AuthProvider] Saving ThingsBoard credentials for new user:', email);
+          await saveThingsBoardCredentials(result.user.id, email, password);
+          console.log('[AuthProvider] ThingsBoard credentials saved successfully');
+        } catch (tbError) {
+          console.warn('[AuthProvider] Failed to save ThingsBoard credentials (user can set up later):', tbError);
+          // Don't fail the signup if ThingsBoard credential saving fails
+          // User can set up ThingsBoard integration later from their profile
+        }
       }
 
       console.log('[AuthProvider] Sign up successful:', result.message);

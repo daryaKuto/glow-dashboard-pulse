@@ -25,6 +25,9 @@ export type Database = {
           is_active: boolean
           last_login_at: string | null
           profile_completed: boolean
+          wifi_ssid_encrypted: string | null
+          wifi_password_encrypted: string | null
+          wifi_last_sync: string | null
           created_at: string
           updated_at: string
         }
@@ -43,6 +46,9 @@ export type Database = {
           is_active?: boolean
           last_login_at?: string | null
           profile_completed?: boolean
+          wifi_ssid_encrypted?: string | null
+          wifi_password_encrypted?: string | null
+          wifi_last_sync?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -61,6 +67,9 @@ export type Database = {
           is_active?: boolean
           last_login_at?: string | null
           profile_completed?: boolean
+          wifi_ssid_encrypted?: string | null
+          wifi_password_encrypted?: string | null
+          wifi_last_sync?: string | null
           created_at?: string
           updated_at?: string
         }

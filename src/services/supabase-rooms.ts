@@ -193,7 +193,7 @@ class SupabaseRoomsService {
   }
 
   // Assign targets to a room
-  async assignTargetsToRoom(roomId: string, targetIds: string[]): Promise<void> {
+  async assignTargetsToRoom(roomId: string, targetIds: string[], targetNames?: Map<string, string>): Promise<void> {
     try {
       console.log(`🔄 assignTargetsToRoom: Starting assignment of ${targetIds.length} targets to room ${roomId}`);
       const userId = await this.getCurrentUserId();
@@ -204,12 +204,12 @@ class SupabaseRoomsService {
       await this.unassignTargets(targetIds);
       console.log('✅ Targets unassigned from other rooms');
       
-      // Create target assignments
+      // Create target assignments with proper names
       const assignments = targetIds.map(targetId => ({
         user_id: userId,
         room_id: roomId,
         target_id: targetId,
-        target_name: `Target ${targetId.substring(0, 8)}` // Default name, should be updated with real name
+        target_name: targetNames?.get(targetId) || `Target ${targetId.substring(0, 8)}`
       }));
 
       console.log('🔄 Inserting assignments into Supabase:', assignments);
@@ -253,6 +253,17 @@ class SupabaseRoomsService {
     } catch (error) {
       console.error('❌ Error unassigning targets:', error);
       throw error;
+    }
+  }
+
+  // Assign single target to room (wrapper for assignTargetsToRoom)
+  async assignTargetToRoom(targetId: string, roomId: string | null): Promise<void> {
+    if (roomId === null) {
+      // Unassign target
+      await this.unassignTargets([targetId]);
+    } else {
+      // Assign target
+      await this.assignTargetsToRoom(roomId, [targetId]);
     }
   }
 
@@ -369,22 +380,84 @@ class SupabaseRoomsService {
     }
   }
 
+  // Get rooms with target counts in a single optimized query
+  async getRoomsWithTargetCounts(): Promise<UserRoom[]> {
+    try {
+      const userId = await this.getCurrentUserId();
+      
+      console.log('🔄 getRoomsWithTargetCounts: Fetching rooms with target counts...');
+      
+      // Get rooms first
+      const { data: rooms, error: roomsError } = await supabase
+        .from('user_rooms')
+        .select('id, name, room_type, icon, order_index, created_at, updated_at')
+        .eq('user_id', userId)
+        .order('order_index', { ascending: true });
+
+      if (roomsError) throw roomsError;
+
+      // Get target counts for all rooms in a single query
+      const { data: targetCounts, error: countsError } = await supabase
+        .from('user_room_targets')
+        .select('room_id')
+        .eq('user_id', userId);
+
+      if (countsError) throw countsError;
+
+      // Count targets per room
+      const roomTargetCounts = new Map<string, number>();
+      targetCounts?.forEach(assignment => {
+        const count = roomTargetCounts.get(assignment.room_id) || 0;
+        roomTargetCounts.set(assignment.room_id, count + 1);
+      });
+
+      // Transform the data to include target counts
+      const roomsWithCounts: UserRoom[] = rooms?.map(room => ({
+        id: room.id,
+        name: room.name,
+        room_type: room.room_type,
+        icon: room.icon,
+        order_index: room.order_index,
+        created_at: room.created_at,
+        updated_at: room.updated_at,
+        target_count: roomTargetCounts.get(room.id) || 0
+      })) || [];
+
+      console.log('✅ getRoomsWithTargetCounts: Fetched rooms with counts:', roomsWithCounts.length);
+      return roomsWithCounts;
+    } catch (error) {
+      console.error('❌ Error getting rooms with target counts:', error);
+      throw error;
+    }
+  }
+
   // Get all targets with their room assignments
   async getAllTargetsWithAssignments(): Promise<any[]> {
     try {
       const userId = await this.getCurrentUserId();
       
-      // Get all target assignments
+      // Get all target assignments from Supabase
       const { data: assignments, error } = await supabase
         .from('user_room_targets')
-        .select('target_id, room_id')
+        .select('target_id, room_id, target_name')
         .eq('user_id', userId);
 
       if (error) throw error;
 
-      // Get all targets from ThingsBoard
-      const { API } = await import('@/lib/api');
-      const allTargets = await API.getTargets() as any[];
+      console.log('📋 Raw assignments from DB:', assignments);
+
+      try {
+        // Try to get ThingsBoard data with 5 second timeout
+        const { API } = await import('@/lib/api');
+        const allTargets = await Promise.race([
+          API.getTargets(),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('ThingsBoard timeout')), 5000)
+          )
+        ]) as any[];
+      
+        console.log('🎯 Raw targets from ThingsBoard:', allTargets.length);
+        console.log('🎯 Sample target structure:', allTargets[0]);
       
       // Create a map of target_id -> room_id
       const assignmentMap = new Map<string, string>();
@@ -395,11 +468,41 @@ class SupabaseRoomsService {
       }
       
       console.log('🗺️ Assignment map:', Array.from(assignmentMap.entries()));
+      
+      // Debug: Check for ID format mismatches
+      console.log('🔍 ID Format Analysis:');
+      const assignmentIds = Array.from(assignmentMap.keys());
+      const targetIds = allTargets.map(t => this.getTargetId(t));
+      console.log('  - Assignment IDs from DB:', assignmentIds.slice(0, 3));
+      console.log('  - Extracted target IDs:', targetIds.slice(0, 3));
+      console.log('  - Any matches found:', assignmentIds.some(id => targetIds.includes(id)));
+
+      // Clean up stale assignments for non-existent targets
+      const staleAssignmentIds = assignmentIds.filter(id => !targetIds.includes(id));
+      if (staleAssignmentIds.length > 0) {
+        console.log('🧹 Cleaning up stale assignments for non-existent targets:', staleAssignmentIds.length);
+        try {
+          await supabase
+            .from('user_room_targets')
+            .delete()
+            .eq('user_id', userId)
+            .in('target_id', staleAssignmentIds);
+          console.log('✅ Cleaned up stale assignments');
+        } catch (error) {
+          console.error('❌ Error cleaning up stale assignments:', error);
+        }
+      }
 
       // Merge target data with room assignments
       const targetsWithAssignments = allTargets.map(target => {
         const targetId = this.getTargetId(target);
         const roomId = assignmentMap.get(targetId);
+        
+        console.log(`🎯 Matching target ${target.name}:`);
+        console.log(`   - Raw target.id:`, target.id);
+        console.log(`   - Extracted ID: ${targetId}`);
+        console.log(`   - Found in map: ${assignmentMap.has(targetId)}`);
+        console.log(`   - Assigned roomId: ${roomId}`);
         
         const result = {
           ...target,
@@ -411,23 +514,70 @@ class SupabaseRoomsService {
           result.roomId = roomId;
         }
         
-        console.log(`🎯 Target ${target.name} (${targetId}) → Room ${result.roomId}`);
+        console.log(`   - Final result roomId: ${result.roomId}`);
         return result;
       });
 
-      console.log('✅ Final merged targets:', targetsWithAssignments.map(t => ({ 
-        name: t.name, 
-        roomId: t.roomId,
-        roomIdType: typeof t.roomId
-      })));
-      return targetsWithAssignments;
+      // Check for duplicates in the merged data
+      const mergedIds = targetsWithAssignments.map(t => this.getTargetId(t));
+      const duplicateMergedIds = mergedIds.filter((id, index) => mergedIds.indexOf(id) !== index);
+      if (duplicateMergedIds.length > 0) {
+        console.warn('🚨 Duplicate target IDs found in merged data:', duplicateMergedIds);
+        duplicateMergedIds.forEach(dupId => {
+          const duplicates = targetsWithAssignments.filter(t => this.getTargetId(t) === dupId);
+          console.log(`   ID ${dupId}:`, duplicates.map(t => ({ name: t.name, roomId: t.roomId })));
+        });
+      }
+
+        // Deduplicate targets by ID before returning
+        const uniqueTargets = targetsWithAssignments.reduce((acc: any[], target) => {
+          const targetId = this.getTargetId(target);
+          const existingIndex = acc.findIndex(t => this.getTargetId(t) === targetId);
+          if (existingIndex === -1) {
+            acc.push(target);
+          } else {
+            console.warn(`⚠️ Service: Duplicate target found: ${target.name} (ID: ${targetId})`);
+            // Keep the one with more complete data (has roomId or more properties)
+            const existing = acc[existingIndex];
+            if (target.roomId && !existing.roomId) {
+              acc[existingIndex] = target; // Replace with the one that has roomId
+              console.log(`   → Service: Replaced with version that has roomId: ${target.roomId}`);
+            } else if (Object.keys(target).length > Object.keys(existing).length) {
+              acc[existingIndex] = target; // Replace with more complete data
+              console.log(`   → Service: Replaced with more complete version`);
+            }
+          }
+          return acc;
+        }, []);
+
+        console.log(`🔍 Service deduplication: ${targetsWithAssignments.length} → ${uniqueTargets.length} targets`);
+        console.log('✅ Final merged targets:', uniqueTargets.map(t => ({ 
+          name: t.name, 
+          roomId: t.roomId,
+          roomIdType: typeof t.roomId
+        })));
+        return uniqueTargets;
+      } catch (error) {
+        // Fallback: Use Supabase data only
+        console.warn('ThingsBoard unavailable, showing assigned devices only:', error);
+        
+        // Return devices we know about from assignments
+        return assignments?.map(a => ({
+          id: a.target_id,
+          name: a.target_name || `Target ${a.target_id.substring(0, 8)}`,
+          roomId: a.room_id,
+          status: 'unknown',
+          isFromSupabase: true  // Flag to show limited data
+        })) || [];
+      }
     } catch (error) {
       console.error('Error fetching targets with assignments:', error);
       throw error;
     }
   }
 
-  // Store a session in the database
+  // Store a game session in the database
+  // This stores the complete analytics from a game instance played by a user
   async storeSession(sessionData: {
     room_id: string;
     room_name: string;

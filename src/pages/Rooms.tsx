@@ -82,28 +82,47 @@ const Rooms: React.FC = () => {
 
   // Function to refresh targets with assignments
   const refreshTargetsWithAssignments = async () => {
+    console.log('🔄 [REFRESH] UI: Starting refreshTargetsWithAssignments...');
     setTargetsLoading(true);
     try {
-      console.log(`🔄 Refreshing targets with assignments (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+      console.log(`🔄 [REFRESH] UI: Refreshing targets with assignments (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
       
       if (isDemoMode) {
         // Demo mode: use mock data
+        console.log('🎭 [REFRESH] UI: Using demo mode - fetching mock targets...');
         const mockTargets = await apiWrapper.getTargetsWithAssignments(true);
         setTargetsWithAssignments(mockTargets);
-        console.log('✅ Mock targets with assignments loaded:', mockTargets.length);
+        console.log('✅ [SUCCESS] UI: Mock targets with assignments loaded:', mockTargets.length);
+        console.log('📊 [DATA] UI: Sample mock targets:', mockTargets.slice(0, 3).map(t => ({
+          name: t.name,
+          roomId: t.roomId,
+          id: t.id
+        })));
         return mockTargets;
       } else {
         // Live mode: use real data
+        console.log('🔄 [REFRESH] UI: Using live mode - fetching real targets...');
         const targetsWithAssignmentsData = await getAllTargetsWithAssignments();
         setTargetsWithAssignments(targetsWithAssignmentsData);
-        console.log('✅ Real targets with assignments refreshed:', targetsWithAssignmentsData.length);
+        console.log('✅ [SUCCESS] UI: Real targets with assignments refreshed:', targetsWithAssignmentsData.length);
+        console.log('📊 [DATA] UI: Sample real targets:', targetsWithAssignmentsData.slice(0, 3).map(t => ({
+          name: t.name,
+          roomId: t.roomId,
+          id: t.id
+        })));
         return targetsWithAssignmentsData;
       }
     } catch (error) {
-      console.error('❌ Error refreshing targets with assignments:', error);
+      console.error('❌ [ERROR] UI: Error refreshing targets with assignments:', error);
+      console.error('❌ [ERROR] UI: Error details:', {
+        message: error.message,
+        stack: error.stack,
+        isDemoMode
+      });
       setTargetsWithAssignments([]);
       return [];
     } finally {
+      console.log('🔄 [REFRESH] UI: Setting targetsLoading to false');
       setTargetsLoading(false);
     }
   };
@@ -216,17 +235,38 @@ const Rooms: React.FC = () => {
   };
 
   const handleAssignTarget = async () => {
-    if (!selectedTarget || !selectedRoom) return;
+    if (!selectedTarget || !selectedRoom) {
+      console.log('❌ [ERROR] UI: Cannot assign target - missing selectedTarget or selectedRoom');
+      console.log('❌ [ERROR] UI: selectedTarget:', selectedTarget);
+      console.log('❌ [ERROR] UI: selectedRoom:', selectedRoom);
+      return;
+    }
+    
+    console.log('🎯 [ASSIGNMENT] UI: Starting target assignment...');
+    console.log(`🎯 [ASSIGNMENT] UI: Target: ${selectedTarget}, Room: ${selectedRoom.id} (${selectedRoom.name})`);
+    console.log(`🔍 [ID-CHECK] UI: Target ID format: ${selectedTarget} (type: ${typeof selectedTarget})`);
+    console.log(`🔍 [ID-CHECK] UI: Room ID format: ${selectedRoom.id} (type: ${typeof selectedRoom.id})`);
     
     try {
+      console.log('🎯 [ASSIGNMENT] UI: Calling apiWrapper.assignTargetToRoom...');
       await apiWrapper.assignTargetToRoom(isDemoMode, selectedTarget, selectedRoom.id);
+      console.log('✅ [SUCCESS] UI: Target assignment completed via apiWrapper');
+      
       setAssignDialogOpen(false);
       setSelectedTarget('');
       setSelectedRoom(null);
+      console.log('🔄 [REFRESH] UI: Refreshing targets after assignment...');
       await refreshTargetsWithAssignments();
       toast.success('Target assigned to room successfully');
     } catch (error) {
-      console.error('Error assigning target:', error);
+      console.error('❌ [ERROR] UI: Error assigning target:', error);
+      console.error('❌ [ERROR] UI: Error details:', {
+        message: error.message,
+        stack: error.stack,
+        selectedTarget,
+        selectedRoom: selectedRoom?.id,
+        isDemoMode
+      });
       toast.error('Failed to assign target to room');
     }
   };
@@ -261,23 +301,40 @@ const Rooms: React.FC = () => {
   };
 
   const handleBulkAssign = async () => {
-    if (selectedTargets.length === 0 || !roomForDetails) return;
+    if (selectedTargets.length === 0 || !roomForDetails) {
+      console.log('❌ [ERROR] UI: Cannot assign targets - missing selectedTargets or roomForDetails');
+      console.log('❌ [ERROR] UI: selectedTargets:', selectedTargets);
+      console.log('❌ [ERROR] UI: roomForDetails:', roomForDetails);
+      return;
+    }
     
-    console.log('📝 Adding targets to pending assignments (optimistic update):', selectedTargets, 'to room:', roomForDetails.id);
+    console.log('🎯 [ASSIGNMENT] UI: Starting bulk target assignment...');
+    console.log(`🎯 [ASSIGNMENT] UI: Assigning ${selectedTargets.length} targets to room ${roomForDetails.id} (${roomForDetails.name})`);
+    console.log('🎯 [ASSIGNMENT] UI: Selected targets:', selectedTargets);
+    console.log(`🔍 [ID-CHECK] UI: Room ID format: ${roomForDetails.id} (type: ${typeof roomForDetails.id})`);
+    
+    // Log each target ID format
+    selectedTargets.forEach((targetId, index) => {
+      console.log(`🔍 [ID-CHECK] UI: Target ${index + 1} ID: ${targetId} (type: ${typeof targetId})`);
+    });
+    
+    console.log('📝 [ASSIGNMENT] UI: Adding targets to pending assignments (optimistic update)...');
     
     // Optimistic update: Add to pending assignments immediately
     startTransition(() => {
       const newPendingAssignments = new Map(pendingAssignments);
       selectedTargets.forEach(targetId => {
+        console.log(`📝 [ASSIGNMENT] UI: Adding pending assignment: ${targetId} → ${roomForDetails.id}`);
         newPendingAssignments.set(targetId, roomForDetails.id);
       });
       setPendingAssignments(newPendingAssignments);
       
       // Clear selection
       setSelectedTargets([]);
+      console.log('✅ [SUCCESS] UI: Targets added to pending assignments and selection cleared');
     });
     
-    console.log('✅ Targets immediately assigned to room:', selectedTargets.length);
+    console.log(`✅ [SUCCESS] UI: ${selectedTargets.length} targets immediately assigned to room (optimistic update)`);
   };
 
   const clearSelection = () => {
@@ -286,9 +343,14 @@ const Rooms: React.FC = () => {
 
   // Save pending assignments when modal closes
   const savePendingAssignments = async () => {
-    if (pendingAssignments.size === 0) return;
+    if (pendingAssignments.size === 0) {
+      console.log('❌ [ERROR] UI: No pending assignments to save');
+      return;
+    }
     
-    console.log(`💾 Saving pending assignments (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`, Array.from(pendingAssignments.entries()));
+    console.log('🎯 [ASSIGNMENT] UI: Starting to save pending assignments...');
+    console.log(`🎯 [ASSIGNMENT] UI: ${pendingAssignments.size} pending assignments to save (${isDemoMode ? 'DEMO' : 'LIVE'} mode)`);
+    console.log('🎯 [ASSIGNMENT] UI: Pending assignments:', Array.from(pendingAssignments.entries()));
     
     try {
       // Track which rooms need target count updates
@@ -296,32 +358,50 @@ const Rooms: React.FC = () => {
       
       // Save all pending assignments
       for (const [targetId, roomId] of pendingAssignments.entries()) {
-        console.log(`🔄 Saving: ${targetId} → ${roomId || 'unassigned'}`);
+        console.log(`🎯 [ASSIGNMENT] UI: Saving assignment: ${targetId} → ${roomId || 'unassigned'}`);
+        console.log(`🔍 [ID-CHECK] UI: Target ID: ${targetId} (type: ${typeof targetId})`);
+        console.log(`🔍 [ID-CHECK] UI: Room ID: ${roomId} (type: ${typeof roomId})`);
+        
         await apiWrapper.assignTargetToRoom(isDemoMode, targetId, roomId);
+        console.log(`✅ [SUCCESS] UI: Assignment saved: ${targetId} → ${roomId || 'unassigned'}`);
         
         // Track affected rooms for targeted updates
         if (roomId) {
           affectedRooms.add(roomId);
+          console.log(`📊 [DATA] UI: Added ${roomId} to affected rooms`);
         }
       }
       
+      console.log('✅ [SUCCESS] UI: All pending assignments saved');
+      console.log(`📊 [DATA] UI: Affected rooms: ${Array.from(affectedRooms)}`);
+      
       // Clear pending assignments
       setPendingAssignments(new Map());
+      console.log('🔄 [REFRESH] UI: Cleared pending assignments');
       
       // Refresh targets and update specific room counts (optimized)
       startTransition(async () => {
+        console.log('🔄 [REFRESH] UI: Refreshing targets after saving assignments...');
         await refreshTargetsWithAssignments();
         
         // Update target counts for affected rooms only
         for (const roomId of affectedRooms) {
+          console.log(`🔄 [REFRESH] UI: Updating target count for room ${roomId}...`);
           await updateRoomTargetCount(roomId);
         }
+        console.log('✅ [SUCCESS] UI: All room target counts updated');
       });
       
-      console.log('✅ All pending assignments saved');
+      console.log('✅ [SUCCESS] UI: All pending assignments saved');
       
     } catch (error) {
-      console.error('❌ Error saving pending assignments:', error);
+      console.error('❌ [ERROR] UI: Error saving pending assignments:', error);
+      console.error('❌ [ERROR] UI: Error details:', {
+        message: error.message,
+        stack: error.stack,
+        pendingAssignments: Array.from(pendingAssignments.entries()),
+        isDemoMode
+      });
       toast.error('Failed to save some assignments');
     }
   };

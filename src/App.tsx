@@ -24,6 +24,7 @@ import NotFound from './pages/NotFound';
 
 // Components
 import { Toaster } from './components/ui/sonner';
+import ScrollToTopButton from './components/shared/ScrollToTopButton';
 import { useAuth } from './providers/AuthProvider';
 
 import './App.css';
@@ -89,6 +90,7 @@ function App() {
       </Routes>
       
       <Toaster />
+      <ScrollToTopButton />
     </>
   );
 }

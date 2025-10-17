@@ -12,6 +12,28 @@ import { supabase } from '@/integrations/supabase/client';
 import { unifiedDataService } from '@/services/unified-data';
 import { getThingsBoardCredentials } from '@/services/profile';
 
+// Request deduplication - prevent multiple simultaneous calls to same endpoint
+const pendingRequests = new Map<string, Promise<any>>();
+
+// Helper function for request deduplication
+async function deduplicateRequest<T>(key: string, requestFn: () => Promise<T>): Promise<T> {
+  // If request is already in progress, return the existing promise
+  if (pendingRequests.has(key)) {
+    console.log(`🔄 [DEDUP] Reusing existing request for: ${key}`);
+    return pendingRequests.get(key)!;
+  }
+
+  // Create new request
+  console.log(`🔄 [DEDUP] Starting new request for: ${key}`);
+  const promise = requestFn().finally(() => {
+    // Clean up when request completes
+    pendingRequests.delete(key);
+    console.log(`✅ [DEDUP] Completed request for: ${key}`);
+  });
+
+  pendingRequests.set(key, promise);
+  return promise;
+}
 
 const controllerId = import.meta.env.VITE_TB_CONTROLLER_ID as string;
 
@@ -35,71 +57,65 @@ async function ensureUserThingsBoardAuth() {
   return { user, thingsBoardData };
 }
 
-// Helper function to map ThingsBoard devices to room assignments from our database
+// Helper function to map ThingsBoard devices to room assignments from Supabase
 async function mapDevicesToRooms(devices: any[]) {
   try {
-    console.log('Mapping devices to rooms. Total devices:', devices.length);
+    console.log('🔍 [API] mapDevicesToRooms() called with', devices.length, 'devices');
     
-    // Map devices and fetch additional data
-    const mappedDevices = await Promise.all(devices.map(async (device) => {
+    // Get room assignments from Supabase (UUID-based)
+    const { supabaseRoomsService } = await import('@/services/supabase-rooms');
+    const assignments = await supabaseRoomsService.getAllTargetRoomAssignments();
+    
+    console.log('🔍 [API] Room assignments from Supabase:', assignments?.length || 0, 'assignments');
+    console.log('🔍 [API] Room assignments data:', assignments?.map(a => ({
+      target_id: a.target_id,
+      room_id: a.room_id
+    })) || []);
+    
+    // Create a map of deviceId -> roomId (UUID)
+    const deviceRoomMap = new Map<string, string>();
+    assignments?.forEach((assignment: any) => {
+      deviceRoomMap.set(assignment.target_id, assignment.room_id);
+    });
+    
+    console.log('🔍 [API] Device room mapping:', Object.fromEntries(deviceRoomMap));
+    
+    // Map devices with proper Supabase room UUIDs
+    const mappedDevices = devices.map((device) => {
       const deviceId = device.id?.id || device.id;
-      // Get roomId directly from device additionalInfo (ThingsBoard approach)
-      const roomId = device.additionalInfo?.roomId || null;
+      const roomId = deviceRoomMap.get(deviceId) || null;
       
-      console.log('Mapping device:', { 
-        name: device.name, 
-        deviceId,
-        roomId, 
-        additionalInfo: device.additionalInfo 
-      });
+      console.log(`🔍 [API] Mapping device ${device.name} (${deviceId}) to room: ${roomId || 'unassigned'}`);
       
-      // Fetch latest telemetry data for this device
-      let telemetryData = {};
-      try {
-        const thingsBoardService = (await import('@/services/thingsboard')).default;
-        if (thingsBoardService.isAuthenticated()) {
-          const telemetry = await thingsBoardService.getLatestTelemetry(deviceId, [
-            'event', 'gameId', 'game_name', 'hits', 'device_name', 'created_at', 'method', 'params'
-          ]);
-          
-          // Extract the latest values
-          Object.entries(telemetry).forEach(([key, values]) => {
-            if (values && values.length > 0) {
-              telemetryData[key] = values[values.length - 1].value;
-            }
-          });
-        }
-      } catch (error) {
-        console.log(`Could not fetch telemetry for device ${deviceId}:`, error.message);
-      }
-
       return {
         ...device,
-        roomId,
-        telemetry: telemetryData,
-        // Extract useful telemetry data
-        lastEvent: telemetryData.event || null,
-        lastGameId: telemetryData.gameId || telemetryData.game_id || null,
-        lastGameName: telemetryData.game_name || null,
-        lastHits: telemetryData.hits ? parseInt(telemetryData.hits) : null,
-        lastActivity: telemetryData.created_at || null,
-        deviceName: telemetryData.device_name || device.name,
+        roomId, // Now this is a UUID string from Supabase (or null)
+        telemetry: {}, // Empty telemetry - will be fetched when needed
+        // Basic device info without telemetry
+        lastEvent: null,
+        lastGameId: null,
+        lastGameName: null,
+        lastHits: null,
+        lastActivity: null,
+        deviceName: device.name,
         // Additional metadata
         deviceType: device.type,
         createdTime: device.createdTime,
         additionalInfo: device.additionalInfo || {},
       };
-    }));
-
-    console.log('Mapped devices with room info:', mappedDevices.map(d => ({ 
-      name: d.name, 
-      roomId: d.roomId, 
-      roomName: d.additionalInfo?.roomName 
+    });
+    
+    console.log('🔍 [API] Final mapped devices:', mappedDevices.map(d => ({
+      name: d.name,
+      id: d.id?.id || d.id,
+      roomId: d.roomId,
+      deviceName: d.deviceName,
+      deviceType: d.deviceType
     })));
     
     return mappedDevices;
   } catch (error) {
-    console.error('Error mapping devices to rooms:', error);
+    console.error('❌ [API] Error mapping devices to rooms:', error);
     return devices;
   }
 }
@@ -156,113 +172,142 @@ export const API = {
   /* ----------  DEVICES  ---------- */
   /** "Targets" page = ThingsBoard devices */
   getTargets: async () => {
-    // Check cache first
+    console.log('🔍 [API] getTargets() called');
+    
+    // Check cache first with proper TTL
     const cached = cache.get(CACHE_KEYS.TARGETS);
     if (cached) {
-      console.log('🔍 API.getTargets - Using cached data:', cached.length, 'targets');
+      console.log('🔍 [API] Using cached data:', cached.length, 'targets');
+      console.log('🔍 [API] Cached targets summary:', cached.map(t => ({
+        id: t.id,
+        name: t.name,
+        status: t.status,
+        roomId: t.roomId
+      })));
       return cached;
     }
 
-    try {
-      // Check if we have a valid ThingsBoard token first
-      const tbToken = localStorage.getItem('tb_access');
-      if (!tbToken) {
-        console.log('🔍 API.getTargets - No ThingsBoard token, returning empty targets');
-        // Don't cache empty results - let it retry when token becomes available
-        return [];
-      }
-
-      // Get current user
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError || !user) {
-        console.log('🔍 API.getTargets - No authenticated user, returning empty targets');
-        // Don't cache empty results - let it retry when user becomes available
-        return [];
-      }
-
-      // Try to use existing ThingsBoard service without re-authentication
-      const thingsBoardService = (await import('@/services/thingsboard')).default;
-      
-      // Verify token is still valid by making a test call
-      let isTokenValid = false;
+    // Use deduplication to prevent multiple simultaneous calls
+    return deduplicateRequest('getTargets', async () => {
       try {
-        await thingsBoardService.getDevices(1, 0); // Fetch 1 device as validation
-        isTokenValid = true;
-        console.log('🔍 API.getTargets - Existing token is valid, using it');
-      } catch (error) {
-        console.log('🔍 API.getTargets - Token invalid, will need re-authentication:', error.message);
-      }
+        // Check if we have a valid ThingsBoard token first
+        const tbToken = localStorage.getItem('tb_access');
+        if (!tbToken) {
+          console.log('🔍 [API] No ThingsBoard token, returning empty targets');
+          // Don't cache empty results - let it retry when token becomes available
+          return [];
+        }
 
-      if (!isTokenValid) {
-        // Fall back to full authentication if token is invalid
-        console.log('🔍 API.getTargets - Token invalid, falling back to full auth');
-        const { user: authUser, thingsBoardData } = await ensureUserThingsBoardAuth();
-        
-        if (!thingsBoardData.isConnected || thingsBoardData.targets.length === 0) {
-          console.log('🔍 API.getTargets - No data available after auth for user:', authUser.email);
-          cache.set(CACHE_KEYS.TARGETS, [], 30000);
+        // Get current user
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        if (userError || !user) {
+          console.log('🔍 [API] No authenticated user, returning empty targets');
+          // Don't cache empty results - let it retry when user becomes available
           return [];
         }
         
+        console.log('🔍 [API] Authenticated user:', user.email);
+
+        // Try to use existing ThingsBoard service without re-authentication
+        const thingsBoardService = (await import('@/services/thingsboard')).default;
+        
+        // Verify token is still valid by making a test call
+        let isTokenValid = false;
+        try {
+          console.log('🔍 [API] Testing existing ThingsBoard token validity...');
+          await thingsBoardService.getDevices(1, 0); // Fetch 1 device as validation
+          isTokenValid = true;
+          console.log('🔍 [API] Existing token is valid, using it');
+        } catch (error) {
+          console.log('🔍 [API] Token invalid, will need re-authentication:', error.message);
+        }
+
+        if (!isTokenValid) {
+          // Fall back to full authentication if token is invalid
+          console.log('🔍 [API] Token invalid, falling back to full auth');
+          const { user: authUser, thingsBoardData } = await ensureUserThingsBoardAuth();
+          
+          if (!thingsBoardData.isConnected || thingsBoardData.targets.length === 0) {
+          console.log('🔍 [API] No data available after auth for user:', authUser.email);
+          cache.set(CACHE_KEYS.TARGETS, [], 300000); // Increased cache time to 5 minutes
+          return [];
+          }
+          
+          console.log('🔍 [API] Raw ThingsBoard targets after auth:', thingsBoardData.targets.length, 'devices');
+          console.log('🔍 [API] Raw targets data:', thingsBoardData.targets.map(t => ({
+            id: t.id?.id || t.id,
+            name: t.name,
+            type: t.type,
+            status: t.status
+          })));
+          
+          // Map the devices to include room information from our database
+          const mappedDevices = await mapDevicesToRooms(thingsBoardData.targets);
+          console.log('🔍 [API] Mapped devices result (after auth):', {
+            originalCount: thingsBoardData.targets.length,
+            mappedCount: mappedDevices.length,
+            mappedDevices: mappedDevices.map(d => ({
+              name: d.name,
+              id: d.id?.id || d.id,
+              status: d.status,
+              roomId: d.roomId
+            }))
+          });
+          
+          cache.set(CACHE_KEYS.TARGETS, mappedDevices, 300000); // Increased cache time to 5 minutes
+          return mappedDevices;
+        }
+
+        // Token is valid, fetch data directly
+        console.log('🔍 [API] Fetching data with valid token for user:', user.email);
+        
+        // Fetch devices directly from ThingsBoard
+        const devicesResponse = await thingsBoardService.getDevices();
+        const devices = devicesResponse.data || [];
+        
+        console.log('🔍 [API] Raw ThingsBoard devices response:', {
+          totalDevices: devices.length,
+          devices: devices.map(d => ({
+            id: d.id?.id || d.id,
+            name: d.name,
+            type: d.type,
+            status: d.status,
+            additionalInfo: d.additionalInfo
+          }))
+        });
+        
         // Map the devices to include room information from our database
-        const mappedDevices = await mapDevicesToRooms(thingsBoardData.targets);
-        console.log('🔍 API.getTargets - Mapped devices result (after auth):', {
-          originalCount: thingsBoardData.targets.length,
+        console.log('🔍 [API] Mapping devices to rooms...');
+        const mappedDevices = await mapDevicesToRooms(devices);
+        
+        console.log('🔍 [API] Final mapped devices result:', {
+          originalCount: devices.length,
           mappedCount: mappedDevices.length,
           mappedDevices: mappedDevices.map(d => ({
             name: d.name,
             id: d.id?.id || d.id,
             status: d.status,
-            roomId: d.roomId
+            roomId: d.roomId,
+            deviceName: d.deviceName,
+            deviceType: d.deviceType
           }))
         });
         
-        cache.set(CACHE_KEYS.TARGETS, mappedDevices, 30000);
+        cache.set(CACHE_KEYS.TARGETS, mappedDevices, 300000); // Increased cache time to 5 minutes
         return mappedDevices;
+      } catch (error) {
+        console.log('🔍 API.getTargets - Error, returning empty targets:', error.message);
+        cache.set(CACHE_KEYS.TARGETS, [], 300000); // Increased cache time to 5 minutes
+        return [];
       }
-
-      // Token is valid, fetch data directly
-      console.log('🔍 API.getTargets - Fetching data with valid token for user:', user.email);
-      
-      // Fetch devices directly from ThingsBoard
-      const devicesResponse = await thingsBoardService.getDevices();
-      const devices = devicesResponse.data || [];
-      
-      // Show all devices from ThingsBoard (no filtering)
-      console.log('🔍 API.getTargets - All devices (no filtering):', {
-        totalDevices: devices.length,
-        devices: devices.map(d => ({
-          name: d.name,
-          type: d.type,
-          status: d.status,
-          id: d.id?.id || d.id
-        }))
-      });
-      
-      // Map the devices to include room information from our database
-      const mappedDevices = await mapDevicesToRooms(devices);
-      console.log('🔍 API.getTargets - Mapped devices result (direct fetch):', {
-        originalCount: devices.length,
-        mappedCount: mappedDevices.length,
-        mappedDevices: mappedDevices.map(d => ({
-          name: d.name,
-          id: d.id?.id || d.id,
-          status: d.status,
-          roomId: d.roomId
-        }))
-      });
-      
-      cache.set(CACHE_KEYS.TARGETS, mappedDevices, 30000);
-      return mappedDevices;
-    } catch (error) {
-      console.log('🔍 API.getTargets - Error, returning empty targets:', error.message);
-      cache.set(CACHE_KEYS.TARGETS, [], 30000);
-      return [];
-    }
+    });
   },
 
   /** Wrapper for live telemetry WebSocket */
-  connectWebSocket: (token: string) => openTelemetryWS(token),
+  connectWebSocket: async (token: string) => {
+    const { openTelemetryWS } = await import('@/services/thingsboard');
+    return openTelemetryWS(token);
+  },
 
   /* ----------  TARGET MANAGEMENT  ---------- */
   createTarget: async (name: string, roomId: number | null) => {

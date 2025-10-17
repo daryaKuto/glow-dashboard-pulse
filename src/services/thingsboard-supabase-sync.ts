@@ -273,7 +273,17 @@ class ThingsBoardSupabaseSync {
    */
   private async storeSessionInSupabase(session: ThingsBoardSession): Promise<void> {
     try {
-      await supabaseRoomsService.storeSessionData({
+      // Get room ID from room name - we'll need to find the room first
+      const rooms = await supabaseRoomsService.getRoomsWithTargetCounts();
+      const room = rooms.find(r => r.name === session.roomName);
+      
+      if (!room) {
+        console.warn(`Room "${session.roomName}" not found, skipping session storage`);
+        return;
+      }
+
+      await supabaseRoomsService.storeSession({
+        room_id: room.id,
         room_name: session.roomName,
         scenario_name: session.scenarioName,
         scenario_type: 'standard',

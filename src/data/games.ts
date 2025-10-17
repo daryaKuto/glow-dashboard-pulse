@@ -32,3 +32,4 @@ export const GAMES: GameTemplate[] = [
 // Legacy export for backward compatibility
 export const SCENARIOS = GAMES;
 export type ScenarioTemplate = GameTemplate;
+

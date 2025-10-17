@@ -12,24 +12,45 @@ export default defineConfig(({ mode }) => ({
       '/api/tb': {
         target: 'https://thingsboard.cloud',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/tb/, '/api'),
+        rewrite: (path) => {
+          // Handle WebSocket paths differently
+          if (path.includes('/ws/')) {
+            return path.replace(/^\/api\/tb\/ws/, '/api/ws');
+          }
+          return path.replace(/^\/api\/tb/, '/api');
+        },
         secure: true,
-        ws: true, // Enable WebSocket proxying
+        ws: true,
         configure: (proxy, _options) => {
+          // Handle WebSocket upgrade errors gracefully
           proxy.on('error', (err, _req, _res) => {
             console.log('proxy error', err);
+            // Don't crash on EPIPE errors
+            if (err.code === 'EPIPE') {
+              console.log('EPIPE error ignored (client disconnected)');
+            }
           });
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
-            console.log('Sending Request to the Target:', req.method, req.url);
+          
+          // Proper WebSocket upgrade handling
+          proxy.on('proxyReqWs', (proxyReq, req, socket, _options, head) => {
+            console.log('Sending WebSocket Request to:', req.url);
+            
+            // Handle socket errors to prevent crashes
+            socket.on('error', (err) => {
+              console.log('WebSocket socket error:', err.message);
+            });
           });
+          
+          proxy.on('open', (proxySocket) => {
+            // Handle errors on the proxy socket
+            proxySocket.on('error', (err) => {
+              console.log('Proxy socket error:', err.message);
+            });
+          });
+          
+          // Keep existing logging
           proxy.on('proxyRes', (proxyRes, req, _res) => {
-            console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
-          });
-          proxy.on('proxyReqWs', (proxyReq, req, _socket, _head) => {
-            console.log('Sending WebSocket Request to the Target:', req?.url || 'unknown');
-          });
-          proxy.on('proxySocket', (proxySocket, req, _socket) => {
-            console.log('WebSocket connection established for:', req?.url || 'unknown');
+            console.log('Received Response:', proxyRes.statusCode, req.url);
           });
         },
       },

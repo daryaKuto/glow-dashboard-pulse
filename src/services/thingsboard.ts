@@ -179,6 +179,120 @@ class ThingsBoardService {
 
       const response = await api.get('/tenant/devices', { params });
 
+      // Return devices with real status information based on telemetry data
+      if (response.data && response.data.data) {
+        const devices = response.data.data;
+        
+        // Fetch telemetry for all devices in parallel to determine real status
+        console.log(`🔍 [ThingsBoard] Fetching status for ${devices.length} devices in parallel`);
+        const statusPromises = devices.map(device => 
+          this.getLatestTelemetry(device.id.id, [
+            'hits',           // Total shot count
+            'hit_ts',         // Last hit timestamp
+            'battery',        // Battery level
+            'wifiStrength',   // WiFi signal strength
+            'event',          // Last event type
+            'gameStatus'      // Current game status
+          ]).then(telemetry => {
+              // Check last activity timestamp - look for any recent telemetry data
+              console.log(`🔍 [ThingsBoard] Raw telemetry for ${device.name}:`, telemetry);
+              
+              // Check for ANY telemetry key with a timestamp for connection status
+              let lastActivity = 0;
+              if (telemetry?.hit_ts?.[0]?.ts) {
+                lastActivity = telemetry.hit_ts[0].ts;
+              } else if (telemetry?.hits?.[0]?.ts) {
+                lastActivity = telemetry.hits[0].ts;
+              } else if (telemetry) {
+                // Check for any telemetry key with a timestamp
+                const telemetryKeys = Object.keys(telemetry);
+                for (const key of telemetryKeys) {
+                  if (Array.isArray(telemetry[key]) && telemetry[key].length > 0 && telemetry[key][0].ts) {
+                    lastActivity = Math.max(lastActivity, telemetry[key][0].ts);
+                  }
+                }
+              }
+              
+              // Extract real telemetry values (no defaults!)
+              const battery = telemetry?.battery?.[0]?.value || null;
+              const wifiStrength = telemetry?.wifiStrength?.[0]?.value || null;
+              const lastEvent = telemetry?.event?.[0]?.value || null;
+              const gameStatus = telemetry?.gameStatus?.[0]?.value || null;
+              
+              const now = Date.now();
+              const timeDiff = now - lastActivity;
+              const isOnline = lastActivity > 0 && timeDiff < 600000; // 10 min
+              
+              console.log(`📊 [ThingsBoard] Device ${device.name} status calculation:`, {
+                lastActivity,
+                lastActivityReadable: lastActivity ? new Date(lastActivity).toISOString() : 'never',
+                now: new Date(now).toISOString(),
+                timeDiffMinutes: Math.round(timeDiff / 60000),
+                isOnline,
+                battery,
+                wifiStrength,
+                lastEvent,
+                gameStatus,
+                telemetryKeys: telemetry ? Object.keys(telemetry) : 'none'
+              });
+              
+              return { 
+                deviceId: device.id.id, 
+                status: isOnline ? 'online' : 'offline', 
+                lastActivityTime: lastActivity,
+                battery: battery,
+                wifiStrength: wifiStrength,
+                lastEvent: lastEvent,
+                gameStatus: gameStatus
+              };
+            })
+            .catch(error => {
+              console.warn(`⚠️ [ThingsBoard] Failed to get status for device ${device.name}:`, error);
+              return { 
+                deviceId: device.id.id, 
+                status: 'offline', 
+                lastActivityTime: null 
+              };
+            })
+        );
+
+        const statusResults = await Promise.allSettled(statusPromises);
+        const statusMap = new Map();
+        statusResults.forEach(result => {
+          if (result.status === 'fulfilled') {
+            statusMap.set(result.value.deviceId, result.value);
+          }
+        });
+
+        // Apply real status to devices
+        const enhancedDevices = devices.map(device => {
+          const deviceStatus = statusMap.get(device.id.id);
+          return {
+            ...device,
+            status: deviceStatus?.status || 'offline',
+            lastActivityTime: deviceStatus?.lastActivityTime || null,
+            active: deviceStatus?.status === 'online',
+            gameStatus: deviceStatus?.gameStatus || null,
+            gameId: null,
+            battery: deviceStatus?.battery || null,  // Real battery or null
+            wifiStrength: deviceStatus?.wifiStrength || null,  // Real WiFi or null
+            lastEvent: deviceStatus?.lastEvent || null,
+            ambientLight: null  // Only show if we have real data
+          };
+        });
+        
+        console.log(`✅ [ThingsBoard] Status determination complete:`, enhancedDevices.map(d => ({
+          name: d.name,
+          status: d.status,
+          lastActivity: d.lastActivityTime ? new Date(d.lastActivityTime).toISOString() : 'never'
+        })));
+        
+        return {
+          ...response.data,
+          data: enhancedDevices
+        };
+      }
+
       return response.data;
     } catch (error) {
       console.error('Failed to get devices:', error);
@@ -268,6 +382,9 @@ class ThingsBoardService {
     }
 
     try {
+      console.log(`🔍 [ThingsBoard] Getting latest telemetry for device: ${deviceId}`);
+      console.log(`🔍 [ThingsBoard] Requested keys: ${keys.join(', ')}`);
+      
       const response = await api.get(`/plugins/telemetry/DEVICE/${deviceId}/values/timeseries`, {
         params: {
           keys: keys.join(','),
@@ -275,11 +392,99 @@ class ThingsBoardService {
         }
       });
 
+      console.log(`📊 [ThingsBoard] Raw telemetry response for ${deviceId}:`, response.data);
+      
+      // Log parsed telemetry data for shot verification
+      if (response.data) {
+        Object.entries(response.data).forEach(([key, value]) => {
+          if (Array.isArray(value) && value.length > 0) {
+            const latestValue = value[value.length - 1];
+            console.log(`📊 [ThingsBoard] ${deviceId} - ${key}:`, {
+              value: latestValue.value,
+              timestamp: latestValue.ts,
+              readableTime: new Date(latestValue.ts).toISOString()
+            });
+          } else {
+            console.log(`📊 [ThingsBoard] ${deviceId} - ${key}: No data`);
+          }
+        });
+      } else {
+        console.log(`📊 [ThingsBoard] ${deviceId} - No telemetry data received`);
+      }
+
       return response.data;
     } catch (error) {
-      console.error('Failed to get latest telemetry:', error);
+      console.error(`❌ [ThingsBoard] Failed to get latest telemetry for ${deviceId}:`, error);
       throw error;
     }
+  }
+
+  // Batch telemetry for multiple devices - optimized for shooting activity polling
+  async getBatchTelemetry(deviceIds: string[], keys: string[]): Promise<Map<string, TelemetryData>> {
+    const token = localStorage.getItem('tb_access');
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    try {
+      console.log(`🔍 [ThingsBoard] Getting batch telemetry for ${deviceIds.length} devices`);
+      console.log(`🔍 [ThingsBoard] Requested keys: ${keys.join(', ')}`);
+      
+      // Use ThingsBoard batch API for better performance
+      const response = await api.post('/plugins/telemetry/DEVICE/values/timeseries', {
+        deviceIds: deviceIds,
+        keys: keys,
+        limit: 1
+      });
+
+      console.log(`📊 [ThingsBoard] Batch telemetry response:`, response.data);
+      
+      // Convert response to Map for easy lookup
+      const telemetryMap = new Map<string, TelemetryData>();
+      if (response.data && Array.isArray(response.data)) {
+        response.data.forEach((item: any) => {
+          if (item.deviceId && item.telemetry) {
+            telemetryMap.set(item.deviceId, item.telemetry);
+          }
+        });
+      }
+      
+      return telemetryMap;
+    } catch (error) {
+      console.error(`Failed to get batch telemetry:`, error);
+      // Fallback to individual requests if batch fails
+      console.log('🔄 [ThingsBoard] Batch telemetry failed, falling back to individual requests');
+      return this.getBatchTelemetryFallback(deviceIds, keys);
+    }
+  }
+
+  // Fallback method for batch telemetry using individual requests
+  private async getBatchTelemetryFallback(deviceIds: string[], keys: string[]): Promise<Map<string, TelemetryData>> {
+    const telemetryMap = new Map<string, TelemetryData>();
+    
+    // Process in smaller batches to avoid overwhelming the API
+    const batchSize = 5;
+    for (let i = 0; i < deviceIds.length; i += batchSize) {
+      const batch = deviceIds.slice(i, i + batchSize);
+      const promises = batch.map(async (deviceId) => {
+        try {
+          const telemetry = await this.getLatestTelemetry(deviceId, keys);
+          return { deviceId, telemetry };
+        } catch (error) {
+          console.warn(`Failed to get telemetry for device ${deviceId}:`, error);
+          return { deviceId, telemetry: {} };
+        }
+      });
+      
+      const results = await Promise.allSettled(promises);
+      results.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          telemetryMap.set(result.value.deviceId, result.value.telemetry);
+        }
+      });
+    }
+    
+    return telemetryMap;
   }
 
   async getHistoricalTelemetry(
@@ -295,6 +500,10 @@ class ThingsBoardService {
     }
 
     try {
+      console.log(`🔍 [ThingsBoard] Getting historical telemetry for device: ${deviceId}`);
+      console.log(`🔍 [ThingsBoard] Time range: ${new Date(startTs).toISOString()} to ${new Date(endTs).toISOString()}`);
+      console.log(`🔍 [ThingsBoard] Requested keys: ${keys.join(', ')}`);
+      
       const response = await api.get(`/plugins/telemetry/DEVICE/${deviceId}/values/timeseries`, {
         params: {
           keys: keys.join(','),
@@ -304,22 +513,45 @@ class ThingsBoardService {
         }
       });
 
+      console.log(`📊 [ThingsBoard] Historical telemetry response for ${deviceId}:`, response.data);
+      
+      // Log summary of historical data for shot verification
+      if (response.data) {
+        Object.entries(response.data).forEach(([key, value]) => {
+          if (Array.isArray(value) && value.length > 0) {
+            console.log(`📊 [ThingsBoard] ${deviceId} - ${key} (${value.length} records):`, {
+              firstValue: value[0]?.value,
+              firstTimestamp: value[0]?.ts,
+              lastValue: value[value.length - 1]?.value,
+              lastTimestamp: value[value.length - 1]?.ts,
+              readableFirstTime: value[0] ? new Date(value[0].ts).toISOString() : 'N/A',
+              readableLastTime: value[value.length - 1] ? new Date(value[value.length - 1].ts).toISOString() : 'N/A'
+            });
+          } else {
+            console.log(`📊 [ThingsBoard] ${deviceId} - ${key}: No historical data`);
+          }
+        });
+      } else {
+        console.log(`📊 [ThingsBoard] ${deviceId} - No historical telemetry data received`);
+      }
+
       return response.data;
     } catch (error) {
-      console.error('Failed to get historical telemetry:', error);
+      console.error(`❌ [ThingsBoard] Failed to get historical telemetry for ${deviceId}:`, error);
       throw error;
     }
   }
 
   // Device Attributes
-  async getDeviceAttributes(deviceId: string, scope: string = 'SHARED_SCOPE'): Promise<Record<string, any>> {
+  async getDeviceAttributes(deviceId: string, scope: string = 'SHARED_SCOPE'): Promise<any[]> {
     const token = localStorage.getItem('tb_access');
     if (!token) {
       throw new Error('Not authenticated');
     }
 
     try {
-      const response = await api.get(`/plugins/telemetry/DEVICE/${deviceId}/values/attributes/${scope}`);
+      // Use the correct API endpoint for device attributes
+      const response = await api.get(`/plugins/telemetry/DEVICE/${deviceId}/values/attributes`);
 
       return response.data;
     } catch (error) {
@@ -626,22 +858,99 @@ export const listDevices = async () => {
   return result.data;
 };
 export const latestTelemetry = (deviceId: string, keys: string[]) => thingsBoardService.getLatestTelemetry(deviceId, keys);
+export const batchTelemetry = (deviceIds: string[], keys: string[]) => thingsBoardService.getBatchTelemetry(deviceIds, keys);
 export const updateSharedAttributes = (deviceId: string, attributes: Record<string, any>) => 
   thingsBoardService.setDeviceAttributes(deviceId, attributes, 'SHARED_SCOPE');
 export const getDeviceWifiCredentials = (deviceId: string) => thingsBoardService.getDeviceWifiCredentials(deviceId);
 export const setDeviceWifiCredentials = (deviceId: string, ssid: string, password: string) => 
   thingsBoardService.setDeviceWifiCredentials(deviceId, ssid, password);
 
-// WebSocket function for telemetry - use proxy for development
+// WebSocket function for telemetry - enabled in development with proper fallback
 export const openTelemetryWS = (token: string) => {
-  // In development, use the proxy to avoid CORS issues
   const isDev = import.meta.env.DEV;
-  const baseURL = isDev ? window.location.origin : 'https://thingsboard.cloud';
-  const wsPath = isDev ? '/api/tb/ws/plugins/telemetry' : '/api/ws/plugins/telemetry';
-  const wsUrl = baseURL.replace('http://', 'ws://').replace('https://', 'wss://') + wsPath + '?token=' + token;
+  
+  // In development, try to use WebSocket with fallback to polling
+  if (isDev) {
+    console.log('[ThingsBoard] Attempting WebSocket connection in development mode');
+    
+    try {
+      // Try to create WebSocket connection
+      const baseURL = 'https://thingsboard.cloud';
+      const wsPath = '/api/ws/plugins/telemetry';
+      const wsUrl = baseURL.replace('https://', 'wss://') + wsPath + '?token=' + token;
+      
+      console.log('[ThingsBoard] Opening WebSocket connection to:', wsUrl);
+      
+      const ws = new WebSocket(wsUrl);
+      
+      // Add error handling with fallback
+      ws.onerror = (error) => {
+        console.warn('[ThingsBoard] WebSocket error in dev mode, falling back to polling:', error);
+      };
+      
+      ws.onclose = (event) => {
+        console.log('[ThingsBoard] WebSocket closed in dev mode:', event.code, event.reason || 'No reason provided');
+      };
+      
+      ws.onopen = () => {
+        console.log('[ThingsBoard] WebSocket connected successfully in dev mode');
+      };
+      
+      return ws;
+    } catch (error) {
+      console.warn('[ThingsBoard] WebSocket creation failed in dev mode, using polling only:', error);
+      
+      // Return a mock WebSocket as fallback
+      return {
+        readyState: WebSocket.CLOSED,
+        onopen: null,
+        onclose: null,
+        onmessage: null,
+        onerror: null,
+        send: () => {
+          console.log('[ThingsBoard] Mock WebSocket: send() called (WebSocket failed in dev)');
+        },
+        close: () => {
+          console.log('[ThingsBoard] Mock WebSocket: close() called');
+        },
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+        url: '',
+        protocol: '',
+        extensions: '',
+        bufferedAmount: 0,
+        CONNECTING: 0,
+        OPEN: 1,
+        CLOSING: 2,
+        CLOSED: 3,
+      } as WebSocket;
+    }
+  }
+  
+  // In production, use direct WebSocket connection
+  const baseURL = 'https://thingsboard.cloud';
+  const wsPath = '/api/ws/plugins/telemetry';
+  const wsUrl = baseURL.replace('https://', 'wss://') + wsPath + '?token=' + token;
   
   console.log('[ThingsBoard] Opening WebSocket connection to:', wsUrl);
-  return new WebSocket(wsUrl);
+  
+  const ws = new WebSocket(wsUrl);
+  
+  // Add error handling to prevent unhandled errors
+  ws.onerror = (error) => {
+    console.warn('[ThingsBoard] WebSocket error (non-fatal):', error);
+  };
+  
+  ws.onclose = (event) => {
+    console.log('[ThingsBoard] WebSocket closed:', event.code, event.reason || 'No reason provided');
+  };
+  
+  ws.onopen = () => {
+    console.log('[ThingsBoard] WebSocket connected successfully');
+  };
+  
+  return ws;
 };
 
 export default thingsBoardService; 

@@ -5,7 +5,8 @@ export interface Target {
   id: string;
   name: string;
   status: 'online' | 'offline';
-  battery?: number;
+  battery?: number | null;          // Real battery or null
+  wifiStrength?: number | null;     // Real WiFi or null
   roomId?: number | null;
   // New telemetry data from ThingsBoard
   telemetry?: Record<string, any>;
@@ -14,6 +15,7 @@ export interface Target {
   lastGameName?: string | null;
   lastHits?: number | null;
   lastActivity?: string | null;
+  lastActivityTime?: number | null;
   deviceName?: string;
   deviceType?: string;
   createdTime?: number;
@@ -30,6 +32,7 @@ interface TargetsState {
   isLoading:  boolean;
   error:      Error | null;
   refresh:    () => Promise<void>;
+  setTargets: (targets: Target[]) => void;
   clearCache: () => void;
 }
 
@@ -95,6 +98,20 @@ export const useTargets = create<TargetsState>((set) => ({
       console.error('🔍 useTargets.refresh - Error:', err);
       set({ error: err as Error, isLoading: false });
     }
+  },
+
+  setTargets: (targets: Target[]) => {
+    console.log('🔍 useTargets.setTargets - Setting targets in store:', {
+      count: targets.length,
+      targets: targets.map(t => ({
+        name: t.name,
+        id: t.id,
+        status: t.status,
+        roomId: t.roomId
+      }))
+    });
+    set({ targets, isLoading: false, error: null });
+    console.log('🔍 useTargets.setTargets - Store updated successfully');
   },
 
   clearCache: () => {

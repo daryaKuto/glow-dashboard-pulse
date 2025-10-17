@@ -37,7 +37,7 @@ export const useInitialSync = () => {
     syncStartedRef.current = false;
   }, [user?.id]);
 
-  // Perform ONE-TIME sync when user is available
+  // Perform ONE-TIME sync when user is available - NON-BLOCKING
   useEffect(() => {
     console.log('🔄 useInitialSync useEffect:', { 
       user: user?.email, 
@@ -50,7 +50,7 @@ export const useInitialSync = () => {
     // Check if ThingsBoard is already authenticated
     const tbToken = localStorage.getItem('tb_access');
     if (tbToken) {
-      console.log('🔄 ThingsBoard already authenticated, skipping sync');
+      console.log('🔄 ThingsBoard already authenticated, marking as ready immediately');
       setSyncStatus({
         isComplete: true,
         isLoading: false,
@@ -62,9 +62,12 @@ export const useInitialSync = () => {
     
     // Only start sync when user is available and not already syncing
     if (user && !syncStatus.isComplete && !syncStatus.isLoading && !loading && !syncStartedRef.current) {
-      console.log('🔄 Triggering sync for user:', user.email);
+      console.log('🔄 Triggering background sync for user:', user.email);
       syncStartedRef.current = true;
-      performInitialSync();
+      // Don't await - let sync run in background
+      performInitialSync().catch(error => {
+        console.warn('Background sync failed:', error);
+      });
     }
   }, [user, loading]); // Removed syncStatus dependencies to prevent infinite loop
 
@@ -143,8 +146,9 @@ export const useInitialSync = () => {
     await performInitialSync();
   };
 
-  // Ready if sync is complete, failed, or if we've been trying for more than 10 seconds
-  const isReady = syncStatus.isComplete || !!syncStatus.error || (syncStatus.isLoading && syncStatus.startTime && Date.now() - syncStatus.startTime > 10000);
+  // Ready immediately if ThingsBoard token exists, otherwise after sync completes or fails
+  const tbToken = localStorage.getItem('tb_access');
+  const isReady = !!tbToken || syncStatus.isComplete || !!syncStatus.error || (syncStatus.isLoading && syncStatus.startTime && Date.now() - syncStatus.startTime > 5000);
   
   console.log('🔄 useInitialSync status:', {
     isComplete: syncStatus.isComplete,

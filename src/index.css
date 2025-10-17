@@ -40,6 +40,26 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Smooth scrolling for better UX */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Ensure smooth scrolling works on all elements */
+* {
+  scroll-behavior: smooth;
+}
+
+/* Hide scrollbar but keep scrolling functionality */
+html {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* Internet Explorer 10+ */
+}
+
+html::-webkit-scrollbar {
+  display: none; /* WebKit */
+}
+
 @layer base {
   :root {
     /* Brand Colors - Light Theme */

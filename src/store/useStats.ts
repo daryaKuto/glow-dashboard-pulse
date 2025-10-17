@@ -26,14 +26,7 @@ const initialState: StatsState = {
   roomsCreated: 0,
   lastScenarioScore: 0,
   pendingInvites: 0,
-  hitTrend: Array.from({ length: 7 }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() - (6 - i));
-    return { 
-      date: date.toISOString().split('T')[0], 
-      hits: Math.floor(Math.random() * 100) 
-    };
-  }),
+  hitTrend: [], // Empty array - no mock data
   isLoading: true,
   error: null,
   wsConnected: false,

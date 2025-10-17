@@ -2,16 +2,13 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useRooms, type Room } from '@/store/useRooms';
 import { toast } from '@/components/ui/sonner';
-import { useDemoMode } from '@/providers/DemoModeProvider';
-import { apiWrapper } from '@/services/api-wrapper';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useShootingActivityPolling, type TargetShootingActivity } from '@/hooks/useShootingActivityPolling';
 import { useThingsBoardSync } from '@/hooks/useThingsBoardSync';
-import ShootingStatusBanner from '@/components/shared/ShootingStatusBanner';
-import { Target } from '@/store/useTargets';
+import { Target, useTargets } from '@/store/useTargets';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -47,42 +44,51 @@ const TargetCard: React.FC<{
   onDelete: () => void;
 }> = ({ target, room, activity, onEdit, onDelete }) => {
   const isMobile = useIsMobile();
-  const isOnline = target.status === 'online';
-  const batteryLevel = target.battery || 0; // Use real battery data or 0 if not available
+  const batteryLevel = target.battery; // Real battery data or null
+  const wifiStrength = target.wifiStrength; // Real WiFi strength or null
   
-  // Get shooting activity status from the polling system
-  const shootingStatus = activity ? {
-    isActivelyShooting: activity.isActivelyShooting,
-    isRecentlyActive: activity.isRecentlyActive,
-    isStandby: activity.isStandby,
-    lastShotTime: activity.lastShotTime,
-    totalShots: activity.totalShots
-  } : {
-    isActivelyShooting: false,
-    isRecentlyActive: false,
-    isStandby: true,
-    lastShotTime: 0,
-    totalShots: 0
-  };
+  // Use activity data directly from ThingsBoard (no custom calculations)
+  const totalShots = activity?.totalShots || 0;
+  const lastShotTime = activity?.lastShotTime || 0;
+
+  // Use ThingsBoard status as single source of truth
+  const isOnline = target.status === 'online';
+
+  // Log displayed values for verification (only in debug mode)
+  const isDebugMode = localStorage.getItem('DEBUG_SHOT_RECORDS') === 'true';
+  if (isDebugMode) {
+    console.log(`📊 [TargetCard] ${target.name} (${target.id}) - ThingsBoard data only:`, {
+      deviceId: target.id,
+      deviceName: target.name,
+      status: target.status,
+      roomId: target.roomId,
+      battery: target.battery,
+      wifiStrength: target.wifiStrength,
+      totalShots: totalShots,
+      lastShotTime: lastShotTime,
+      lastShotTimeReadable: lastShotTime ? new Date(lastShotTime).toISOString() : 'Never'
+    });
+  }
 
   return (
     <Card className="bg-white border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 rounded-sm md:rounded-lg">
       <CardContent className="p-2 md:p-6">
-        <div className="flex items-start justify-between mb-2 md:mb-4">
-          <div className="flex-1 flex flex-col items-center">
-            <div className="flex items-center gap-1 md:gap-2 mb-1">
-              <div className={`w-2 h-2 md:w-4 md:h-4 rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-              <h3 className="font-heading font-semibold text-brand-dark text-xs md:text-base text-center">{target.name}</h3>
+        <div className="flex items-start justify-between mb-2 md:mb-4 gap-2">
+          <div className="flex-1 flex flex-col items-center min-w-0">
+            <div className="flex items-center gap-1 md:gap-2 mb-1 w-full max-w-full">
+              <div className={`w-2 h-2 md:w-4 md:h-4 rounded-full flex-shrink-0 ${isOnline ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+              <h3 className="font-heading font-semibold text-brand-dark text-xs md:text-base text-center break-words overflow-hidden text-ellipsis flex-1 min-w-0" title={target.name}>{target.name}</h3>
             </div>
           </div>
           
-          <DropdownMenu>
+          <div className="flex-shrink-0">
+            <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-5 w-5 md:h-8 md:w-8 p-0 flex-shrink-0">
                 <MoreVertical className="h-2.5 w-2.5 md:h-4 md:w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="bg-white border border-gray-200 shadow-lg">
               <DropdownMenuItem onClick={onEdit}>
                 <Settings className="h-3 w-3 md:h-4 md:w-4 mr-2" />
                 <span className="text-xs md:text-sm">Edit</span>
@@ -93,6 +99,7 @@ const TargetCard: React.FC<{
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         </div>
 
         <div className="space-y-1 md:space-y-3">
@@ -109,7 +116,7 @@ const TargetCard: React.FC<{
               </span>
             </div>
             
-            {isOnline && (
+            {isOnline && batteryLevel !== null && (
               <div className="flex items-center gap-1 md:gap-2">
                 <Battery className="h-2.5 w-2.5 md:h-4 md:w-4 text-brand-secondary" />
                 <span className="text-xs md:text-sm text-brand-dark/70">{batteryLevel}%</span>
@@ -130,47 +137,39 @@ const TargetCard: React.FC<{
               )}
             </div>
             
-            <div className="flex items-center justify-center gap-1">
-              {shootingStatus.isActivelyShooting ? (
-                <>
-                  <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-red-500 rounded-full animate-pulse"></div>
-                  <span className="text-xs md:text-sm text-red-600 font-medium">Active</span>
-                </>
-              ) : shootingStatus.isRecentlyActive ? (
-                <>
-                  <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-yellow-500 rounded-full"></div>
-                  <span className="text-xs md:text-sm text-yellow-600 font-medium">Recent</span>
-                </>
-              ) : (
-                <>
-                  <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-gray-400 rounded-full"></div>
-                  <span className="text-xs md:text-sm text-gray-600 font-medium">Standby</span>
-                </>
-              )}
-            </div>
           </div>
 
           {/* Target Statistics */}
           <div className="space-y-1 md:space-y-2 pt-1 md:pt-2 border-t border-gray-100">
             <div className="text-center">
-              <div className="text-sm md:text-2xl font-bold text-brand-primary font-heading">
-                {shootingStatus.totalShots}
-              </div>
+              {activity ? (
+                <div className="text-sm md:text-2xl font-bold text-brand-primary font-heading">
+                  {totalShots}
+                </div>
+              ) : (
+                <div className="h-6 md:h-8 w-12 md:w-16 bg-gray-200 rounded mx-auto animate-pulse"></div>
+              )}
               <div className="text-xs md:text-sm text-brand-dark/70 font-body">Total Shots{!isMobile && ' Recorded'}</div>
             </div>
             
             {/* Last Activity */}
-            {shootingStatus.lastShotTime > 0 ? (
-              <div className="text-center pt-0.5 md:pt-2">
-                <div className="text-xs text-brand-dark/50 font-body">
-                  Last: {new Date(shootingStatus.lastShotTime).toLocaleDateString()}{!isMobile && ` at ${new Date(shootingStatus.lastShotTime).toLocaleTimeString()}`}
+            {activity ? (
+              lastShotTime > 0 ? (
+                <div className="text-center pt-0.5 md:pt-2">
+                  <div className="text-xs text-brand-dark/50 font-body">
+                    Last: {new Date(lastShotTime).toLocaleDateString()}{!isMobile && ` at ${new Date(lastShotTime).toLocaleTimeString()}`}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="text-center pt-0.5 md:pt-2">
+                  <div className="text-xs text-brand-dark/50 font-body">
+                    No activity{!isMobile && ' recorded'}
+                  </div>
+                </div>
+              )
             ) : (
               <div className="text-center pt-0.5 md:pt-2">
-                <div className="text-xs text-brand-dark/50 font-body">
-                  No activity{!isMobile && ' recorded'}
-                </div>
+                <div className="h-3 w-32 md:w-40 bg-gray-200 rounded mx-auto animate-pulse"></div>
               </div>
             )}
           </div>
@@ -188,20 +187,6 @@ const TargetCard: React.FC<{
               {isOnline ? 'Online' : 'Offline'}
             </Badge>
             
-            <Badge 
-              variant="outline"
-              className={`text-xs rounded-sm md:rounded ${
-                shootingStatus.isActivelyShooting 
-                  ? 'bg-red-50 text-red-700 border-red-200' 
-                  : shootingStatus.isRecentlyActive
-                  ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                  : 'bg-gray-50 text-gray-600 border-gray-200'
-              }`}
-            >
-              {shootingStatus.isActivelyShooting ? '🎯' + (!isMobile ? ' Shooting' : '') : 
-               shootingStatus.isRecentlyActive ? '⏱️' + (!isMobile ? ' Recent' : '') : 
-               '😴' + (!isMobile ? ' Standby' : '')}
-            </Badge>
           </div>
         </div>
       </CardContent>
@@ -247,12 +232,11 @@ const Targets: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-  const { isDemoMode } = useDemoMode();
   const { rooms: liveRooms, isLoading: roomsLoading, fetchRooms, getAllTargetsWithAssignments } = useRooms();
   const { forceSync: forceThingsBoardSync } = useThingsBoardSync();
+  const { setTargets: setTargetsStore } = useTargets();
   
   // Local state
-  const [demoRooms, setDemoRooms] = useState<Room[]>([]);
   const [targets, setTargets] = useState<Target[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   
@@ -264,8 +248,8 @@ const Targets: React.FC = () => {
   
   const CACHE_DURATION = 30000; // 30 seconds
   
-  // Use demo or live rooms based on mode
-  const rooms = isDemoMode ? demoRooms : liveRooms;
+  // Use live rooms
+  const rooms = liveRooms;
   const [searchTerm, setSearchTerm] = useState('');
   const [roomFilter, setRoomFilter] = useState<string>('all');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -280,76 +264,168 @@ const Targets: React.FC = () => {
 
   // Fetch targets with room assignments (optimized with caching)
   const fetchTargetsWithAssignments = useCallback(async () => {
+    console.log('🔍 [Targets] fetchTargetsWithAssignments() called');
+    
     // Check cache first
     if (dataCache && Date.now() - dataCache.fetchTime < CACHE_DURATION) {
-      console.log('✅ Using cached targets data');
+      console.log('✅ [Targets] Using cached targets data:', dataCache.targets.length, 'targets');
+      console.log('✅ [Targets] Cached targets summary:', dataCache.targets.map(t => ({
+        id: t.id,
+        name: t.name,
+        status: t.status,
+        roomId: t.roomId
+      })));
       setTargets(dataCache.targets);
       return;
     }
 
     setIsLoading(true);
     try {
-      console.log(`🔄 Targets page: Fetching targets (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+      console.log('🔄 [Targets] Fetching targets (LIVE mode)...');
       
-      if (isDemoMode) {
-        // Demo mode: use mock targets
-        const mockTargets = await apiWrapper.getTargets(true);
-        setTargets(mockTargets);
-        setDataCache({ targets: mockTargets, fetchTime: Date.now() });
-        console.log('✅ DEMO: Loaded mock targets:', mockTargets.length);
-      } else {
-        // Live mode: use real targets with assignments
-        const targetsWithAssignments = await getAllTargetsWithAssignments();
-        setTargets(targetsWithAssignments);
-        setDataCache({ targets: targetsWithAssignments, fetchTime: Date.now() });
-        console.log('✅ LIVE: Loaded real targets:', targetsWithAssignments.length);
+      // Live mode: use real targets directly from API
+      console.log('🔄 [Targets] LIVE: Fetching targets directly from API...');
+      try {
+        const { API } = await import('@/lib/api');
+        const rawTargets = await API.getTargets();
+        console.log('🔄 [Targets] LIVE: API.getTargets returned:', {
+          count: Array.isArray(rawTargets) ? rawTargets.length : 0,
+          isArray: Array.isArray(rawTargets),
+          sample: Array.isArray(rawTargets) ? rawTargets[0] : 'No data'
+        });
+        
+        // Transform to Target format
+        const transformedTargets = Array.isArray(rawTargets) ? rawTargets.map((target: any) => ({
+          id: target.id?.id || target.id,
+          name: target.name,
+          status: target.status || 'offline', // Use real status from ThingsBoard, default to offline
+          battery: target.battery || null, // Real battery or null (no default!)
+          wifiStrength: target.wifiStrength || null, // Real WiFi or null (no default!)
+          roomId: target.roomId || null,
+          telemetry: target.telemetry || {},
+          lastEvent: target.lastEvent || null,
+          lastGameId: target.lastGameId || null,
+          lastGameName: target.lastGameName || null,
+          lastHits: target.lastHits || null,
+          lastActivity: target.lastActivity || null,
+          lastActivityTime: target.lastActivityTime || null, // Include lastActivityTime from ThingsBoard
+          deviceName: target.deviceName || target.name,
+          deviceType: target.deviceType || 'default',
+          createdTime: target.createdTime || null,
+          additionalInfo: target.additionalInfo || {},
+        })) : [];
+        
+        console.log('🔄 [Targets] LIVE: Transformed targets:', transformedTargets.map(t => ({
+          id: t.id,
+          name: t.name,
+          status: t.status,
+          roomId: t.roomId,
+          deviceName: t.deviceName,
+          deviceType: t.deviceType
+        })));
+        
+        setTargets(transformedTargets);
+        setDataCache({ targets: transformedTargets, fetchTime: Date.now() });
+        console.log('✅ [Targets] LIVE: Loaded real targets:', transformedTargets.length);
+        
+        // Populate Zustand store for shooting activity polling
+        console.log('🔄 [Targets] LIVE: Populating Zustand store with real targets...');
+        console.log('🔄 [Targets] LIVE: About to call setTargetsStore with:', transformedTargets.length, 'targets');
+        setTargetsStore(transformedTargets);
+        console.log('🔄 [Targets] LIVE: setTargetsStore called successfully');
+      } catch (error) {
+        console.error('❌ [Targets] LIVE: Error fetching targets directly:', error);
+        setTargets([]);
       }
     } catch (error) {
-      console.error('Error fetching targets:', error);
+      console.error('❌ [Targets] Error fetching targets:', error);
       setTargets([]);
     } finally {
       setIsLoading(false);
     }
-  }, [isDemoMode, getAllTargetsWithAssignments, dataCache]);
+  }, [getAllTargetsWithAssignments, dataCache]);
 
   // Smart polling system for targets data (optimized with parallel fetching)
   const fetchTargetsData = useCallback(async () => {
     console.log('🔄 Setting loading to true');
     setIsLoading(true);
     try {
-      console.log(`🔄 Polling targets data (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+      console.log('🔄 Polling targets data (LIVE mode)...');
       
-      if (isDemoMode) {
-        // Demo mode: fetch in parallel
-        const [mockRooms, mockTargets] = await Promise.all([
-          apiWrapper.getRooms(true),
-          apiWrapper.getTargets(true)
-        ]);
-        
-        const transformedRooms = mockRooms.map((room) => ({
-          id: room.id,
-          name: room.name,
-          order: room.order_index || 0,
-          targetCount: 0,
-          icon: room.icon,
-          room_type: room.room_type
-        }));
-        
-        setDemoRooms(transformedRooms);
-        setTargets(mockTargets);
-        setDataCache({ targets: mockTargets, fetchTime: Date.now() });
-        console.log('✅ DEMO: Set targets and cache:', mockTargets.length, 'targets');
-      } else {
-        // Live mode: fetch in parallel with proper error handling
-        const [, targetsData] = await Promise.all([
-          fetchRooms(),
-          getAllTargetsWithAssignments()
-        ]);
-        
-        setTargets(targetsData);
-        setDataCache({ targets: targetsData, fetchTime: Date.now() });
-        console.log('✅ LIVE: Set targets and cache:', targetsData.length, 'targets');
-      }
+      // Live mode: fetch in parallel with direct API calls
+      try {
+          const [roomsResult, targetsResult] = await Promise.allSettled([
+            fetchRooms(),
+            (async () => {
+              const { API } = await import('@/lib/api');
+              const rawTargets = await API.getTargets();
+              
+              // Transform to Target format
+              return Array.isArray(rawTargets) ? rawTargets.map((target: any) => ({
+                id: target.id?.id || target.id,
+                name: target.name,
+                status: target.status || 'offline', // Use real status from ThingsBoard, default to offline
+                battery: target.battery || null, // Real battery or null (no default!)
+                wifiStrength: target.wifiStrength || null, // Real WiFi or null (no default!)
+                roomId: target.roomId || null,
+                telemetry: target.telemetry || {},
+                lastEvent: target.lastEvent || null,
+                lastGameId: target.lastGameId || null,
+                lastGameName: target.lastGameName || null,
+                lastHits: target.lastHits || null,
+                lastActivity: target.lastActivity || null,
+                lastActivityTime: target.lastActivityTime || null, // Include lastActivityTime from ThingsBoard
+                deviceName: target.deviceName || target.name,
+                deviceType: target.deviceType || 'default',
+                createdTime: target.createdTime || null,
+                additionalInfo: target.additionalInfo || {},
+              })) : [];
+            })()
+          ]);
+          
+          // Handle results with proper error checking
+          
+          if (roomsResult.status === 'rejected') {
+            console.error('❌ LIVE: Failed to fetch rooms:', roomsResult.reason);
+          }
+          
+          if (targetsResult.status === 'rejected') {
+            console.error('❌ LIVE: Failed to fetch targets:', targetsResult.reason);
+            setTargets([]);
+            return;
+          }
+          
+          const targetsDataValue = targetsResult.value;
+          console.log('🔄 LIVE: Parallel fetch - targets data:', {
+            count: targetsDataValue?.length || 0,
+            isArray: Array.isArray(targetsDataValue),
+            sample: targetsDataValue?.[0] || 'No data'
+          });
+          setTargets(targetsDataValue || []);
+          setDataCache({ targets: targetsDataValue || [], fetchTime: Date.now() });
+          console.log('✅ LIVE: Set targets and cache:', targetsDataValue?.length || 0, 'targets');
+          
+          // Populate Zustand store for shooting activity polling IMMEDIATELY
+          console.log('🔄 LIVE: Populating Zustand store with targets...');
+          console.log('🔄 LIVE: About to call setTargetsStore with:', targetsDataValue?.length || 0, 'targets');
+          setTargetsStore(targetsDataValue || []);
+          console.log('🔄 LIVE: setTargetsStore called successfully');
+          
+          // Trigger shooting activity polling immediately after targets are set
+          // This ensures shot records start fetching as soon as targets are available
+          console.log('🔄 LIVE: Triggering immediate shooting activity check...');
+          // The useShootingActivityPolling hook will automatically detect the new targets
+          // and start fetching telemetry data in parallel
+          
+        } catch (error) {
+          console.error('❌ LIVE: Error in parallel fetch:', error);
+          console.error('❌ LIVE: Error details:', {
+            message: error.message,
+            stack: error.stack,
+            name: error.name
+          });
+          setTargets([]);
+        }
     } catch (error) {
       console.error('Error fetching targets data:', error);
       setTargets([]);
@@ -357,7 +433,7 @@ const Targets: React.FC = () => {
       console.log('🔄 Setting loading to false');
       setIsLoading(false);
     }
-  }, [isDemoMode, fetchRooms, getAllTargetsWithAssignments]);
+  }, [fetchRooms, getAllTargetsWithAssignments, setTargetsStore]);
 
   // Comprehensive refresh function for manual refresh button (optimized)
   const comprehensiveRefresh = useCallback(async () => {
@@ -367,17 +443,17 @@ const Targets: React.FC = () => {
     setDataCache(null);
     
     try {
-      if (isDemoMode) {
-        // Demo mode: just refresh mock data
-        console.log('🎭 DEMO: Refreshing mock data...');
-        await fetchTargetsWithAssignments();
-      } else {
-        // Live mode: parallel execution for faster refresh
-        await Promise.all([
+      // Live mode: parallel execution for faster refresh with error handling
+      try {
+        await Promise.allSettled([
           forceThingsBoardSync(),
           fetchRooms()
         ]);
         
+        await fetchTargetsData();
+      } catch (error) {
+        console.error('❌ Error during parallel refresh:', error);
+        // Fallback to basic refresh
         await fetchTargetsData();
       }
       
@@ -387,9 +463,9 @@ const Targets: React.FC = () => {
       // Fallback to basic refresh
       await fetchTargetsData();
     }
-  }, [isDemoMode, forceThingsBoardSync, fetchRooms, fetchTargetsData, fetchTargetsWithAssignments]);
+  }, [forceThingsBoardSync, fetchRooms, fetchTargetsData, fetchTargetsWithAssignments]);
 
-  // Disable shooting activity polling in demo mode (no real-time data)
+  // Shooting activity polling for real-time telemetry data
   const { 
     currentInterval, 
     currentMode, 
@@ -401,7 +477,7 @@ const Targets: React.FC = () => {
     recentShotsCount,
     forceUpdate 
   } = useShootingActivityPolling(
-    isDemoMode ? async () => {} : fetchTargetsData, // Don't poll in demo mode
+    fetchTargetsData, // Always poll for real-time data
     {
       activeInterval: 10000,
       recentInterval: 30000,
@@ -410,6 +486,88 @@ const Targets: React.FC = () => {
       standbyThreshold: 600000
     }
   );
+
+  // Log targetActivity data when it changes
+  useEffect(() => {
+    const isDebugMode = localStorage.getItem('DEBUG_SHOT_RECORDS') === 'true';
+    // Always log for now to help with verification
+    if (targetActivity && targetActivity.length > 0) {
+      console.log('📊 [Targets] targetActivity data received:', {
+        totalActivityRecords: targetActivity.length,
+        activityData: targetActivity.map(activity => ({
+          deviceId: activity.deviceId,
+          totalShots: activity.totalShots,
+          lastShotTime: activity.lastShotTime,
+          lastShotTimeReadable: activity.lastShotTime ? new Date(activity.lastShotTime).toISOString() : 'Never',
+          isActivelyShooting: activity.isActivelyShooting,
+          isRecentlyActive: activity.isRecentlyActive,
+          isStandby: activity.isStandby
+        })),
+        pollingMode: currentMode,
+        pollingInterval: currentInterval,
+        activeShooters: activeShotsCount,
+        recentActivity: recentShotsCount
+      });
+    } else {
+      console.log('📊 [Targets] No targetActivity data available');
+    }
+  }, [targetActivity, currentMode, currentInterval, activeShotsCount, recentShotsCount]);
+
+  // Consolidated verification summary for easy comparison with check script
+  const logVerificationSummary = useCallback(() => {
+    const timestamp = new Date().toISOString();
+    console.log('='.repeat(80));
+    console.log(`🔍 [VERIFICATION] Shot Records Summary - ${timestamp}`);
+    console.log('='.repeat(80));
+    
+    console.log('📊 [VERIFICATION] System Status:', {
+      mode: 'LIVE',
+      pollingMode: currentMode,
+      pollingInterval: `${currentInterval}s`,
+      totalTargets: targets.length,
+      onlineTargets: targets.filter(t => t.status === 'online').length,
+      offlineTargets: targets.filter(t => t.status === 'offline').length,
+      activeShooters: activeShotsCount,
+      recentActivity: recentShotsCount
+    });
+
+    console.log('📊 [VERIFICATION] Target Details:');
+    targets.forEach((target, index) => {
+      const activity = targetActivity.find(a => a.deviceId === target.id);
+      console.log(`  ${index + 1}. ${target.name} (${target.id}):`, {
+        status: target.status,
+        roomId: target.roomId || 'unassigned',
+        deviceName: target.deviceName,
+        deviceType: target.deviceType,
+        battery: target.battery,
+        wifiStrength: target.wifiStrength,
+        totalShots: activity?.totalShots || 0,
+        lastShotTime: activity?.lastShotTime || 0,
+        lastShotTimeReadable: activity?.lastShotTime ? new Date(activity.lastShotTime).toISOString() : 'Never'
+      });
+    });
+
+    console.log('📊 [VERIFICATION] Data Flow Summary:');
+    console.log('  1. ThingsBoard API → getLatestTelemetry() → Raw telemetry data');
+    console.log('  2. useShootingActivityPolling → Process hits data → Activity calculations');
+    console.log('  3. Targets Page → Map activity to targets → Display values');
+    console.log('  4. TargetCard → Render final UI values');
+    
+    console.log('📊 [VERIFICATION] Key Verification Points:');
+    console.log('  • Check that totalShots matches ThingsBoard hits value');
+    console.log('  • Check that lastShotTime matches ThingsBoard hit_ts value');
+    console.log('  • Check that activity status reflects actual data');
+    console.log('  • Compare with check script output for device names and IDs');
+    
+    console.log('='.repeat(80));
+  }, [targets, targetActivity, currentMode, currentInterval, activeShotsCount, recentShotsCount]);
+
+  // Log verification summary when targets or activity data changes
+  useEffect(() => {
+    if (targets.length > 0) {
+      logVerificationSummary();
+    }
+  }, [targets, targetActivity, logVerificationSummary]);
 
   // Handle cache updates
   useEffect(() => {
@@ -430,28 +588,22 @@ const Targets: React.FC = () => {
       return;
     }
 
-    console.log(`🔄 Targets: Mode changed to ${isDemoMode ? 'DEMO' : 'LIVE'}, fetching data...`);
+    console.log('🔄 Targets: Mode changed to LIVE, fetching data...');
     
     // Clear old data and set loading state
     setTargets([]);
-    setDemoRooms([]);
     setIsLoading(true);
     
     // Fetch new data
     fetchTargetsData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDemoMode]); // Remove dataCache from deps to prevent infinite loop
+  }, []); // Remove dataCache from deps to prevent infinite loop
 
   // Handle refresh
   const handleRefresh = async () => {
-    if (isDemoMode) {
-      console.log('🎭 DEMO: Refreshing mock targets...');
-      await fetchTargetsWithAssignments();
-      toast.success('🎭 Demo targets refreshed');
-    } else {
-      await forceUpdate();
-      toast.success('🔗 Targets refreshed from ThingsBoard');
-    }
+    console.log('🔄 Refreshing targets from ThingsBoard...');
+    await forceUpdate();
+    toast.success('🔗 Targets refreshed from ThingsBoard');
   };
 
   // Filter targets by search term and room
@@ -464,45 +616,7 @@ const Targets: React.FC = () => {
   });
 
 
-  // Debug: Log the actual assignments and check for duplicates
-  console.log('🔍 Debugging room assignments:');
-  console.log('📋 All targets with roomId:', targets.map(t => ({ name: t.name, id: t.id, roomId: t.roomId, roomIdType: typeof t.roomId })));
-  console.log('🏠 Available rooms:', rooms.map(r => ({ id: r.id, name: r.name, idType: typeof r.id })));
-  
-  // Check for duplicates in the raw targets data
-  const targetIds = targets.map(t => t.id);
-  const duplicateIds = targetIds.filter((id, index) => targetIds.indexOf(id) !== index);
-  if (duplicateIds.length > 0) {
-    console.warn('🚨 Duplicate target IDs found in raw data:', duplicateIds);
-    duplicateIds.forEach(dupId => {
-      const duplicates = targets.filter(t => t.id === dupId);
-      console.log(`   ID ${dupId}:`, duplicates.map(t => ({ name: t.name, roomId: t.roomId })));
-    });
-  }
-  
-  // Debug: Check specific targets
-  const dryfire4 = targets.find(t => t.name === 'Dryfire-4');
-  if (dryfire4) {
-    console.log('🔍 Dryfire-4 details:', {
-      name: dryfire4.name,
-      roomId: dryfire4.roomId,
-      roomIdType: typeof dryfire4.roomId,
-      hasRoomId: 'roomId' in dryfire4,
-      allKeys: Object.keys(dryfire4)
-    });
-  }
-  
-  // Debug: Check for Game manager targets specifically
-  const gameManagers = targets.filter(t => t.name === 'Game manager');
-  if (gameManagers.length > 0) {
-    console.log(`🔍 Found ${gameManagers.length} Game manager targets:`, gameManagers.map((gm, i) => ({
-      index: i,
-      id: gm.id,
-      name: gm.name,
-      roomId: gm.roomId,
-      status: gm.status
-    })));
-  }
+
 
   // Deduplicate targets by ID before grouping
   const uniqueTargets = filteredTargets.reduce((acc: Target[], target) => {
@@ -524,11 +638,25 @@ const Targets: React.FC = () => {
     return acc;
   }, []);
 
-  console.log(`🔍 Deduplication: ${filteredTargets.length} → ${uniqueTargets.length} targets`);
-
   // Group targets by room
   const groupedTargets = uniqueTargets.reduce((groups: Record<string, Target[]>, target) => {
-    const roomId = target.roomId || 'unassigned';
+    // Normalize roomId - treat null, undefined, empty string, and 'unassigned' as unassigned
+    let roomId: string;
+    const rawRoomId = target.roomId;
+    
+    // Convert to string first, then check for empty values
+    const roomIdStr = String(rawRoomId);
+    
+    if (!rawRoomId || 
+        roomIdStr === 'unassigned' || 
+        roomIdStr === '' || 
+        roomIdStr === 'null' ||
+        roomIdStr === 'undefined') {
+      roomId = 'unassigned';
+    } else {
+      roomId = roomIdStr;
+    }
+    
     if (!groups[roomId]) {
       groups[roomId] = [];
     }
@@ -536,43 +664,45 @@ const Targets: React.FC = () => {
     return groups;
   }, {});
 
-  // Sort groups to show assigned targets first, then unassigned
+
+  // Sort groups: assigned rooms first (alphabetically), then unassigned
   const sortedGroupKeys = Object.keys(groupedTargets).sort((a, b) => {
-    if (a === 'unassigned') return 1; // Move unassigned to end
-    if (b === 'unassigned') return -1; // Keep assigned at start
-    return 0; // Keep assigned groups in their original order
+    // Unassigned targets go to the end
+    if (a === 'unassigned') return 1;
+    if (b === 'unassigned') return -1;
+    
+    // Sort assigned rooms alphabetically by name
+    const roomA = rooms.find(r => r.id === a);
+    const roomB = rooms.find(r => r.id === b);
+    const nameA = roomA?.name || a;
+    const nameB = roomB?.name || b;
+    
+    return nameA.localeCompare(nameB);
   });
 
-  // Create sorted grouped targets
+  // Create sorted grouped targets with comprehensive sorting
   const sortedGroupedTargets: Record<string, Target[]> = {};
   sortedGroupKeys.forEach(key => {
-    sortedGroupedTargets[key] = groupedTargets[key];
-  });
-
-  console.log('📊 Grouped targets:', Object.keys(groupedTargets).map(roomId => ({
-    roomId,
-    count: groupedTargets[roomId].length,
-    targets: groupedTargets[roomId].map((t: Target) => ({ name: t.name, roomId: t.roomId }))
-  })));
-  
-  console.log('🔍 Current state:', {
-    isLoading,
-    targetsCount: targets.length,
-    roomsCount: rooms.length,
-    hasDataCache: !!dataCache,
-    cacheTargetsCount: dataCache?.targets?.length || 0
-  });
-  
-  // Debug: Check what's in each group
-  Object.entries(sortedGroupedTargets).forEach(([roomId, targets]) => {
-    console.log(`📊 Sorted Group "${roomId}":`, targets.map((t: Target) => ({ name: t.name, roomId: t.roomId })));
+    const targetsInGroup = groupedTargets[key];
+    const sortedTargets = [...targetsInGroup].sort((a, b) => {
+      // Primary sort: Online status (online first)
+      const aOnline = a.status === 'online';
+      const bOnline = b.status === 'online';
+      
+      if (aOnline && !bOnline) return -1; // Online comes first
+      if (!aOnline && bOnline) return 1;  // Offline comes after
+      
+      // Secondary sort: By name (alphabetical)
+      return a.name.localeCompare(b.name);
+    });
+    
+    sortedGroupedTargets[key] = sortedTargets;
   });
 
   // Get room object for display
   const getRoom = (roomId?: string | number) => {
     if (!roomId) return null;
-    const roomIdStr = roomId.toString();
-    return rooms.find(room => room.id === roomIdStr);
+    return rooms.find(room => String(room.id) === String(roomId));
   };
 
   // Handle target actions
@@ -605,38 +735,13 @@ const Targets: React.FC = () => {
         <main className="flex-1 overflow-y-auto">
           <div className="p-3 md:p-4 lg:p-6 max-w-7xl mx-auto space-y-3 md:space-y-4 lg:space-y-6">
             
-            {/* Demo Mode Banner */}
-            {isDemoMode && (
-              <Card className="bg-yellow-50 border-yellow-200">
-                <CardContent className="p-3 md:p-4">
-                  <div className="flex items-center gap-2">
-                    <div className="text-xl">🎭</div>
-                    <div>
-                      <div className="font-semibold text-yellow-800 text-sm">Demo Mode Active</div>
-                      <div className="text-xs text-yellow-700">Viewing 6 mock targets. Toggle to Live mode to see real ThingsBoard data.</div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
             
-            {/* Shooting Activity Status Indicator */}
-            {!isDemoMode && <ShootingStatusBanner
-              hasActiveShooters={hasActiveShooters}
-              hasRecentActivity={hasRecentActivity}
-              currentMode={currentMode}
-              currentInterval={currentInterval}
-              activeShotsCount={activeShotsCount}
-              recentShotsCount={recentShotsCount}
-              targetsCount={targets.length}
-              onRefresh={comprehensiveRefresh}
-            />}
 
             {/* Page Header */}
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-4">
                 <h1 className="text-3xl font-heading font-semibold text-brand-dark">Targets</h1>
-                <div className="flex-shrink-0">
+                <div className="flex items-center gap-2">
                   <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
                   <DialogTrigger asChild>
                     <Button className="bg-brand-primary hover:bg-brand-primary/90 text-white">
@@ -740,6 +845,7 @@ const Targets: React.FC = () => {
               </div>
             )}
 
+
             {/* Targets Grid */}
             {isLoading ? (
               <div className="space-y-8">
@@ -819,10 +925,12 @@ const Targets: React.FC = () => {
                       : 'Get started by adding your first target device.'
                     }
                   </p>
+                  
+                  
                   {!searchTerm && roomFilter === 'all' && (
                     <Button 
                       onClick={() => setIsAddDialogOpen(true)}
-                      className="bg-brand-primary hover:bg-brand-primary/90 text-white"
+                      className="bg-brand-primary hover:bg-brand-primary/90 text-white mt-4"
                     >
                       <Plus className="h-4 w-4 mr-2" />
                       Add First Target
@@ -838,13 +946,27 @@ const Targets: React.FC = () => {
                   return (
                     <div key={roomId}>
                       {/* Room Section Header */}
-                      <div className="flex items-center gap-2 mb-2 md:mb-4">
-                        <h2 className="text-sm md:text-xl font-heading font-semibold text-brand-dark">
-                          {room ? room.name : 'Unassigned Targets'}
-                        </h2>
-                        <Badge className="bg-red-50 border-red-500 text-red-700 text-xs rounded-lg md:rounded-xl">
-                          {roomTargets.length} target{roomTargets.length !== 1 ? 's' : ''}
-                        </Badge>
+                      <div className="flex items-center justify-between mb-2 md:mb-4">
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-sm md:text-xl font-heading font-semibold text-brand-dark">
+                            {room ? room.name : 'Unassigned Targets'}
+                          </h2>
+                          <Badge className="bg-red-50 border-red-500 text-red-700 text-xs rounded-lg md:rounded-xl">
+                            {roomTargets.length} target{roomTargets.length !== 1 ? 's' : ''}
+                          </Badge>
+                        </div>
+                        
+                        {/* Status Summary */}
+                        <div className="flex items-center gap-2 text-xs text-brand-dark/70">
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                            <span>{roomTargets.filter(t => t.status === 'online').length} online</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                            <span>{roomTargets.filter(t => t.status !== 'online').length} offline</span>
+                          </div>
+                        </div>
                       </div>
                       
                       {/* Targets Grid */}

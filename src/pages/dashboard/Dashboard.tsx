@@ -465,7 +465,7 @@ const Dashboard: React.FC = () => {
     }
   }, [getAllTargetsWithAssignments]);
 
-  // Smart polling system with heartbeat detection
+  // Smart polling system with heartbeat detection - optimized for parallel execution
   const fetchAllData = useCallback(async () => {
     // Prevent multiple simultaneous fetches
     if (isFetchingRef.current) {
@@ -475,44 +475,64 @@ const Dashboard: React.FC = () => {
 
     isFetchingRef.current = true;
     try {
-      console.log('🔄 Dashboard: Fetching all data...');
+      console.log('🔄 Dashboard: Fetching all data in parallel...');
       
-      // Always try to fetch from Supabase first (rooms, sessions, targets with assignments)
-      const promises = [
+      // Critical data - fetch immediately (Supabase)
+      const criticalPromises = [
         fetchRooms(), // This should work from Supabase
         user?.id ? fetchSessions(user.id, 10) : Promise.resolve(), // Fetch recent sessions
         refreshDashboardStats() // This should work from Supabase
       ];
 
-      // Fetch merged targets separately to avoid dependency issues
-      fetchMergedTargets();
+      // High priority data - fetch in parallel with critical
+      const highPriorityPromises = [
+        fetchMergedTargets() // Don't await - let it run in background
+      ];
 
-      // Try to fetch from ThingsBoard if available
+      // Low priority data - ThingsBoard data (can be slower)
+      const lowPriorityPromises = [];
       if (tbToken) {
-        promises.push(
+        lowPriorityPromises.push(
           fetchStats(tbToken),
           fetchScenarios(tbToken)
         );
         
         // Only refresh targets if we don't have any loaded yet
-        // This prevents redundant API calls since targets are already fetched during login
         if (rawTargets.length === 0) {
           console.log('🔄 Dashboard: No targets loaded, refreshing from ThingsBoard...');
-          promises.push(refreshTargets());
+          lowPriorityPromises.push(refreshTargets());
         } else {
           console.log('🔄 Dashboard: Targets already loaded, skipping refresh:', rawTargets.length, 'targets');
         }
       }
 
-      await Promise.allSettled(promises); // Use allSettled to not fail if some requests fail
+      // Execute critical data first (blocking)
+      await Promise.allSettled(criticalPromises);
+      console.log('✅ Dashboard: Critical data loaded');
       
-      console.log('✅ Dashboard: Data fetch completed');
+      // Execute high priority data (non-blocking)
+      Promise.allSettled(highPriorityPromises).then(() => {
+        console.log('✅ Dashboard: High priority data loaded');
+      }).catch(error => {
+        console.warn('Dashboard: High priority data failed:', error);
+      });
+
+      // Execute low priority data (non-blocking)
+      if (lowPriorityPromises.length > 0) {
+        Promise.allSettled(lowPriorityPromises).then(() => {
+          console.log('✅ Dashboard: Low priority data loaded');
+        }).catch(error => {
+          console.warn('Dashboard: Low priority data failed:', error);
+        });
+      }
+      
+      console.log('✅ Dashboard: Data fetch initiated');
     } catch (error) {
       console.error('❌ Dashboard: Error fetching data:', error);
     } finally {
       isFetchingRef.current = false;
     }
-  }, [tbToken, fetchStats, refreshTargets, fetchRooms, fetchScenarios, refreshDashboardStats, rawTargets.length]);
+  }, [tbToken, fetchStats, refreshTargets, fetchRooms, fetchScenarios, refreshDashboardStats, rawTargets.length, fetchMergedTargets]);
 
   const { 
     currentInterval, 
@@ -538,11 +558,14 @@ const Dashboard: React.FC = () => {
     fetchAllData();
   }, [fetchAllData]);
 
-  // Additional fetch after sync completes (if it does)
+  // Additional fetch after sync completes (if it does) - non-blocking
   useEffect(() => {
     if (isReady && syncStatus.isComplete) {
       console.log('🔄 Dashboard: Sync completed, refreshing data...');
-      fetchAllData();
+      // Don't await - let it run in background
+      fetchAllData().catch(error => {
+        console.warn('Dashboard: Background refresh failed:', error);
+      });
     }
   }, [isReady, syncStatus.isComplete, fetchAllData]);
 
@@ -688,6 +711,35 @@ const Dashboard: React.FC = () => {
               recentShotsCount={recentShotsCount}
               onRefresh={forceUpdate}
             />
+            
+            {/* Progressive Enhancement Indicators */}
+            {!isReady && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-sm text-blue-800 font-medium">Loading real-time data...</span>
+                </div>
+                <p className="text-xs text-blue-600 mt-1">
+                  Connecting to ThingsBoard for live shooting activity and session data
+                </p>
+              </div>
+            )}
+            
+            {isReady && !hasThingsBoardData && !targetsLoading && !roomsLoading && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 text-yellow-600">
+                    <svg fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <span className="text-sm text-yellow-800 font-medium">Using cached data</span>
+                </div>
+                <p className="text-xs text-yellow-600 mt-1">
+                  Showing data from previous session. Real-time updates will appear when ThingsBoard connects.
+                </p>
+              </div>
+            )}
             
             {/* Stats Cards Grid - Using Real Data */}
             <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">

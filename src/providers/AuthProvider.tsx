@@ -33,14 +33,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Check if user is authenticated
   const checkSession = useCallback(async () => {
-    console.log('[AuthProvider] checkSession: start');
     setLoading(true);
     
     try {
-      console.log('[AuthProvider] Checking Supabase session...');
       const { data: { session }, error } = await supabase.auth.getSession();
-      
-      console.log('[AuthProvider] Supabase session:', session?.user?.id);
       
       if (error) {
         console.error('[AuthProvider] Session error:', error);
@@ -53,11 +49,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (session?.user) {
         setUser(session.user);
         setSession(session);
-        console.log('[AuthProvider] User authenticated:', session.user.email);
+        console.log('[Auth] Authenticated as', session.user.email);
       } else {
         setUser(null);
         setSession(null);
-        console.log('[AuthProvider] No active session');
       }
     } catch (error) {
       console.error('[AuthProvider] Session check error:', error);
@@ -65,7 +60,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setSession(null);
     } finally {
       setLoading(false);
-      console.log('[AuthProvider] checkSession: done');
     }
   }, []);
 
@@ -81,12 +75,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Sign out
   const signOut = useCallback(async () => {
     try {
-      console.log('[AuthProvider] Starting logout process...');
-      
       // Clear Supabase session
       const result = await supabaseAuthService.signOut();
       if (result.success) {
-        console.log('[AuthProvider] Supabase logout successful');
+        // success
       } else {
         console.error('[AuthProvider] Supabase sign out error:', result.error);
       }
@@ -97,7 +89,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Clear ThingsBoard tokens
       localStorage.removeItem('tb_access');
       localStorage.removeItem('tb_refresh');
-      console.log('[AuthProvider] ThingsBoard tokens cleared');
       
       // Clear local auth state
       setUser(null);
@@ -107,8 +98,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';
       }
-      
-      console.log('[AuthProvider] Logout process completed');
     } catch (error) {
       console.error('[AuthProvider] Sign out error:', error);
       // Even if there's an error, clear everything
@@ -136,13 +125,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
           const { unifiedDataService } = await import('@/services/unified-data');
           await unifiedDataService.getThingsBoardData(result.user.id, result.user.email);
-          console.log('[AuthProvider] ThingsBoard authentication completed');
-          
           // Sync WiFi credentials after ThingsBoard authentication
           try {
             const { syncWifiCredentialsOnLogin } = await import('@/services/wifi-credentials');
             await syncWifiCredentialsOnLogin(result.user.id);
-            console.log('[AuthProvider] WiFi credentials sync completed');
           } catch (wifiError) {
             console.warn('[AuthProvider] WiFi sync failed (non-blocking):', wifiError);
             // Don't block login if WiFi sync fails
@@ -152,8 +138,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           // Don't block login if ThingsBoard fails
         }
       }
-
-      console.log('[AuthProvider] Sign in successful:', result.message);
+      const emailForLog = result.user?.email ?? email;
+      if (emailForLog) {
+        console.log('[Auth] Signed in as', emailForLog);
+      }
     } catch (error) {
       console.error('[AuthProvider] Sign in error:', error);
       throw error;
@@ -175,17 +163,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         
         // Save ThingsBoard credentials using the same email/password
         try {
-          console.log('[AuthProvider] Saving ThingsBoard credentials for new user:', email);
           await saveThingsBoardCredentials(result.user.id, email, password);
-          console.log('[AuthProvider] ThingsBoard credentials saved successfully');
         } catch (tbError) {
           console.warn('[AuthProvider] Failed to save ThingsBoard credentials (user can set up later):', tbError);
           // Don't fail the signup if ThingsBoard credential saving fails
           // User can set up ThingsBoard integration later from their profile
         }
       }
-
-      console.log('[AuthProvider] Sign up successful:', result.message);
+      const emailForLog = result.user?.email ?? email;
+      if (emailForLog) {
+        console.log('[Auth] Signed up as', emailForLog);
+      }
     } catch (error) {
       console.error('[AuthProvider] Sign up error:', error);
       throw error;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { thingsBoardService } from '@/services/thingsboard';
+import { fetchTelemetryHistory } from '@/lib/edge';
 import type { Target } from '@/store/useTargets';
 
 export type TimeRange = 'day' | 'week' | '3m' | '6m' | 'all';
@@ -29,7 +29,8 @@ const TELEMETRY_KEYS = ['hits', 'hit_ts', 'beep_ts'];
 
 export const useHistoricalActivity = (
   targets: Target[],
-  timeRange: TimeRange
+  timeRange: TimeRange,
+  enabled = true
 ): UseHistoricalActivityReturn => {
   const [historicalData, setHistoricalData] = useState<HistoricalDataPoint[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -106,6 +107,13 @@ export const useHistoricalActivity = (
   }, []);
 
   const fetchHistoricalData = useCallback(async () => {
+    if (!enabled) {
+      setHistoricalData([]);
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
+
     if (!targets.length) {
       setHistoricalData([]);
       return;
@@ -115,13 +123,10 @@ export const useHistoricalActivity = (
     setError(null);
 
     try {
-      console.log(`🔍 [HistoricalActivity] Fetching data for ${timeRange} range with ${targets.length} targets`);
-      
       // Get online targets only
       const onlineTargets = targets.filter(target => target.status === 'online');
       
       if (onlineTargets.length === 0) {
-        console.log('🔍 [HistoricalActivity] No online targets, returning empty data');
         setHistoricalData([]);
         return;
       }
@@ -131,66 +136,50 @@ export const useHistoricalActivity = (
       const startTime = timeRangeMs === 0 ? 0 : now - timeRangeMs;
       const endTime = now;
 
-      console.log(`🔍 [HistoricalActivity] Time range: ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`);
-
-      // Fetch historical data for all online targets
       const deviceIds = onlineTargets.map(target => target.id?.id || target.id);
+      const { devices } = await fetchTelemetryHistory(deviceIds, startTime, endTime, 1000, TELEMETRY_KEYS);
+
       const allHistoricalData: any[] = [];
 
-      // Fetch data for each device (ThingsBoard doesn't support batch historical queries)
-      const fetchPromises = deviceIds.map(async (deviceId) => {
-        try {
-          const telemetryData = await thingsBoardService.getHistoricalTelemetry(
-            deviceId,
-            TELEMETRY_KEYS,
-            startTime,
-            endTime,
-            1000 // limit
-          );
+      devices?.forEach(device => {
+        if (device.error) {
+          console.warn(`⚠️ [HistoricalActivity] Edge returned error for ${device.deviceId}:`, device.error);
+          return;
+        }
 
-          // Process hits data
-          if (telemetryData.hits && Array.isArray(telemetryData.hits)) {
-            telemetryData.hits.forEach((hit: any) => {
-              allHistoricalData.push({
-                timestamp: hit.ts,
-                hits: parseInt(hit.value) || 0
-              });
-            });
-          }
+        const telemetry = (device.telemetry ?? {}) as Record<string, any>;
 
-          // Process hit_ts data (alternative hit tracking)
-          if (telemetryData.hit_ts && Array.isArray(telemetryData.hit_ts)) {
-            telemetryData.hit_ts.forEach((hitTs: any) => {
-              allHistoricalData.push({
-                timestamp: hitTs.ts,
-                hits: 1 // Each hit_ts represents 1 hit
-              });
+        if (Array.isArray(telemetry.hits)) {
+          telemetry.hits.forEach((hit: any) => {
+            allHistoricalData.push({
+              timestamp: hit.ts,
+              hits: parseInt(hit.value) || 0
             });
-          }
+          });
+        }
 
-          // Process beep_ts data (shot detection)
-          if (telemetryData.beep_ts && Array.isArray(telemetryData.beep_ts)) {
-            telemetryData.beep_ts.forEach((beepTs: any) => {
-              allHistoricalData.push({
-                timestamp: beepTs.ts,
-                hits: 1 // Each beep_ts represents 1 shot
-              });
+        if (Array.isArray(telemetry.hit_ts)) {
+          telemetry.hit_ts.forEach((hitTs: any) => {
+            allHistoricalData.push({
+              timestamp: hitTs.ts,
+              hits: 1
             });
-          }
-        } catch (error) {
-          console.warn(`⚠️ [HistoricalActivity] Failed to fetch data for device ${deviceId}:`, error);
+          });
+        }
+
+        if (Array.isArray(telemetry.beep_ts)) {
+          telemetry.beep_ts.forEach((beepTs: any) => {
+            allHistoricalData.push({
+              timestamp: beepTs.ts,
+              hits: 1
+            });
+          });
         }
       });
-
-      await Promise.allSettled(fetchPromises);
-
-      console.log(`📊 [HistoricalActivity] Fetched ${allHistoricalData.length} data points`);
 
       // Aggregate the data
       const aggregatedData = aggregateData(allHistoricalData, timeRange);
       setHistoricalData(aggregatedData);
-
-      console.log(`✅ [HistoricalActivity] Aggregated into ${aggregatedData.length} time buckets`);
     } catch (error) {
       console.error('❌ [HistoricalActivity] Error fetching historical data:', error);
       setError(error instanceof Error ? error.message : 'Failed to fetch historical data');
@@ -198,7 +187,7 @@ export const useHistoricalActivity = (
     } finally {
       setIsLoading(false);
     }
-  }, [targets, timeRange, aggregateData]);
+  }, [targets, timeRange, aggregateData, enabled]);
 
   useEffect(() => {
     fetchHistoricalData();
@@ -211,4 +200,3 @@ export const useHistoricalActivity = (
     refetch: fetchHistoricalData
   };
 };
-

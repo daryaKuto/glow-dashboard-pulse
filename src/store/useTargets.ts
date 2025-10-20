@@ -1,5 +1,24 @@
 import { create } from 'zustand';
-import API, { clearTargetsCache } from '@/lib/api';
+import { clearTargetsCache } from '@/lib/api';
+import { fetchTargetDetails, type TargetDetail, type TargetDetailsOptions } from '@/lib/edge';
+
+const FETCH_DEBUG_DEFAULT = import.meta.env.DEV;
+
+const isFetchDebugEnabled = () => {
+  if (typeof window === 'undefined') {
+    return FETCH_DEBUG_DEFAULT;
+  }
+
+  const flag = window.localStorage?.getItem('DEBUG_TARGET_FETCH');
+  if (flag === 'true') {
+    return true;
+  }
+  if (flag === 'false') {
+    return false;
+  }
+
+  return FETCH_DEBUG_DEFAULT;
+};
 
 export interface Target {
   id: string;
@@ -7,15 +26,22 @@ export interface Target {
   status: 'online' | 'offline';
   battery?: number | null;          // Real battery or null
   wifiStrength?: number | null;     // Real WiFi or null
-  roomId?: number | null;
+  roomId?: string | number | null;
   // New telemetry data from ThingsBoard
   telemetry?: Record<string, any>;
+  telemetryHistory?: Record<string, any>;
   lastEvent?: string | null;
   lastGameId?: string | null;
   lastGameName?: string | null;
   lastHits?: number | null;
   lastActivity?: string | null;
   lastActivityTime?: number | null;
+  lastShotTime?: number | null;
+  totalShots?: number | null;
+  recentShotsCount?: number;
+  activityStatus?: 'active' | 'recent' | 'standby';
+  gameStatus?: string | null;
+  errors?: string[];
   deviceName?: string;
   deviceType?: string;
   createdTime?: number;
@@ -31,90 +57,172 @@ interface TargetsState {
   targets:    Target[];
   isLoading:  boolean;
   error:      Error | null;
+  lastFetched: number | null;
+  detailsById: Record<string, TargetDetail>;
+  detailsLoading: boolean;
+  detailsError: Error | null;
   refresh:    () => Promise<void>;
+  fetchTargetsFromEdge: (force?: boolean) => Promise<Target[]>;
+  fetchTargetDetails: (deviceIds: string[], options?: TargetDetailsOptions) => Promise<boolean>;
   setTargets: (targets: Target[]) => void;
   clearCache: () => void;
 }
 
-export const useTargets = create<TargetsState>((set) => ({
+export const useTargets = create<TargetsState>((set, get) => ({
   targets:   [],
   isLoading: false,
   error:     null,
+  lastFetched: null,
+  detailsById: {},
+  detailsLoading: false,
+  detailsError: null,
 
-  refresh: async () => {
+  refresh: async () => get().fetchTargetsFromEdge(true),
+
+  fetchTargetsFromEdge: async (force = false) => {
+    const state = get();
+
+    const debug = isFetchDebugEnabled();
+    if (debug) {
+      console.info('[useTargets] fetchTargetsFromEdge invoked', {
+        force,
+        existingTargets: state.targets.length,
+        lastFetched: state.lastFetched,
+        cacheAgeMs: state.lastFetched ? Date.now() - state.lastFetched : null,
+      });
+    }
+
+    if (!force && state.targets.length > 0 && state.lastFetched && Date.now() - state.lastFetched < 60_000) {
+      if (debug) {
+        console.info('[useTargets] fetchTargetsFromEdge returning cached targets');
+      }
+      return state.targets;
+    }
+
     set({ isLoading: true, error: null });
+    if (debug) {
+      console.info('[useTargets] fetchTargetsFromEdge fetching fresh targets');
+    }
+
     try {
-      const devices = await API.getTargets();
-      console.log('🔍 useTargets.refresh - Raw devices from API:', {
-        count: devices.length,
-        devices: devices.map(d => ({
-          name: d.name,
-          id: d.id?.id || d.id,
-          status: d.status,
-          type: d.type,
-          roomId: d.roomId
-        }))
-      });
-      
-      const mappedTargets = devices.map((d: any) => ({
-        id: d.id?.id || d.id,
-        name: d.name,
-        status: d.status || 'offline', // Default to offline if not specified (conservative)
-        battery: d.battery || 100, // Default battery level
-        roomId: d.roomId || null,
-        // Map telemetry data
-        telemetry: d.telemetry || {},
-        lastEvent: d.lastEvent || null,
-        lastGameId: d.lastGameId || null,
-        lastGameName: d.lastGameName || null,
-        lastHits: d.lastHits || null,
-        lastActivity: d.lastActivity || null,
-        deviceName: d.deviceName || d.name,
-        deviceType: d.deviceType || 'default',
-        createdTime: d.createdTime || null,
-        additionalInfo: d.additionalInfo || {},
-        // Map special properties for no data and error states
-        isNoDataMessage: d.isNoDataMessage || false,
-        isErrorMessage: d.isErrorMessage || false,
-        message: d.message || undefined,
-      }));
-      
-      console.log('🔍 useTargets.refresh - Mapped targets for store:', {
-        count: mappedTargets.length,
-        targets: mappedTargets.map(t => ({
-          name: t.name,
-          id: t.id,
-          status: t.status,
-          type: t.deviceType,
-          roomId: t.roomId
-        }))
-      });
-      
+      const { fetchTargetsWithTelemetry } = await import('@/lib/edge');
+      const { targets } = await fetchTargetsWithTelemetry(force);
       set({
-        targets: mappedTargets,
+        targets,
         isLoading: false,
+        error: null,
+        lastFetched: Date.now(),
       });
+      if (debug) {
+        console.info('[useTargets] fetchTargetsFromEdge fetched targets', {
+          count: targets.length,
+        });
+      }
+      return targets;
     } catch (err) {
-      console.error('🔍 useTargets.refresh - Error:', err);
+      console.error('[useTargets] Failed to fetch targets from edge', err);
       set({ error: err as Error, isLoading: false });
+      throw err;
+    }
+  },
+
+  fetchTargetDetails: async (deviceIds: string[], options?: TargetDetailsOptions) => {
+    if (deviceIds.length === 0) {
+      // Nothing to hydrate; ensure we are not stuck in a loading state.
+      set({ detailsLoading: false, detailsError: null });
+      if (isFetchDebugEnabled()) {
+        console.info('[useTargets] fetchTargetDetails skipped - no device IDs provided');
+      }
+      return false;
+    }
+
+    set({ detailsLoading: true, detailsError: null });
+    if (isFetchDebugEnabled()) {
+      console.info('[useTargets] fetchTargetDetails fetching details', {
+        deviceIds,
+        options,
+      });
+    }
+
+    try {
+      const { details } = await fetchTargetDetails(deviceIds, options);
+
+      set((state) => {
+        if (details.length === 0) {
+          return { detailsLoading: false, detailsError: null };
+        }
+
+        const detailMap = new Map(details.map((detail) => [detail.deviceId, detail]));
+        const detailsById: Record<string, TargetDetail> = { ...state.detailsById };
+
+        const updatedTargets = state.targets.map((target) => {
+          const detail = detailMap.get(target.id);
+          if (!detail) {
+            return target;
+          }
+
+          detailsById[target.id] = detail;
+
+          const mergedStatus = detail.status
+            ? (detail.status === 'offline' ? 'offline' : 'online')
+            : target.status;
+          const mergedTelemetry = detail.telemetry && Object.keys(detail.telemetry).length > 0
+            ? detail.telemetry
+            : target.telemetry;
+
+          const mergedTarget: Target = {
+            ...target,
+            status: mergedStatus,
+            activityStatus: detail.activityStatus ?? target.activityStatus,
+            lastShotTime: detail.lastShotTime ?? target.lastShotTime ?? null,
+            lastActivityTime: detail.lastShotTime ?? target.lastActivityTime ?? null,
+            totalShots: detail.totalShots ?? target.totalShots ?? null,
+            recentShotsCount: detail.recentShotsCount ?? target.recentShotsCount ?? 0,
+            telemetry: mergedTelemetry,
+            telemetryHistory: detail.history ?? target.telemetryHistory,
+            battery: detail.battery ?? target.battery ?? null,
+            wifiStrength: detail.wifiStrength ?? target.wifiStrength ?? null,
+            lastEvent: detail.lastEvent ?? target.lastEvent ?? null,
+            gameStatus: detail.gameStatus ?? target.gameStatus ?? null,
+            errors: detail.errors ?? target.errors,
+          };
+
+          return mergedTarget;
+        });
+
+        return {
+          targets: updatedTargets,
+          detailsById,
+          detailsLoading: false,
+          detailsError: null,
+        };
+      });
+
+      if (isFetchDebugEnabled()) {
+        console.info('[useTargets] fetchTargetDetails updated state', {
+          devicesHydrated: deviceIds.length,
+          receivedDetails: details.length,
+        });
+      }
+
+      return true;
+    } catch (error) {
+      console.error('[useTargets] Failed to fetch target details', error);
+      set((state) => ({
+        detailsError: error as Error,
+        detailsLoading: false,
+        detailsById: state.detailsById,
+      }));
+      return false;
     }
   },
 
   setTargets: (targets: Target[]) => {
-    console.log('🔍 useTargets.setTargets - Setting targets in store:', {
-      count: targets.length,
-      targets: targets.map(t => ({
-        name: t.name,
-        id: t.id,
-        status: t.status,
-        roomId: t.roomId
-      }))
-    });
-    set({ targets, isLoading: false, error: null });
-    console.log('🔍 useTargets.setTargets - Store updated successfully');
+    set({ targets, isLoading: false, error: null, lastFetched: Date.now() });
   },
 
   clearCache: () => {
     clearTargetsCache();
+    set({ lastFetched: null });
   },
 }));

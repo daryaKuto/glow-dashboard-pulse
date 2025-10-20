@@ -911,73 +911,68 @@ export const API = {
     }, CACHE_TTL.STATS);
   },
   /** 7-day hit trend – fetch historical hit data from ThingsBoard */
-  getTrend7d: deduplicateRequest('trend7d', async () => {
-    try {
-      const { thingsBoardService } = await import('@/services/thingsboard');
-      
-      // Get all targets (without telemetry for speed)
-      const devicesResponse = await thingsBoardService.getDevices(100, 0, undefined, undefined, undefined, undefined, false);
-      const devices = devicesResponse.data || [];
-      
-      if (devices.length === 0) {
-        return [];
-      }
-      
-      // Calculate time range (last 7 days)
-      const endTime = Date.now();
-      const startTime = endTime - (7 * 24 * 60 * 60 * 1000);
-      
-      // Initialize daily buckets
-      const dailyHits: Record<string, number> = {};
-      for (let i = 0; i < 7; i++) {
-        const date = new Date(endTime - (i * 24 * 60 * 60 * 1000));
-        const dayKey = date.toISOString().split('T')[0];
-        dailyHits[dayKey] = 0;
-      }
-      
-      // Fetch historical telemetry for each device (only 'hits' key)
-      const trendPromises = devices.map(async (device) => {
-        try {
-          const deviceId = device.id?.id || device.id;
-          const telemetry = await thingsBoardService.getHistoricalTelemetry(
-            deviceId,
-            ['hits'], 
-            startTime,
-            endTime,
-            1000 
-          );
-          
-          return telemetry?.hits || [];
-        } catch (error) {
-          console.warn(`Failed to fetch historical data for device ${device.id}:`, error);
+  async getTrend7d() {
+    return deduplicateRequest('trend7d', async () => {
+      try {
+        const { thingsBoardService } = await import('@/services/thingsboard');
+
+        const devicesResponse = await thingsBoardService.getDevices(100, 0, undefined, undefined, undefined, undefined, false);
+        const devices = devicesResponse.data || [];
+
+        if (devices.length === 0) {
           return [];
         }
-      });
-      
-      const results = await Promise.allSettled(trendPromises);
-      
-      // Aggregate hits by day
-      results.forEach((result) => {
-        if (result.status === 'fulfilled' && result.value.length > 0) {
-          result.value.forEach((hit: any) => {
-            const hitDate = new Date(hit.ts).toISOString().split('T')[0];
-            if (dailyHits[hitDate] !== undefined) {
-              dailyHits[hitDate] += (hit.value || 0);
-            }
-          });
+
+        const endTime = Date.now();
+        const startTime = endTime - 7 * 24 * 60 * 60 * 1000;
+
+        const dailyHits: Record<string, number> = {};
+        for (let i = 0; i < 7; i++) {
+          const date = new Date(endTime - i * 24 * 60 * 60 * 1000);
+          const dayKey = date.toISOString().split('T')[0];
+          dailyHits[dayKey] = 0;
         }
-      });
-      
-      // Convert to array format
-      return Object.entries(dailyHits)
-        .map(([day, hits]) => ({ day, hits }))
-        .sort((a, b) => a.day.localeCompare(b.day));
-        
-    } catch (error) {
-      console.error('Error fetching 7-day trend:', error);
-      return [];
-    }
-  }, 60 * 60 * 1000), // 1 hour TTL
+
+        const trendPromises = devices.map(async (device) => {
+          try {
+            const deviceId = device.id?.id || device.id;
+            const telemetry = await thingsBoardService.getHistoricalTelemetry(
+              deviceId,
+              ['hits'],
+              startTime,
+              endTime,
+              1000
+            );
+
+            return telemetry?.hits || [];
+          } catch (error) {
+            console.warn(`Failed to fetch historical data for device ${device.id}:`, error);
+            return [];
+          }
+        });
+
+        const results = await Promise.allSettled(trendPromises);
+
+        results.forEach((result) => {
+          if (result.status === 'fulfilled' && result.value.length > 0) {
+            result.value.forEach((hit: any) => {
+              const hitDate = new Date(hit.ts).toISOString().split('T')[0];
+              if (dailyHits[hitDate] !== undefined) {
+                dailyHits[hitDate] += hit.value || 0;
+              }
+            });
+          }
+        });
+
+        return Object.entries(dailyHits)
+          .map(([day, hits]) => ({ day, hits }))
+          .sort((a, b) => a.day.localeCompare(b.day));
+      } catch (error) {
+        console.error('Error fetching 7-day trend:', error);
+        return [];
+      }
+    }, 60 * 60 * 1000);
+  },
 };
 
 // Get targets with telemetry for display purposes

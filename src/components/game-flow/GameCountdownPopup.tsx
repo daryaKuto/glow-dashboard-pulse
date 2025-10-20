@@ -3,12 +3,13 @@
  * Shows countdown, live scoring, timer, and game controls
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DeviceStatus } from '@/services/device-game-flow';
 import { Play, Square, Trophy, Clock, Target, Activity, Target as TargetIcon, Gamepad2 } from 'lucide-react';
+import { useGameTelemetry } from '@/hooks/useGameTelemetry';
 
 interface GameCountdownPopupProps {
   isOpen: boolean;
@@ -16,6 +17,8 @@ interface GameCountdownPopupProps {
   gameName: string;
   duration: number; // in minutes
   devices: DeviceStatus[];
+  gameId: string;
+  thingsboardToken?: string | null;
   onStartGame: () => void;
   onStopGame: () => void;
   onEndGame: (gameSummary: GameSummary) => void;
@@ -87,6 +90,8 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
   gameName,
   duration,
   devices,
+  gameId,
+  thingsboardToken,
   onStartGame,
   onStopGame,
   onEndGame
@@ -95,47 +100,36 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
   const [gameStarted, setGameStarted] = useState(false);
   const [gameEnded, setGameEnded] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState(duration * 60); // Convert to seconds
-  const [liveScores, setLiveScores] = useState<LiveScore[]>([]);
   const [gameStartTime, setGameStartTime] = useState<number | null>(null);
   const [gameSummary, setGameSummary] = useState<GameSummary | null>(null);
   
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const gameTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const hitSimulationRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Update live scores when devices change (for real data)
-  useEffect(() => {
-    if (gameStarted && !gameEnded) {
-      setLiveScores(prevScores => {
-        return prevScores.map(score => {
-          const device = devices.find(d => d.deviceId === score.deviceId);
-          if (device) {
-            return {
-              ...score,
-              hitCount: device.hitCount || 0,
-              lastHitTime: device.lastSeen || 0,
-              hitTimes: device.hitTimes || []
-            };
-          }
-          return score;
-        });
-      });
-    }
-  }, [devices, gameStarted, gameEnded]);
+  const telemetry = useGameTelemetry({
+    token: thingsboardToken ?? null,
+    gameId,
+    isGameActive: gameStarted && !gameEnded,
+    devices: devices.map((device) => ({
+      deviceId: device.deviceId,
+      deviceName: device.name,
+    })),
+  });
 
-  // Initialize live scores from devices
-  useEffect(() => {
-    if (isOpen && devices.length > 0) {
-      const initialScores: LiveScore[] = devices.map(device => ({
+  const liveScores = useMemo<LiveScore[]>(() => {
+    return devices.map((device) => {
+      const hitTimes = telemetry.hitTimesByDevice[device.deviceId] ?? [];
+      const lastHitTime = hitTimes.length > 0 ? hitTimes[hitTimes.length - 1] : 0;
+
+      return {
         deviceId: device.deviceId,
         deviceName: device.name,
-        hitCount: device.hitCount || 0,
-        lastHitTime: device.lastSeen || 0,
-        hitTimes: device.hitTimes || []
-      }));
-      setLiveScores(initialScores);
-    }
-  }, [isOpen, devices]);
+        hitCount: telemetry.hitCounts[device.deviceId] ?? 0,
+        lastHitTime,
+        hitTimes,
+      };
+    });
+  }, [devices, telemetry.hitCounts, telemetry.hitTimesByDevice]);
 
   // Start countdown when popup opens
   useEffect(() => {
@@ -151,10 +145,6 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
       if (gameTimerRef.current) {
         clearInterval(gameTimerRef.current);
         gameTimerRef.current = null;
-      }
-      if (hitSimulationRef.current) {
-        clearInterval(hitSimulationRef.current);
-        hitSimulationRef.current = null;
       }
     };
   }, [isOpen, gameStarted, gameEnded]);
@@ -194,58 +184,12 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
         return prev - 1;
       });
     }, 1000);
-
-    // Start hit simulation (disabled in live mode)
-    // startHitSimulation();
   };
 
-  const startHitSimulation = () => {
-    // In live mode, don't simulate hits - they come from real devices
-    console.log('🔗 LIVE MODE: Hit simulation disabled - waiting for real device events');
-    return;
-
-    // Demo mode: Start with all hit counts at 0
-    setLiveScores(prevScores => {
-      return prevScores.map(score => ({
-        ...score,
-        hitCount: 0,
-        lastHitTime: 0,
-        hitTimes: []
-      }));
-    });
-
-    // Start hit simulation after a short delay to let the game begin
-    setTimeout(() => {
-      hitSimulationRef.current = setInterval(() => {
-        setLiveScores(prevScores => {
-          return prevScores.map(score => {
-            // Random chance for each device to get a hit (40% chance every 4 seconds for demo)
-            if (Math.random() < 0.4) {
-              const hitTime = Date.now();
-              const newHitCount = score.hitCount + 1; // Always exactly 1 hit at a time
-              console.log(`🎯 DEMO: ${score.deviceName} hit! New count: ${newHitCount}`);
-              return {
-                ...score,
-                hitCount: newHitCount,
-                lastHitTime: hitTime,
-                hitTimes: [...score.hitTimes, hitTime]
-              };
-            }
-            return score;
-          });
-        });
-      }, 4000); // Every 4 seconds for more realistic demo
-    }, 2000); // Wait 2 seconds after game starts
-  };
-
-  const endGame = () => {
+  const endGame = (): GameSummary | null => {
     setGameEnded(true);
     if (gameTimerRef.current) {
       clearInterval(gameTimerRef.current);
-    }
-    if (hitSimulationRef.current) {
-      clearInterval(hitSimulationRef.current);
-      hitSimulationRef.current = null;
     }
     
     // Calculate game summary
@@ -254,12 +198,13 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
     console.log('📊 Game Summary:', summary);
     
     onStopGame();
+    return summary;
   };
 
   const handleEndGame = () => {
-    endGame();
-    if (gameSummary) {
-      onEndGame(gameSummary);
+    const summary = endGame();
+    if (summary) {
+      onEndGame(summary);
     }
   };
 
@@ -270,7 +215,7 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
   };
 
   const getTotalHits = (): number => {
-    return liveScores.reduce((total, score) => total + score.hitCount, 0);
+    return Object.values(telemetry.hitCounts).reduce((total, count) => total + count, 0);
   };
 
   const getTopScorer = (): LiveScore | null => {
@@ -281,13 +226,13 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
   };
 
   const calculateGameSummary = (): GameSummary => {
-    const totalHits = liveScores.reduce((sum, score) => sum + score.hitCount, 0);
+    const totalHits = Object.values(telemetry.hitCounts).reduce((sum, count) => sum + count, 0);
     const gameDuration = gameStartTime ? (Date.now() - gameStartTime) / 1000 : 0; // in seconds
     const averageHitInterval = totalHits > 0 ? gameDuration / totalHits : 0;
 
     // Calculate target-specific stats
-    const targetStats = liveScores.map(score => {
-      const hitTimes = score.hitTimes.sort((a, b) => a - b);
+    const targetStats = devices.map(device => {
+      const hitTimes = [...(telemetry.hitTimesByDevice[device.deviceId] ?? [])].sort((a, b) => a - b);
       const intervals = [];
       
       for (let i = 1; i < hitTimes.length; i++) {
@@ -299,19 +244,25 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
         : 0;
 
       return {
-        deviceId: score.deviceId,
-        deviceName: score.deviceName,
-        hitCount: score.hitCount,
+        deviceId: device.deviceId,
+        deviceName: device.name,
+        hitCount: telemetry.hitCounts[device.deviceId] ?? 0,
         hitTimes: hitTimes,
         averageInterval: averageInterval,
-        firstHitTime: hitTimes.length > 0 ? (hitTimes[0] - (gameStartTime || 0)) / 1000 : 0,
-        lastHitTime: hitTimes.length > 0 ? (hitTimes[hitTimes.length - 1] - (gameStartTime || 0)) / 1000 : 0
+        firstHitTime:
+          hitTimes.length > 0 && gameStartTime
+            ? (hitTimes[0] - gameStartTime) / 1000
+            : 0,
+        lastHitTime:
+          hitTimes.length > 0 && gameStartTime
+            ? (hitTimes[hitTimes.length - 1] - gameStartTime) / 1000
+            : 0,
       };
     });
 
     // Calculate cross-target switching stats
-    const allHits = liveScores
-      .flatMap(score => score.hitTimes.map(time => ({ deviceId: score.deviceId, time })))
+    const allHits = telemetry.hitHistory
+      .map(hit => ({ deviceId: hit.deviceId, time: hit.timestamp }))
       .sort((a, b) => a.time - b.time);
 
     const switchTimes = [];
@@ -667,13 +618,7 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
                       setCountdown(null);
                       setTimeRemaining(duration * 60);
                       setGameSummary(null);
-                      setLiveScores(devices.map(device => ({
-                        deviceId: device.deviceId,
-                        deviceName: device.name,
-                        hitCount: 0,
-                        lastHitTime: 0,
-                        hitTimes: []
-                      })));
+                      startCountdown();
                     }}
                     className="bg-brand-primary hover:bg-brand-primary/90 text-white font-body text-xs md:text-sm"
                     size="sm"

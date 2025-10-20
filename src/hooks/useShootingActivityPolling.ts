@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTargets } from '@/store/useTargets';
-import thingsBoardService, { openTelemetryWS, batchTelemetry } from '@/services/thingsboard';
+import thingsBoardService, { openTelemetryWS } from '@/services/thingsboard';
+import { fetchShootingActivity } from '@/lib/edge';
 
 interface ShootingPollingConfig {
   activeInterval: number;    // 10 seconds during active shooting
@@ -21,50 +22,66 @@ export interface TargetShootingActivity {
 
 type PollingMode = 'active' | 'recent' | 'standby';
 
-// Helper function to process individual target telemetry
-async function processTargetTelemetry(
+const DEFAULT_POLLING_CONFIG: ShootingPollingConfig = {
+  activeInterval: 5000,
+  recentInterval: 15000,
+  standbyInterval: 30000,
+  activeThreshold: 30000,
+  standbyThreshold: 600000,
+};
+
+type ActivityFlags = {
+  hasActiveShooters: boolean;
+  hasRecentActivity: boolean;
+};
+
+const TELEMETRY_KEYS = ['hits', 'hit_ts', 'beep_ts', 'event', 'game_name', 'gameId'];
+
+function processTargetTelemetry(
   target: any,
   telemetry: any,
   newActivityMap: Map<string, TargetShootingActivity>,
   currentTime: number,
-  config: ShootingPollingConfig,
-  activityFlags: { hasActiveShooters: boolean; hasRecentActivity: boolean }
+  thresholds: Pick<ShootingPollingConfig, 'activeThreshold' | 'standbyThreshold'>,
+  activityFlags: ActivityFlags
 ) {
-  let lastShotTime = 0;
-  let totalShots = 0;
-
-  // If no telemetry data at all, skip this target - only process real data
   if (!telemetry || Object.keys(telemetry).length === 0) {
     return;
   }
 
-  // ONLY use hits data with actual shot counts for real shooting activity
-  if (telemetry.hits && telemetry.hits.length > 0) {
+  let lastShotTime = 0;
+  let totalShots = 0;
+
+  if (Array.isArray(telemetry.hits) && telemetry.hits.length > 0) {
     const hitsData = telemetry.hits[telemetry.hits.length - 1];
-    totalShots = parseInt(hitsData.value) || 0;
-    
-    // Only consider it a real shot if there are actual hits recorded
+    totalShots = parseInt(hitsData.value, 10) || 0;
     if (totalShots > 0) {
       lastShotTime = hitsData.ts;
     }
   }
 
-  const timeSinceLastShot = lastShotTime > 0 ? currentTime - lastShotTime : Infinity;
-  
-  // Ignore future timestamps (clock sync issues)
+  const timeSinceLastShot = lastShotTime > 0 ? currentTime - lastShotTime : Number.POSITIVE_INFINITY;
   const isFutureTimestamp = timeSinceLastShot < 0;
-  
-  const isActivelyShooting = lastShotTime > 0 && !isFutureTimestamp && timeSinceLastShot < config.activeThreshold; // 30 seconds
-  const isRecentlyActive = lastShotTime > 0 && !isFutureTimestamp && timeSinceLastShot >= config.activeThreshold && timeSinceLastShot < config.standbyThreshold; // 30s - 10 minutes
-  const isStandby = lastShotTime === 0 || isFutureTimestamp || timeSinceLastShot >= config.standbyThreshold; // 10+ minutes
 
-  newActivityMap.set(target.id, {
-    deviceId: target.id,
+  const isActivelyShooting =
+    lastShotTime > 0 && !isFutureTimestamp && timeSinceLastShot < thresholds.activeThreshold;
+  const isRecentlyActive =
+    lastShotTime > 0 &&
+    !isFutureTimestamp &&
+    timeSinceLastShot >= thresholds.activeThreshold &&
+    timeSinceLastShot < thresholds.standbyThreshold;
+  const isStandby =
+    lastShotTime === 0 || isFutureTimestamp || timeSinceLastShot >= thresholds.standbyThreshold;
+
+  const deviceId = target.id?.id || target.id;
+
+  newActivityMap.set(deviceId, {
+    deviceId,
     lastShotTime,
     totalShots,
     isActivelyShooting,
     isRecentlyActive,
-    isStandby
+    isStandby,
   });
 
   if (isActivelyShooting) {
@@ -74,283 +91,315 @@ async function processTargetTelemetry(
   }
 }
 
-// Helper function to determine polling mode
-function determinePollingMode(
-  hasActiveShooters: boolean,
-  hasRecentActivity: boolean,
-  onlineTargetsCount: number,
-  newActivityMap: Map<string, TargetShootingActivity>
-): PollingMode {
-  let finalMode: PollingMode;
+function determinePollingMode(hasActiveShooters: boolean, hasRecentActivity: boolean): PollingMode {
   if (hasActiveShooters) {
-    finalMode = 'active';   // Fast polling - someone is actively shooting
-  } else if (hasRecentActivity) {
-    finalMode = 'recent';   // Medium polling - recent shots detected
-  } else {
-    finalMode = 'standby';  // Slow polling - no recent shooting activity
+    return 'active';
   }
-
-  return finalMode;
+  if (hasRecentActivity) {
+    return 'recent';
+  }
+  return 'standby';
 }
 
 export const useShootingActivityPolling = (
   onUpdate: () => Promise<void>,
-  config: ShootingPollingConfig = {
-    activeInterval: 5000,      // 5 seconds during active shooting (faster for dev without WebSocket)
-    recentInterval: 15000,     // 15 seconds if shot within last 30s but not active
-    standbyInterval: 30000,    // 30 seconds if no shots for 10+ minutes
-    activeThreshold: 30000,    // 30 seconds - active shooting threshold
-    standbyThreshold: 600000   // 10 minutes - standby mode threshold
-  }
+  config: ShootingPollingConfig = DEFAULT_POLLING_CONFIG,
+  enabled = true
 ) => {
-  const [currentMode, setCurrentMode] = useState<PollingMode>('standby');
-  const [currentInterval, setCurrentInterval] = useState(config.standbyInterval);
-  const [targetActivity, setTargetActivity] = useState<Map<string, TargetShootingActivity>>(new Map());
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const lastShotDetected = useRef<number>(0);
-  const wsRef = useRef<WebSocket | null>(null);
   const { targets } = useTargets();
-  
-  // Page Visibility API - pause polling when tab is not visible
-  const [isPageVisible, setIsPageVisible] = useState(!document.hidden);
-  const telemetryCache = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
 
-  // Check for actual shooting activity (real hits only)
-  const checkShootingActivity = async (): Promise<PollingMode> => {
+  const {
+    activeInterval,
+    recentInterval,
+    standbyInterval,
+    activeThreshold,
+    standbyThreshold,
+  } = config;
+
+  const [currentMode, setCurrentMode] = useState<PollingMode>('standby');
+  const [currentInterval, setCurrentInterval] = useState(standbyInterval);
+  const [targetActivity, setTargetActivity] = useState<Map<string, TargetShootingActivity>>(new Map());
+  const [isPageVisible, setIsPageVisible] = useState(!document.hidden);
+
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const modeRef = useRef<PollingMode>('standby');
+  const intervalStateRef = useRef<{ mode: PollingMode; interval: number }>({
+    mode: 'standby',
+    interval: standbyInterval,
+  });
+
+  const clearPollingInterval = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, []);
+
+  const getIntervalForMode = useCallback(
+    (mode: PollingMode): number => {
+      switch (mode) {
+        case 'active':
+          return activeInterval;
+        case 'recent':
+          return recentInterval;
+        case 'standby':
+        default:
+          return standbyInterval;
+      }
+    },
+    [activeInterval, recentInterval, standbyInterval]
+  );
+
+  const checkShootingActivity = useCallback(async (): Promise<PollingMode> => {
+    if (!enabled) {
+      return 'standby';
+    }
+
     try {
       if (!thingsBoardService.isAuthenticated()) {
-        console.log('🔍 [ShootingActivity] Not authenticated, returning standby');
         return 'standby';
       }
 
-      // Wait for targets to be loaded before checking activity
       if (targets.length === 0) {
-        console.log('🔍 [ShootingActivity] No targets loaded, returning standby');
+        setTargetActivity(new Map());
+        return 'standby';
+      }
+
+      const onlineTargets = targets.filter((target) => target.status === 'online' || target.status === 'standby');
+      if (onlineTargets.length === 0) {
+        setTargetActivity(new Map());
         return 'standby';
       }
 
       const currentTime = Date.now();
       const newActivityMap = new Map<string, TargetShootingActivity>();
-      let hasActiveShooters = false;
-      let hasRecentActivity = false;
+      const activityFlags: ActivityFlags = { hasActiveShooters: false, hasRecentActivity: false };
 
-      // Only check targets that are online/active
-      const onlineTargets = targets.filter(target => target.status === 'online');
-      
-      if (onlineTargets.length === 0) {
-        console.log('🔍 [ShootingActivity] No online targets, setting standby');
-        setTargetActivity(new Map());
-        return 'standby';
-      }
+      const deviceIds = onlineTargets.map((target) => target.id?.id || target.id);
+      const { activity } = await fetchShootingActivity(deviceIds, TELEMETRY_KEYS);
 
-      console.log(`🔍 [ShootingActivity] Checking ${onlineTargets.length} online targets for activity`);
-
-      // Fetch telemetry for all ONLINE targets using batch API
-      const deviceIds = onlineTargets.map(target => target.id?.id || target.id);
-      const telemetryKeys = ['hits', 'hit_ts', 'beep_ts', 'event', 'game_name', 'gameId'];
-      
-      let telemetryMap: Map<string, any>;
-      try {
-        // Add timeout to prevent hanging
-        telemetryMap = await Promise.race([
-          batchTelemetry(deviceIds, telemetryKeys),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Batch telemetry timeout')), 10000)
-          )
-        ]) as Map<string, any>;
-      } catch (error) {
-        console.error('❌ [ShootingActivity] Batch telemetry failed:', error);
-        // Fallback to individual requests with timeout
-        const telemetryPromises = onlineTargets.map(target => 
-          Promise.race([
-            thingsBoardService.getLatestTelemetry(target.id?.id || target.id, telemetryKeys)
-              .then(telemetry => ({ target, telemetry, error: null })),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Individual telemetry timeout')), 5000)
-            )
-          ]).catch(error => ({ target, telemetry: null, error }))
-        );
-        const results = await Promise.allSettled(telemetryPromises);
-        
-        // Process individual results
-        for (const result of results) {
-          if (result.status === 'rejected') {
-            console.error(`❌ [ShootingActivity] Promise rejected:`, result.reason);
-            continue;
-          }
-          
-          const { target, telemetry, error } = result.value;
-          if (error) {
-            console.error(`❌ [ShootingActivity] Error checking ${target.name}:`, error);
-            // Skip targets with errors - only process real data from ThingsBoard
-            continue;
-          }
-          
-          // Process individual telemetry result
-          await processTargetTelemetry(target, telemetry, newActivityMap, currentTime, config, { hasActiveShooters, hasRecentActivity });
+      for (const record of activity ?? []) {
+        const target = onlineTargets.find((t) => (t.id?.id || t.id) === record.deviceId);
+        if (!target) {
+          continue;
         }
-        
-        setTargetActivity(newActivityMap);
-        return determinePollingMode(hasActiveShooters, hasRecentActivity, onlineTargets.length, newActivityMap);
-      }
-      
-      // Process batch telemetry results
-      for (const target of onlineTargets) {
-        const telemetry = telemetryMap.get(target.id) || {};
-        await processTargetTelemetry(target, telemetry, newActivityMap, currentTime, config, { hasActiveShooters, hasRecentActivity });
+
+        if (record.error) {
+          console.error(`❌ [ShootingActivity] Edge error for ${record.deviceId}:`, record.error);
+          continue;
+        }
+
+        processTargetTelemetry(
+          target,
+          record.telemetry,
+          newActivityMap,
+          currentTime,
+          { activeThreshold, standbyThreshold },
+          activityFlags
+        );
       }
 
-      // Mark all offline targets as standby without checking telemetry
-      const offlineTargets = targets.filter(target => target.status === 'offline');
-      for (const target of offlineTargets) {
-        newActivityMap.set(target.id, {
-          deviceId: target.id,
-          lastShotTime: 0,
-          totalShots: 0,
-          isActivelyShooting: false,
-          isRecentlyActive: false,
-          isStandby: true
+      targets
+        .filter((target) => target.status === 'offline')
+        .forEach((target) => {
+          const deviceId = target.id?.id || target.id;
+          newActivityMap.set(deviceId, {
+            deviceId,
+            lastShotTime: 0,
+            totalShots: 0,
+            isActivelyShooting: false,
+            isRecentlyActive: false,
+            isStandby: true,
+          });
         });
-      }
 
       setTargetActivity(newActivityMap);
-
-      // Determine polling mode based on real shooting activity
-      return determinePollingMode(hasActiveShooters, hasRecentActivity, onlineTargets.length, newActivityMap);
-
+      return determinePollingMode(activityFlags.hasActiveShooters, activityFlags.hasRecentActivity);
     } catch (error) {
       console.error('❌ [ShootingActivity] Error checking shooting activity:', error);
       return 'standby';
     }
-  };
+  }, [activeThreshold, enabled, standbyThreshold, targets]);
 
-  // Update polling interval based on shooting activity
-  const updatePollingMode = (mode: PollingMode) => {
-    let newInterval: number;
-    
-    switch (mode) {
-      case 'active':
-        newInterval = config.activeInterval;   // 10 seconds
-        break;
-      case 'recent':
-        newInterval = config.recentInterval;   // 30 seconds
-        break;
-      case 'standby':
-        newInterval = config.standbyInterval;  // 60 seconds
-        break;
-      default:
-        newInterval = config.standbyInterval;
-    }
-    
-    if (newInterval !== currentInterval || mode !== currentMode) {
-      console.log(`🔄 [ShootingActivity] Mode: ${currentMode} → ${mode} (${currentInterval}ms → ${newInterval}ms)`);
-      setCurrentInterval(newInterval);
-      setCurrentMode(mode);
-      
-      // Clear existing interval and set new one
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
+  const updatePollingMode = useCallback(
+    (mode: PollingMode) => {
+      if (!enabled) {
+        clearPollingInterval();
+        modeRef.current = 'standby';
+        intervalStateRef.current = { mode: 'standby', interval: standbyInterval };
+        setCurrentMode('standby');
+        setCurrentInterval(standbyInterval);
+        setTargetActivity(new Map());
+        return;
       }
-      
-      // Start new interval with updated mode
-      intervalRef.current = setInterval(async () => {
-        // Only call onUpdate if not in standby mode or if we need to check for changes
-        if (mode !== 'standby') {
-          await onUpdate();
-        }
-        
-        const newMode = await checkShootingActivity();
-        updatePollingMode(newMode);
-      }, newInterval);
-    }
-  };
 
-  // Page Visibility API effect
+      const nextInterval = getIntervalForMode(mode);
+      const { mode: prevMode, interval: prevInterval } = intervalStateRef.current;
+      const shouldReschedule = !intervalRef.current || prevMode !== mode || prevInterval !== nextInterval;
+
+      modeRef.current = mode;
+      intervalStateRef.current = { mode, interval: nextInterval };
+      setCurrentMode(mode);
+      setCurrentInterval(nextInterval);
+
+      if (!shouldReschedule) {
+        return;
+      }
+
+      clearPollingInterval();
+
+      intervalRef.current = setInterval(async () => {
+        if (!enabled) {
+          return;
+        }
+
+        if (modeRef.current !== 'standby') {
+          try {
+            await onUpdate();
+          } catch (error) {
+            console.warn('⚠️ [ShootingActivity] onUpdate failed during polling interval:', error);
+          }
+        }
+
+        const recalculatedMode = await checkShootingActivity();
+        if (recalculatedMode !== modeRef.current) {
+          updatePollingMode(recalculatedMode);
+        }
+      }, nextInterval);
+    },
+    [
+      clearPollingInterval,
+      enabled,
+      getIntervalForMode,
+      onUpdate,
+      checkShootingActivity,
+      standbyInterval,
+    ]
+  );
+
   useEffect(() => {
+    if (!enabled) {
+      setIsPageVisible(true);
+      return;
+    }
+
     const handleVisibilityChange = () => {
       const isVisible = !document.hidden;
       setIsPageVisible(isVisible);
-      
+
       if (isVisible) {
-        // Resume polling when page becomes visible
-        const resumePolling = async () => {
-          await onUpdate();
-          const mode = await checkShootingActivity();
-          updatePollingMode(mode);
-        };
-        resumePolling();
+        (async () => {
+          try {
+            await onUpdate();
+            const mode = await checkShootingActivity();
+            updatePollingMode(mode);
+          } catch (error) {
+            console.error('❌ [ShootingActivity] Visibility resume failed:', error);
+          }
+        })();
       } else {
-        // Pause polling when page is hidden
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-          intervalRef.current = null;
-        }
+        clearPollingInterval();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [onUpdate, checkShootingActivity, updatePollingMode]);
+  }, [
+    checkShootingActivity,
+    clearPollingInterval,
+    enabled,
+    onUpdate,
+    updatePollingMode,
+  ]);
 
-  // Main polling effect - wait for targets to be loaded
   useEffect(() => {
-    const startShootingPolling = async () => {
+    if (!enabled) {
+      clearPollingInterval();
+      setCurrentMode('standby');
+      setCurrentInterval(standbyInterval);
+      setTargetActivity(new Map());
+      return;
+    }
+
+    if (!targets.length || !isPageVisible) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const bootstrap = async () => {
       try {
-        // Wait for targets to be loaded before starting polling
-        if (targets.length === 0) {
-          console.log('🔍 [ShootingActivity] No targets, skipping polling start');
+        await onUpdate();
+        if (cancelled) {
           return;
         }
 
-        // Don't start polling if page is not visible
-        if (!isPageVisible) {
-          console.log('🔍 [ShootingActivity] Page not visible, skipping polling start');
+        const initialMode = await checkShootingActivity();
+        if (cancelled) {
           return;
         }
-        
-        console.log('🔄 [ShootingActivity] Starting polling with timeout...');
-        
-        // Add timeout to prevent hanging
-        await Promise.race([
-          (async () => {
-            // Initial update
-            await onUpdate();
-            
-            // Check initial shooting activity
-            const initialMode = await checkShootingActivity();
-            updatePollingMode(initialMode);
-          })(),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Shooting activity polling timeout')), 15000)
-          )
-        ]);
-        
-        console.log('✅ [ShootingActivity] Polling started successfully');
+
+        updatePollingMode(initialMode);
       } catch (error) {
         console.error('❌ [ShootingActivity] Failed to start polling:', error);
-        // Set to standby mode on error
         updatePollingMode('standby');
       }
     };
 
-    startShootingPolling();
+    bootstrap();
 
-    // Cleanup on unmount
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
+      cancelled = true;
     };
-  }, [targets.length, isPageVisible]); // Re-run when target list changes or page visibility changes
+  }, [
+    checkShootingActivity,
+    clearPollingInterval,
+    enabled,
+    isPageVisible,
+    onUpdate,
+    standbyInterval,
+    targets.length,
+    updatePollingMode,
+  ]);
 
-  // WebSocket shot detection (immediate response to shots)
+  useEffect(
+    () => () => {
+      clearPollingInterval();
+    },
+    [clearPollingInterval]
+  );
+
+  const checkShootingActivityRef = useRef(checkShootingActivity);
+  const onUpdateRef = useRef(onUpdate);
+  const updatePollingModeRef = useRef(updatePollingMode);
+
   useEffect(() => {
+    checkShootingActivityRef.current = checkShootingActivity;
+  }, [checkShootingActivity]);
+
+  useEffect(() => {
+    onUpdateRef.current = onUpdate;
+  }, [onUpdate]);
+
+  useEffect(() => {
+    updatePollingModeRef.current = updatePollingMode;
+  }, [updatePollingMode]);
+
+  useEffect(() => {
+    if (!enabled) {
+      if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
+        wsRef.current.close();
+      }
+      wsRef.current = null;
+      return;
+    }
+
     const token = localStorage.getItem('tb_access');
     if (!token) {
       return;
     }
 
-    // Close existing connection if any
     if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
       wsRef.current.close();
     }
@@ -358,64 +407,81 @@ export const useShootingActivityPolling = (
     try {
       const ws = openTelemetryWS(token);
       wsRef.current = ws;
-      
+
       if (!ws) {
         return;
       }
 
       ws.onmessage = (event) => {
+        const handleShotUpdate = async () => {
+          try {
+            await onUpdateRef.current().catch((error) => {
+              console.warn('⚠️ [ShootingActivity] onUpdate failed after WS message:', error);
+            });
+            const mode = await checkShootingActivityRef.current();
+            const nextMode = mode === 'standby' ? 'active' : mode;
+            updatePollingModeRef.current(nextMode);
+          } catch (error) {
+            console.warn('⚠️ [ShootingActivity] WebSocket handling failed:', error);
+          }
+        };
+
         try {
           const data = JSON.parse(event.data);
-          
-          // Check for shot-related telemetry updates
-          if (data.data && (
-            data.data.hits || 
-            data.data.hit_ts || 
-            data.data.beep_ts ||
-            (data.data.event && data.data.event.includes('hit'))
-          )) {
-            lastShotDetected.current = Date.now();
-            
-            // Immediately switch to active mode
-            updatePollingMode('active');
+          if (
+            data?.data &&
+            (data.data.hits ||
+              data.data.hit_ts ||
+              data.data.beep_ts ||
+              (data.data.event && typeof data.data.event === 'string' && data.data.event.includes('hit')))
+          ) {
+            void handleShotUpdate();
           }
         } catch (error) {
-          console.warn(`⚠️ [ShootingActivity] WebSocket message parse error:`, error);
+          console.warn('⚠️ [ShootingActivity] WebSocket message parse error:', error);
         }
       };
 
       ws.onerror = (error) => {
-        console.warn('WebSocket error in shooting activity polling, falling back to polling only');
+        console.warn('WebSocket error in shooting activity polling, falling back to polling only', error);
       };
 
-      ws.onclose = (event) => {
-        // WebSocket closed, continuing with polling only
+      ws.onclose = () => {
+        // Continue with interval-based polling when socket closes
       };
 
       return () => {
         if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
           wsRef.current.close();
-          wsRef.current = null;
         }
+        wsRef.current = null;
       };
     } catch (error) {
       console.warn('WebSocket setup failed in shooting activity polling, using polling only:', error);
     }
-  }, []); // Keep empty dependency array to only create once
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    updatePollingMode(modeRef.current);
+  }, [activeInterval, recentInterval, standbyInterval, enabled, updatePollingMode]);
 
   return {
-    currentInterval: currentInterval / 1000, // Return in seconds for display
+    currentInterval: currentInterval / 1000,
     currentMode,
     hasActiveShooters: currentMode === 'active',
     hasRecentActivity: currentMode === 'recent',
     isStandbyMode: currentMode === 'standby',
     targetActivity: Array.from(targetActivity.values()),
-    activeShotsCount: Array.from(targetActivity.values()).filter(t => t.isActivelyShooting).length,
-    recentShotsCount: Array.from(targetActivity.values()).filter(t => t.isRecentlyActive).length,
+    activeShotsCount: Array.from(targetActivity.values()).filter((t) => t.isActivelyShooting).length,
+    recentShotsCount: Array.from(targetActivity.values()).filter((t) => t.isRecentlyActive).length,
     forceUpdate: async () => {
       await onUpdate();
       const mode = await checkShootingActivity();
       updatePollingMode(mode);
-    }
+    },
   };
 };

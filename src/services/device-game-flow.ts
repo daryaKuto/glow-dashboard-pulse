@@ -1,5 +1,5 @@
 import api from '@/lib/tbClient';
-import { openTelemetryWS } from '@/services/thingsboard';
+import { openTelemetryWS, updateSharedAttributes } from '@/services/thingsboard';
 
 // Device Game Flow Types based on DeviceManagement.md
 export interface DeviceGameEvent {
@@ -84,6 +84,15 @@ class DeviceGameFlowService {
   private telemetrySubscriptions: Map<string, WebSocket> = new Map();
   private eventCallbacks: Map<string, (event: DeviceGameEvent) => void> = new Map();
 
+  seedDeviceStatuses(deviceStatuses: DeviceStatus[]): void {
+    deviceStatuses.forEach((status) => {
+      this.deviceStatuses.set(status.deviceId, {
+        ...status,
+        hitTimes: status.hitTimes ? [...status.hitTimes] : [],
+      });
+    });
+  }
+
   /**
    * Configure devices for a game session
    * According to DeviceManagement.md: Press Create Game Button action
@@ -113,6 +122,15 @@ class DeviceGameFlowService {
           }
         };
 
+        try {
+          await updateSharedAttributes(deviceId, {
+            gameId,
+            status: 'busy',
+          });
+        } catch (attrError) {
+          console.warn(`⚠️ Failed to update shared attributes for device ${deviceId}`, attrError);
+        }
+
         // Send RPC command to device according to documentation
         const response = await api.post(`/rpc/twoway/${deviceId}`, command);
 
@@ -120,15 +138,17 @@ class DeviceGameFlowService {
         results.success.push(deviceId);
 
         // Store expected device response for validation
+        const existingStatus = this.deviceStatuses.get(deviceId);
         this.deviceStatuses.set(deviceId, {
           deviceId,
-          name: `Device ${deviceId}`,
+          name: existingStatus?.name ?? `Device ${deviceId}`,
           gameStatus: 'idle',
-          wifiStrength: 0,
-          ambientLight: 'good',
+          wifiStrength: existingStatus?.wifiStrength ?? 0,
+          ambientLight: existingStatus?.ambientLight ?? 'good',
           hitCount: 0,
           lastSeen: Date.now(),
-          isOnline: true
+          isOnline: true,
+          hitTimes: existingStatus?.hitTimes ? [...existingStatus.hitTimes] : [],
         });
 
       } catch (error) {
@@ -177,9 +197,13 @@ class DeviceGameFlowService {
         // Update device status to starting
         const deviceStatus = this.deviceStatuses.get(deviceId);
         if (deviceStatus) {
-          deviceStatus.gameStatus = 'start';
-          deviceStatus.hitCount = 0; // Reset hit count for new game
-          deviceStatus.lastSeen = Date.now();
+          this.deviceStatuses.set(deviceId, {
+            ...deviceStatus,
+            gameStatus: 'start',
+            hitCount: 0,
+            lastSeen: Date.now(),
+            hitTimes: [],
+          });
         }
 
       } catch (error) {
@@ -221,6 +245,14 @@ class DeviceGameFlowService {
 
         console.log(`Stop command sent to device ${deviceId}`);
         results.success.push(deviceId);
+
+        try {
+          await updateSharedAttributes(deviceId, {
+            status: 'free',
+          });
+        } catch (attrError) {
+          console.warn(`⚠️ Failed to clear shared attributes for device ${deviceId}`, attrError);
+        }
       } catch (error) {
         console.error(`Failed to stop game on device ${deviceId}:`, error);
         results.failed.push(deviceId);
@@ -290,20 +322,34 @@ class DeviceGameFlowService {
     duration: number, 
     deviceIds: string[]
   ): GameSession {
+    const sessionDevices = deviceIds.map((id) => {
+      const existing = this.deviceStatuses.get(id);
+      if (existing) {
+        return {
+          ...existing,
+          gameStatus: 'idle',
+          hitCount: existing.hitCount ?? 0,
+          hitTimes: existing.hitTimes ? [...existing.hitTimes] : [],
+        };
+      }
+      return {
+        deviceId: id,
+        name: `Device ${id}`,
+        gameStatus: 'idle' as const,
+        wifiStrength: 0,
+        ambientLight: 'good' as const,
+        hitCount: 0,
+        lastSeen: 0,
+        isOnline: false,
+        hitTimes: [],
+      };
+    });
+
     const session: GameSession = {
       gameId,
       gameName,
       duration,
-      devices: deviceIds.map(id => ({
-        deviceId: id,
-        name: `Device ${id}`,
-        gameStatus: 'idle',
-        wifiStrength: 0,
-        ambientLight: 'good',
-        hitCount: 0,
-        lastSeen: 0,
-        isOnline: false
-      })),
+      devices: sessionDevices,
       startTime: Date.now(),
       status: 'configuring'
     };
@@ -599,5 +645,8 @@ export const getDeviceStatus = (deviceId: string) =>
 
 export const getAllDeviceStatuses = () =>
   deviceGameFlowService.getAllDeviceStatuses();
+
+export const seedDeviceStatuses = (deviceStatuses: DeviceStatus[]) =>
+  deviceGameFlowService.seedDeviceStatuses(deviceStatuses);
 
 export default deviceGameFlowService;

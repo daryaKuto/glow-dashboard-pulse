@@ -57,11 +57,6 @@ class ThingsBoardService {
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`[ThingsBoard] Attempting login (attempt ${attempt}/${maxRetries}) with endpoint: /api/auth/login`);
-        console.log('[ThingsBoard] Using Vite proxy to avoid CORS issues');
-        console.log('[ThingsBoard] Username:', username);
-        console.log('[ThingsBoard] Password length:', password.length);
-        
         // Use Vite proxy to avoid CORS issues
         const response = await axios.post('/api/tb/auth/login', {
           username,
@@ -73,37 +68,21 @@ class ThingsBoardService {
           timeout: 10000, // 10 second timeout
           withCredentials: false // Don't send cookies
         });
-
-        console.log('[ThingsBoard] Login successful:', response.status);
         
         // Store tokens in localStorage
         localStorage.setItem('tb_access', response.data.token);
         localStorage.setItem('tb_refresh', response.data.refreshToken);
-        
-        console.log('[ThingsBoard] Tokens stored in localStorage');
         return response.data;
       } catch (error: any) {
-        console.log(`[ThingsBoard] Login failed (attempt ${attempt}/${maxRetries}):`, error);
-        console.log('[ThingsBoard] Error details:', {
-          message: error.message,
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          url: error.config?.url,
-          baseURL: error.config?.baseURL
-        });
-
         // If it's a 401 (unauthorized), don't retry - user doesn't exist
         if (error.response?.status === 401) {
-          console.log('[ThingsBoard] User not found (401) - not retrying');
           throw error; // Re-throw the original 401 error
         }
 
         // If it's a 429 (rate limit), wait longer
         if (error.response?.status === 429) {
-          console.log('[ThingsBoard] Rate limited, waiting 5 seconds...');
           await new Promise(resolve => setTimeout(resolve, 5000));
         } else if (attempt < maxRetries) {
-          console.log(`[ThingsBoard] Waiting ${retryDelay}ms before retry...`);
           await new Promise(resolve => setTimeout(resolve, retryDelay));
         }
       }
@@ -160,7 +139,6 @@ class ThingsBoardService {
 
   // Clear invalid tokens and force re-authentication
   clearInvalidTokens(): void {
-    console.log('[ThingsBoard] Clearing invalid tokens and forcing re-authentication');
     localStorage.removeItem('tb_access');
     localStorage.removeItem('tb_refresh');
     this.accessToken = null;
@@ -195,7 +173,6 @@ class ThingsBoardService {
         // Only fetch telemetry if requested (expensive operation)
         if (fetchTelemetry) {
           // Fetch telemetry for all devices in parallel to determine real status
-          console.log(`🔍 [ThingsBoard] Fetching status for ${devices.length} devices in parallel`);
           const statusPromises = devices.map(device => 
             this.getLatestTelemetry(device.id.id, [
               'hits',           // Total shot count
@@ -206,8 +183,6 @@ class ThingsBoardService {
               'gameStatus'      // Current game status
             ]).then(telemetry => {
               // Check last activity timestamp - look for any recent telemetry data
-              console.log(`🔍 [ThingsBoard] Raw telemetry for ${device.name}:`, telemetry);
-              
               // Check for ANY telemetry key with a timestamp for connection status
               let lastActivity = 0;
               if (telemetry?.hit_ts?.[0]?.ts) {
@@ -233,19 +208,6 @@ class ThingsBoardService {
               const now = Date.now();
               const timeDiff = now - lastActivity;
               const isOnline = lastActivity > 0 && timeDiff < 600000; // 10 min
-              
-              console.log(`📊 [ThingsBoard] Device ${device.name} status calculation:`, {
-                lastActivity,
-                lastActivityReadable: lastActivity ? new Date(lastActivity).toISOString() : 'never',
-                now: new Date(now).toISOString(),
-                timeDiffMinutes: Math.round(timeDiff / 60000),
-                isOnline,
-                battery,
-                wifiStrength,
-                lastEvent,
-                gameStatus,
-                telemetryKeys: telemetry ? Object.keys(telemetry) : 'none'
-              });
               
               return { 
                 deviceId: device.id.id, 
@@ -292,19 +254,12 @@ class ThingsBoardService {
           };
         });
         
-        console.log(`✅ [ThingsBoard] Status determination complete:`, enhancedDevices.map(d => ({
-          name: d.name,
-          status: d.status,
-          lastActivity: d.lastActivityTime ? new Date(d.lastActivityTime).toISOString() : 'never'
-        })));
-        
         return {
           ...response.data,
           data: enhancedDevices
         };
         } else {
           // Return devices without telemetry data (faster)
-          console.log(`🔍 [ThingsBoard] Skipping telemetry fetch for ${devices.length} devices (fetchTelemetry=false)`);
           const basicDevices = devices.map(device => ({
             ...device,
             status: 'unknown', // Default status when no telemetry
@@ -414,35 +369,12 @@ class ThingsBoardService {
     }
 
     try {
-      console.log(`🔍 [ThingsBoard] Getting latest telemetry for device: ${deviceId}`);
-      console.log(`🔍 [ThingsBoard] Requested keys: ${keys.join(', ')}`);
-      
       const response = await api.get(`/plugins/telemetry/DEVICE/${deviceId}/values/timeseries`, {
         params: {
           keys: keys.join(','),
           limit: 1
         }
       });
-
-      console.log(`📊 [ThingsBoard] Raw telemetry response for ${deviceId}:`, response.data);
-      
-      // Log parsed telemetry data for shot verification
-      if (response.data) {
-        Object.entries(response.data).forEach(([key, value]) => {
-          if (Array.isArray(value) && value.length > 0) {
-            const latestValue = value[value.length - 1];
-            console.log(`📊 [ThingsBoard] ${deviceId} - ${key}:`, {
-              value: latestValue.value,
-              timestamp: latestValue.ts,
-              readableTime: new Date(latestValue.ts).toISOString()
-            });
-          } else {
-            console.log(`📊 [ThingsBoard] ${deviceId} - ${key}: No data`);
-          }
-        });
-      } else {
-        console.log(`📊 [ThingsBoard] ${deviceId} - No telemetry data received`);
-      }
 
       return response.data;
     } catch (error) {
@@ -459,17 +391,12 @@ class ThingsBoardService {
     }
 
     try {
-      console.log(`🔍 [ThingsBoard] Getting batch telemetry for ${deviceIds.length} devices`);
-      console.log(`🔍 [ThingsBoard] Requested keys: ${keys.join(', ')}`);
-      
       // Use ThingsBoard batch API for better performance
       const response = await api.post('/plugins/telemetry/DEVICE/values/timeseries', {
         deviceIds: deviceIds,
         keys: keys,
         limit: 1
       });
-
-      console.log(`📊 [ThingsBoard] Batch telemetry response:`, response.data);
       
       // Convert response to Map for easy lookup
       const telemetryMap = new Map<string, TelemetryData>();
@@ -485,7 +412,6 @@ class ThingsBoardService {
     } catch (error) {
       console.error(`Failed to get batch telemetry:`, error);
       // Fallback to individual requests if batch fails
-      console.log('🔄 [ThingsBoard] Batch telemetry failed, falling back to individual requests');
       return this.getBatchTelemetryFallback(deviceIds, keys);
     }
   }
@@ -532,10 +458,6 @@ class ThingsBoardService {
     }
 
     try {
-      console.log(`🔍 [ThingsBoard] Getting historical telemetry for device: ${deviceId}`);
-      console.log(`🔍 [ThingsBoard] Time range: ${new Date(startTs).toISOString()} to ${new Date(endTs).toISOString()}`);
-      console.log(`🔍 [ThingsBoard] Requested keys: ${keys.join(', ')}`);
-      
       const response = await api.get(`/plugins/telemetry/DEVICE/${deviceId}/values/timeseries`, {
         params: {
           keys: keys.join(','),
@@ -544,28 +466,6 @@ class ThingsBoardService {
           limit
         }
       });
-
-      console.log(`📊 [ThingsBoard] Historical telemetry response for ${deviceId}:`, response.data);
-      
-      // Log summary of historical data for shot verification
-      if (response.data) {
-        Object.entries(response.data).forEach(([key, value]) => {
-          if (Array.isArray(value) && value.length > 0) {
-            console.log(`📊 [ThingsBoard] ${deviceId} - ${key} (${value.length} records):`, {
-              firstValue: value[0]?.value,
-              firstTimestamp: value[0]?.ts,
-              lastValue: value[value.length - 1]?.value,
-              lastTimestamp: value[value.length - 1]?.ts,
-              readableFirstTime: value[0] ? new Date(value[0].ts).toISOString() : 'N/A',
-              readableLastTime: value[value.length - 1] ? new Date(value[value.length - 1].ts).toISOString() : 'N/A'
-            });
-          } else {
-            console.log(`📊 [ThingsBoard] ${deviceId} - ${key}: No historical data`);
-          }
-        });
-      } else {
-        console.log(`📊 [ThingsBoard] ${deviceId} - No historical telemetry data received`);
-      }
 
       return response.data;
     } catch (error) {
@@ -636,8 +536,6 @@ class ThingsBoardService {
         wifi_ssid: ssid,
         wifi_password: password
       }, 'SHARED_SCOPE');
-      
-      console.log(`WiFi credentials set for device ${deviceId}`);
     } catch (error) {
       console.error(`Failed to set WiFi credentials for device ${deviceId}:`, error);
       throw error;
@@ -755,8 +653,6 @@ class ThingsBoardService {
           'Content-Type': 'application/json'
         }
       });
-
-      console.log(`RPC command sent to ${deviceId}:`, { method, params });
       return response.data;
     } catch (error) {
       console.error(`Failed to send RPC command to ${deviceId}:`, error);
@@ -783,8 +679,6 @@ class ThingsBoardService {
           }
         }
       );
-
-      console.log(`Telemetry sent to ${deviceId}:`, telemetry);
       return response.data;
     } catch (error) {
       console.error(`Failed to send telemetry to ${deviceId}:`, error);

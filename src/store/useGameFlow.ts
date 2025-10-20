@@ -25,7 +25,7 @@ interface GameFlowState {
   periodicInfoInterval: NodeJS.Timeout | null;
   
   // Actions
-  initializeDevices: (deviceIds: string[]) => Promise<void>;
+  initializeDevices: (devices: DeviceStatus[]) => Promise<void>;
   selectDevices: (deviceIds: string[]) => void;
   createGame: (gameName: string, duration: number) => Promise<boolean>;
   configureDevices: () => Promise<boolean>;
@@ -57,26 +57,21 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
   error: null,
   periodicInfoInterval: null,
 
-  initializeDevices: async (deviceIds: string[]) => {
+  initializeDevices: async (initialDevices: DeviceStatus[]) => {
     try {
       set({ error: null });
       
-      // Initialize device statuses
-      const devices: DeviceStatus[] = deviceIds.map(id => ({
-        deviceId: id,
-        name: `Device ${id}`,
-        gameStatus: 'idle',
-        wifiStrength: 0,
-        ambientLight: 'good',
-        hitCount: 0,
-        lastSeen: 0,
-        isOnline: false
+      const devices = initialDevices.map((device) => ({
+        ...device,
+        hitTimes: device.hitTimes ? [...device.hitTimes] : [],
       }));
-      
+
+      deviceGameFlowService.seedDeviceStatuses(devices);
       set({ devices });
-      
-      // Subscribe to device events
-      deviceIds.forEach(deviceId => {
+
+      const uniqueDeviceIds = Array.from(new Set(devices.map((device) => device.deviceId)));
+
+      uniqueDeviceIds.forEach(deviceId => {
         deviceGameFlowService.subscribeToDeviceEvents(deviceId, (event: DeviceGameEvent) => {
           deviceGameFlowService.processDeviceEvent(event);
           

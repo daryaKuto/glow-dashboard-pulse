@@ -54,8 +54,7 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
   // Initialize devices when component mounts
   useEffect(() => {
     if (availableDevices.length > 0) {
-      const deviceIds = availableDevices.map(d => d.deviceId);
-      initializeDevices(deviceIds);
+      void initializeDevices(availableDevices);
     }
   }, [availableDevices, initializeDevices]);
 

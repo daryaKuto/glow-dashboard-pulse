@@ -1,6 +1,8 @@
 
 import { create } from 'zustand';
 import { supabaseRoomsService, type UserRoom, type CreateRoomData } from '@/services/supabase-rooms';
+import { fetchRoomsData } from '@/lib/edge';
+import type { Target } from '@/store/useTargets';
 import { toast } from "@/components/ui/sonner";
 
 export type Room = {
@@ -11,10 +13,12 @@ export type Room = {
   icon?: string;
   room_type?: string;
   thingsBoardId?: string; // ThingsBoard device group ID (legacy)
+  targets?: Target[];
 };
 
 interface RoomsState {
   rooms: Room[];
+  unassignedTargets: Target[];
   isLoading: boolean;
   error: string | null;
   fetchRooms: () => Promise<void>;
@@ -28,35 +32,37 @@ interface RoomsState {
   getUnassignedTargets: () => Promise<any[]>;
   getAllTargetsWithAssignments: (forceRefresh?: boolean) => Promise<any[]>;
   updateRoomTargetCount: (roomId: string) => Promise<void>;
-  setRooms: (rooms: Room[]) => void;
+  setRooms: (rooms: Room[], unassignedTargets?: Target[]) => void;
 }
 
 export const useRooms = create<RoomsState>((set, get) => ({
   rooms: [],
+  unassignedTargets: [],
   isLoading: false,
   error: null,
   
   fetchRooms: async () => {
     set({ isLoading: true, error: null });
     try {
-      const userRooms = await supabaseRoomsService.getRoomsWithTargetCounts();
-      
-      // Transform to Room format
-      const rooms: Room[] = userRooms.map(room => ({
+      const { rooms: edgeRooms, unassignedTargets, cached } = await fetchRoomsData(true);
+
+      const rooms: Room[] = edgeRooms.map(room => ({
         id: room.id,
         name: room.name,
-        order: room.order_index,
-        targetCount: room.target_count || 0, // Use pre-calculated count
-        icon: room.icon,
-        room_type: room.room_type
+        order: room.order,
+        targetCount: room.targetCount,
+        icon: room.icon ?? undefined,
+        room_type: room.room_type ?? undefined,
+        targets: room.targets,
       }));
-      
-      set({ rooms, isLoading: false, error: null });
+
+      set({ rooms, unassignedTargets, isLoading: false, error: null });
     } catch (error) {
       console.error('❌ useRooms: Error fetching rooms:', error);
       
       set({ 
         rooms: [],
+        unassignedTargets: [],
         error: error instanceof Error ? error.message : 'Failed to fetch rooms',
         isLoading: false 
       });
@@ -157,12 +163,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
         await supabaseRoomsService.assignTargetsToRoom(roomId, [targetId]);
       }
       
-      // Light refresh - only fetch updated data
-      const { fetchRooms, getAllTargetsWithAssignments } = get();
-      await Promise.all([
-        fetchRooms(),
-        getAllTargetsWithAssignments(false) // Use data if fresh
-      ]);
+      await get().fetchRooms();
       
       toast.success(`Target ${roomId === null ? 'unassigned' : 'assigned'} successfully`);
     } catch (error) {
@@ -184,11 +185,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
       }
       
       // Single refresh operation for all assignments
-      const { fetchRooms, getAllTargetsWithAssignments } = get();
-      await Promise.all([
-        fetchRooms(),
-        getAllTargetsWithAssignments(true)
-      ]);
+      await get().fetchRooms();
       
       toast.success(`${targetIds.length} target${targetIds.length > 1 ? 's' : ''} ${roomId === null ? 'unassigned' : 'assigned'} successfully`);
     } catch (error) {
@@ -200,7 +197,13 @@ export const useRooms = create<RoomsState>((set, get) => ({
   
   getRoomTargets: async (roomId: string) => {
     try {
-      return await supabaseRoomsService.getRoomTargets(roomId);
+      const state = get();
+      const room = state.rooms.find(r => r.id === roomId);
+      if (room?.targets) {
+        return room.targets;
+      }
+      await state.fetchRooms();
+      return get().rooms.find(r => r.id === roomId)?.targets ?? [];
     } catch (error) {
       console.error('Error fetching room targets:', error);
       return [];
@@ -209,7 +212,11 @@ export const useRooms = create<RoomsState>((set, get) => ({
   
   getUnassignedTargets: async () => {
     try {
-      return await supabaseRoomsService.getUnassignedTargets();
+      const state = get();
+      if (state.unassignedTargets.length === 0) {
+        await state.fetchRooms();
+      }
+      return get().unassignedTargets;
     } catch (error) {
       console.error('Error fetching unassigned targets:', error);
       return [];
@@ -218,8 +225,16 @@ export const useRooms = create<RoomsState>((set, get) => ({
 
   getAllTargetsWithAssignments: async (forceRefresh: boolean = false) => {
     try {
-      const result = await supabaseRoomsService.getAllTargetsWithAssignments(forceRefresh);
-      return result;
+      if (forceRefresh || get().rooms.length === 0) {
+        await get().fetchRooms();
+      }
+
+      const state = get();
+      const assignedTargets = state.rooms.flatMap(room =>
+        (room.targets ?? []).map(target => ({ ...target, roomId: room.id }))
+      );
+
+      return [...assignedTargets, ...state.unassignedTargets];
     } catch (error) {
       console.error('❌ [ERROR] State: Error fetching targets with assignments:', error);
       return [];
@@ -228,22 +243,18 @@ export const useRooms = create<RoomsState>((set, get) => ({
 
   // Update target count for a specific room (optimized)
   updateRoomTargetCount: async (roomId: string) => {
-    try {
-      const roomTargets = await supabaseRoomsService.getRoomTargets(roomId);
-      const newCount = roomTargets.length;
-      
-      // Update the room in state with new target count
-      set(state => ({
-        rooms: state.rooms.map(room => 
-          room.id === roomId ? { ...room, targetCount: newCount } : room
-        )
-      }));
-    } catch (error) {
-      console.error(`Error updating target count for room ${roomId}:`, error);
-    }
+    const state = get();
+    const room = state.rooms.find(r => r.id === roomId);
+    if (!room) return;
+    const newCount = room.targets?.length ?? room.targetCount;
+    set(s => ({
+      rooms: s.rooms.map(existing => 
+        existing.id === roomId ? { ...existing, targetCount: newCount } : existing
+      )
+    }));
   },
 
-  setRooms: (rooms: Room[]) => {
-    set({ rooms, isLoading: false, error: null });
+  setRooms: (rooms: Room[], unassignedTargets: Target[] = []) => {
+    set({ rooms, unassignedTargets, isLoading: false, error: null });
   }
 }));

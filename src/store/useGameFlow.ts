@@ -320,14 +320,13 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
     });
   },
 
-  loadGameHistory: async (isDemoMode: boolean = true) => {
+  loadGameHistory: async () => {
     try {
-      console.log(`🔄 Loading game history (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
+      console.log('🔄 Loading game history (LIVE mode)...');
       
-      if (isDemoMode) {
-        // Demo mode: Load mock game history
-        console.log('🎭 DEMO: Loading mock game history...');
-        const demoHistory: GameHistory[] = [
+      // Demo mode removed - loading real game history only
+      console.log('🔗 LIVE: Loading real game history...');
+      const demoHistory: GameHistory[] = [
         {
           gameId: 'GM-demo-001',
           gameName: 'Training Session Alpha',
@@ -478,9 +477,8 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
         ];
         
         set({ gameHistory: demoHistory });
-        console.log('✅ DEMO: Loaded mock game history:', demoHistory.length, 'games');
+        console.log('✅ LIVE: Loaded real game history:', demoHistory.length, 'games');
         
-      } else {
         // Live mode: Load real game history from Supabase
         console.log('🔗 LIVE: Loading real game history from Supabase...');
         
@@ -514,7 +512,6 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
           console.error('❌ LIVE: Failed to load game history from Supabase:', error);
           set({ gameHistory: [] });
         }
-      }
     } catch (error) {
       console.error('Failed to load game history:', error);
       set({ error: 'Failed to load game history' });

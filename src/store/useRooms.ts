@@ -23,10 +23,12 @@ interface RoomsState {
   deleteRoom: (id: string) => Promise<void>;
   updateRoomOrder: (orderedRooms: { id: string, order: number }[]) => Promise<void>;
   assignTargetToRoom: (targetId: string, roomId: string | null) => Promise<void>;
+  assignTargetsToRoomBatch: (targetIds: string[], roomId: string | null) => Promise<void>;
   getRoomTargets: (roomId: string) => Promise<any[]>;
   getUnassignedTargets: () => Promise<any[]>;
-  getAllTargetsWithAssignments: () => Promise<any[]>;
+  getAllTargetsWithAssignments: (forceRefresh?: boolean) => Promise<any[]>;
   updateRoomTargetCount: (roomId: string) => Promise<void>;
+  setRooms: (rooms: Room[]) => void;
 }
 
 export const useRooms = create<RoomsState>((set, get) => ({
@@ -37,9 +39,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
   fetchRooms: async () => {
     set({ isLoading: true, error: null });
     try {
-      console.log('🔄 useRooms: Fetching rooms with target counts from Supabase...');
       const userRooms = await supabaseRoomsService.getRoomsWithTargetCounts();
-      console.log('✅ useRooms: Fetched rooms with counts:', userRooms.length);
       
       // Transform to Room format
       const rooms: Room[] = userRooms.map(room => ({
@@ -52,7 +52,6 @@ export const useRooms = create<RoomsState>((set, get) => ({
       }));
       
       set({ rooms, isLoading: false, error: null });
-      console.log('✅ useRooms: Rooms loaded successfully:', rooms.length);
     } catch (error) {
       console.error('❌ useRooms: Error fetching rooms:', error);
       
@@ -62,7 +61,6 @@ export const useRooms = create<RoomsState>((set, get) => ({
         isLoading: false 
       });
       
-      console.log('❌ useRooms: Failed to load rooms from Supabase');
       toast.error('Failed to load rooms from database');
     }
   },
@@ -152,45 +150,51 @@ export const useRooms = create<RoomsState>((set, get) => ({
   
   assignTargetToRoom: async (targetId: string, roomId: string | null) => {
     try {
-      console.log(`🎯 [ASSIGNMENT] State: Starting assignment of target ${targetId} to ${roomId ? `room ${roomId}` : 'unassigned'}`);
-      console.log(`🔍 [ID-CHECK] State: Target ID format: ${targetId} (type: ${typeof targetId})`);
-      console.log(`🔍 [ID-CHECK] State: Room ID format: ${roomId} (type: ${typeof roomId})`);
-      
-      // Update Supabase only - no ThingsBoard posting
+      // Update Supabase only
       if (roomId === null) {
-        console.log('🎯 [ASSIGNMENT] State: Unassigning target from all rooms...');
         await supabaseRoomsService.unassignTargets([targetId]);
       } else {
-        console.log('🎯 [ASSIGNMENT] State: Assigning target to room...');
         await supabaseRoomsService.assignTargetsToRoom(roomId, [targetId]);
       }
       
-      console.log('🔄 [REFRESH] State: Refreshing rooms to get updated target counts...');
-      // Refresh rooms to get updated target counts
-      const { fetchRooms } = get();
-      await fetchRooms();
+      // Light refresh - only fetch updated data
+      const { fetchRooms, getAllTargetsWithAssignments } = get();
+      await Promise.all([
+        fetchRooms(),
+        getAllTargetsWithAssignments(false) // Use data if fresh
+      ]);
       
-      console.log('🔄 [REFRESH] State: Clearing targets cache...');
-      // Clear cache to force fresh data
-      const { clearTargetsCache } = await import('@/lib/api');
-      clearTargetsCache();
-      
-      console.log(`✅ [SUCCESS] State: Target assignment completed in Supabase: ${targetId} → ${roomId ? `Room ${roomId}` : 'Unassigned'}`);
-      
-      if (roomId === null) {
-        toast.success('Target unassigned from room successfully');
-      } else {
-        toast.success('Target assigned to room successfully');
-      }
+      toast.success(`Target ${roomId === null ? 'unassigned' : 'assigned'} successfully`);
     } catch (error) {
-      console.error('❌ [ERROR] State: Error assigning/unassigning target to room:', error);
-      console.error('❌ [ERROR] State: Error details:', {
-        message: error.message,
-        stack: error.stack,
-        targetId,
-        roomId
-      });
-      toast.error(roomId === null ? 'Failed to unassign target from room' : 'Failed to assign target to room');
+      console.error('❌ [ERROR] State: Error assigning target:', error);
+      toast.error(`Failed to ${roomId === null ? 'unassign' : 'assign'} target`);
+      throw error;
+    }
+  },
+  
+  assignTargetsToRoomBatch: async (targetIds: string[], roomId: string | null) => {
+    if (targetIds.length === 0) return;
+    
+    try {
+      // Single Supabase operation for all targets
+      if (roomId === null) {
+        await supabaseRoomsService.unassignTargets(targetIds);
+      } else {
+        await supabaseRoomsService.assignTargetsToRoom(roomId, targetIds);
+      }
+      
+      // Single refresh operation for all assignments
+      const { fetchRooms, getAllTargetsWithAssignments } = get();
+      await Promise.all([
+        fetchRooms(),
+        getAllTargetsWithAssignments(true)
+      ]);
+      
+      toast.success(`${targetIds.length} target${targetIds.length > 1 ? 's' : ''} ${roomId === null ? 'unassigned' : 'assigned'} successfully`);
+    } catch (error) {
+      console.error('❌ [BATCH] State: Error in batch assignment:', error);
+      toast.error(`Failed to ${roomId === null ? 'unassign' : 'assign'} targets`);
+      throw error;
     }
   },
   
@@ -212,23 +216,12 @@ export const useRooms = create<RoomsState>((set, get) => ({
     }
   },
 
-  getAllTargetsWithAssignments: async () => {
+  getAllTargetsWithAssignments: async (forceRefresh: boolean = false) => {
     try {
-      console.log('🔄 [REFRESH] State: Fetching all targets with assignments...');
-      const result = await supabaseRoomsService.getAllTargetsWithAssignments();
-      console.log(`📊 [DATA] State: Retrieved ${result.length} targets with assignments`);
-      console.log('📊 [DATA] State: Sample targets:', result.slice(0, 3).map(t => ({
-        name: t.name,
-        roomId: t.roomId,
-        id: t.id
-      })));
+      const result = await supabaseRoomsService.getAllTargetsWithAssignments(forceRefresh);
       return result;
     } catch (error) {
       console.error('❌ [ERROR] State: Error fetching targets with assignments:', error);
-      console.error('❌ [ERROR] State: Error details:', {
-        message: error.message,
-        stack: error.stack
-      });
       return [];
     }
   },
@@ -245,10 +238,12 @@ export const useRooms = create<RoomsState>((set, get) => ({
           room.id === roomId ? { ...room, targetCount: newCount } : room
         )
       }));
-      
-      console.log(`✅ Updated target count for room ${roomId}: ${newCount}`);
     } catch (error) {
       console.error(`Error updating target count for room ${roomId}:`, error);
     }
+  },
+
+  setRooms: (rooms: Room[]) => {
+    set({ rooms, isLoading: false, error: null });
   }
 }));

@@ -5,25 +5,111 @@ import { Button } from '@/components/ui/button';
 
 const ScrollToTopButton: React.FC = () => {
   const [isVisible, setIsVisible] = useState(false);
+  const [mainElement, setMainElement] = useState<HTMLElement | null>(null);
   const location = useLocation();
   
+  // Find the main scrollable element with retry mechanism
+  const findMainElement = useCallback(() => {
+    // Try to find the main element that has overflow-y-auto class
+    const mainElements = document.querySelectorAll('main');
+    for (const element of mainElements) {
+      if (element.classList.contains('overflow-y-auto') || 
+          element.classList.contains('flex-1')) {
+        return element as HTMLElement;
+      }
+    }
+    // Fallback to any main element
+    return document.querySelector('main') as HTMLElement;
+  }, []);
+
+  // Check if we're on mobile (for different scroll behavior)
+  const isMobile = useCallback(() => {
+    return window.innerWidth <= 768; // md breakpoint
+  }, []);
+  
   const checkScrollPosition = useCallback(() => {
-    // Get all possible scrollable elements
+    let isScrolled = false;
+    const mobile = isMobile();
+    
+    // Primary check: main element scroll (most pages use this)
+    if (mainElement) {
+      const mainScrollTop = mainElement.scrollTop;
+      const mainScrollHeight = mainElement.scrollHeight;
+      const mainClientHeight = mainElement.clientHeight;
+      isScrolled = mainScrollTop > 200;
+      
+      // Debug: Log scroll info every 10th call to avoid spam
+      if (Math.random() < 0.1) {
+        console.log('ScrollToTopButton: Main element scroll debug:', {
+          scrollTop: mainScrollTop,
+          scrollHeight: mainScrollHeight,
+          clientHeight: mainClientHeight,
+          canScroll: mainScrollHeight > mainClientHeight,
+          isScrolled,
+          mobile
+        });
+      }
+      
+      if (isScrolled && !isVisible) {
+        console.log('ScrollToTopButton: Showing button (main element scroll:', mainScrollTop, ', mobile:', mobile, ')');
+      } else if (!isScrolled && isVisible) {
+        console.log('ScrollToTopButton: Hiding button (main element scroll reset:', mainScrollTop, ', mobile:', mobile, ')');
+      }
+      
+      setIsVisible(isScrolled);
+      return; // Exit early since we found the main scrollable element
+    }
+    
+    // Fallback checks for other scrollable elements (when main element not found)
     const windowScrollY = window.scrollY;
     const documentScrollTop = document.documentElement.scrollTop;
     const bodyScrollTop = document.body.scrollTop;
-    const mainElement = document.querySelector('main');
-    const mainScrollTop = mainElement ? mainElement.scrollTop : 0;
     
-    // Show button if any scrollable element is scrolled more than 200px
-    const isScrolled = windowScrollY > 200 || 
-                      documentScrollTop > 200 || 
-                      bodyScrollTop > 200 || 
-                      mainScrollTop > 200;
+    // On mobile, prioritize body/html scrolling; on desktop, check all
+    if (mobile) {
+      // Mobile: Check body and document scrolling (common on mobile)
+      isScrolled = bodyScrollTop > 200 || documentScrollTop > 200;
+    } else {
+      // Desktop: Check all scrollable elements
+      isScrolled = windowScrollY > 200 || 
+                   documentScrollTop > 200 || 
+                   bodyScrollTop > 200;
+    }
+    
+    if (isScrolled && !isVisible) {
+      console.log('ScrollToTopButton: Showing button (fallback scroll detection, mobile:', mobile, ')');
+    } else if (!isScrolled && isVisible) {
+      console.log('ScrollToTopButton: Hiding button (scroll position reset, mobile:', mobile, ')');
+    }
     
     setIsVisible(isScrolled);
-  }, []);
+  }, [mainElement, isVisible, isMobile]);
   
+  // Find and set main element when component mounts or location changes
+  useEffect(() => {
+    const findAndSetMainElement = () => {
+      const foundMainElement = findMainElement();
+      if (foundMainElement) {
+        console.log('ScrollToTopButton: Found main element:', foundMainElement);
+        setMainElement(foundMainElement);
+        return true;
+      }
+      console.log('ScrollToTopButton: No main element found');
+      return false;
+    };
+
+    // Try to find main element immediately
+    if (!findAndSetMainElement()) {
+      // If not found, retry after a short delay (for dynamic content)
+      const retryTimeout = setTimeout(() => {
+        console.log('ScrollToTopButton: Retrying to find main element...');
+        findAndSetMainElement();
+      }, 100);
+      
+      return () => clearTimeout(retryTimeout);
+    }
+  }, [findMainElement, location.pathname]);
+
   useEffect(() => {
     // Throttled scroll handler
     let timeoutId: NodeJS.Timeout;
@@ -42,8 +128,7 @@ const ScrollToTopButton: React.FC = () => {
       document.body
     ];
     
-    // Also try to find the main scrollable container
-    const mainElement = document.querySelector('main');
+    // Add main element if it exists
     if (mainElement) {
       scrollElements.push(mainElement);
     }
@@ -69,53 +154,49 @@ const ScrollToTopButton: React.FC = () => {
         clearTimeout(timeoutId);
       }
     };
-  }, [checkScrollPosition, location.pathname]);
+  }, [checkScrollPosition, mainElement, location.pathname]);
 
   const scrollToTop = () => {
-    // Get all possible scrollable elements
-    const mainElement = document.querySelector('main');
+    console.log('ScrollToTopButton: Scroll to top clicked, mobile:', isMobile());
+    
+    // Hide button immediately for better UX
+    setIsVisible(false);
     
     try {
       // Method 1: Scroll the main container (primary scrollable area)
       if (mainElement) {
+        console.log('ScrollToTopButton: Scrolling main element to top');
         mainElement.scrollTo({
           top: 0,
           left: 0,
           behavior: 'smooth'
         });
+        // Also set scrollTop directly as backup
         mainElement.scrollTop = 0;
+        return; // Exit early if main element scroll succeeds
       }
       
-      // Method 2: Scroll window
+      // Method 2: Fallback to window scroll
+      console.log('ScrollToTopButton: Scrolling window to top');
       window.scrollTo({
         top: 0,
         left: 0,
         behavior: 'smooth'
       });
       
-      // Method 3: Scroll document element
+      // Method 3: Fallback to document element scroll
       document.documentElement.scrollTo({
         top: 0,
         left: 0,
         behavior: 'smooth'
       });
       
-      // Method 4: Direct property setting as fallback
+      // Method 4: Direct property setting as final fallback
       document.documentElement.scrollTop = 0;
       document.body.scrollTop = 0;
       
-      // Method 5: Try scrolling the root element
-      const rootElement = document.getElementById('root');
-      if (rootElement) {
-        rootElement.scrollTo({
-          top: 0,
-          left: 0,
-          behavior: 'smooth'
-        });
-        rootElement.scrollTop = 0;
-      }
-      
     } catch (error) {
+      console.warn('ScrollToTop: Smooth scrolling failed, using fallback:', error);
       // Fallback for browsers that don't support smooth scrolling
       if (mainElement) {
         mainElement.scrollTop = 0;
@@ -132,29 +213,10 @@ const ScrollToTopButton: React.FC = () => {
         size="icon"
         className={`fixed bottom-4 right-4 md:bottom-6 md:right-6 z-[9999] h-10 w-10 md:h-12 md:w-12 rounded-full bg-brand-secondary hover:bg-brand-primary text-white shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-105 ${
           isVisible 
-            ? 'opacity-100 translate-y-0' 
+            ? 'opacity-100 translate-y-0 pointer-events-auto' 
             : 'opacity-0 translate-y-2 pointer-events-none'
         }`}
         aria-label="Scroll to top"
-        style={{
-          position: 'fixed',
-          bottom: '16px',
-          right: '16px',
-          zIndex: 9999,
-          backgroundColor: isVisible ? '#816E94' : '#816E94',
-          color: 'white',
-          border: 'none',
-          borderRadius: '50%',
-          width: '48px',
-          height: '48px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          opacity: isVisible ? 1 : 0,
-          transform: isVisible ? 'translateY(0)' : 'translateY(2px)'
-        }}
       >
         <ArrowUp className="h-5 w-5" />
       </Button>

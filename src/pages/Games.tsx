@@ -25,7 +25,6 @@ import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useDemoMode } from '@/providers/DemoModeProvider';
 import { useGameFlow } from '@/store/useGameFlow';
 import { GameHistory } from '@/services/device-game-flow';
 import { supabaseRoomsService } from '@/services/supabase-rooms';
@@ -51,11 +50,11 @@ interface GameSummary {
   };
 }
 import { deviceGameFlowService, DeviceStatus } from '@/services/device-game-flow';
-import { demoGameFlowService } from '@/services/demo-game-flow';
 import { toast } from '@/components/ui/sonner';
 import API from '@/lib/api';
 import type { Target } from '@/store/useTargets';
 import GameCountdownPopup from '@/components/game-flow/GameCountdownPopup';
+import { thingsBoardService } from '@/services/thingsboard';
 
 type GameStage = 'main-dashboard' | 'configuration' | 'game-window';
 
@@ -64,8 +63,6 @@ const Games: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [currentStage, setCurrentStage] = useState<GameStage>('main-dashboard');
   
-  // Global demo mode state
-  const { isDemoMode } = useDemoMode();
   
   // Game Flow State
   const {
@@ -95,6 +92,10 @@ const Games: React.FC = () => {
   const [availableDevices, setAvailableDevices] = useState<DeviceStatus[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
   
+  // Total shots from ThingsBoard
+  const [totalShotsFromThingsBoard, setTotalShotsFromThingsBoard] = useState<number>(0);
+  const [loadingTotalShots, setLoadingTotalShots] = useState(false);
+  
   // Countdown popup state
   const [showCountdownPopup, setShowCountdownPopup] = useState(false);
   const [countdownGameData, setCountdownGameData] = useState<{
@@ -103,79 +104,64 @@ const Games: React.FC = () => {
     devices: DeviceStatus[];
   } | null>(null);
 
-  // Load available devices (demo or real)
-  // Clear and reload when mode changes
+  // Load available devices from ThingsBoard
   useEffect(() => {
     const loadDevices = async () => {
-      console.log(`🔄 Games: Mode changed to ${isDemoMode ? 'DEMO' : 'LIVE'}, clearing old data...`);
+      console.log('🔗 GAMES: Loading devices...');
       
-      // Clear old data when switching modes
       setAvailableDevices([]);
       setLoadingDevices(true);
       
       try {
-        if (isDemoMode) {
-          // Demo mode - use ONLY mock devices
-          console.log('🎭 DEMO MODE: Loading mock devices...');
-          const mockDevices = demoGameFlowService.getMockDevices();
-          setAvailableDevices(mockDevices);
-          await initializeDevices(mockDevices.map(d => d.deviceId));
+        // Use targets from useTargets store (populated by useInitialSync)
+        const { useTargets } = await import('@/store/useTargets');
+        const targets = useTargets.getState().targets as Target[];
+        
+        console.log('📊 LIVE: Raw targets data:', targets);
+        console.log('📊 LIVE: Target statuses:', targets.map(t => ({ name: t.name, status: t.status, id: t.id })));
+        
+        // Convert targets to device statuses (consistent with Targets page)
+        const deviceStatuses: DeviceStatus[] = targets.map(target => {
+          // Use same status logic as Targets page
+          const isOnline = target.status === 'online';
           
-          const onlineCount = mockDevices.filter(d => d.isOnline).length;
-          toast.success(`🎭 Demo mode: ${onlineCount} mock devices loaded`);
-          console.log(`✅ DEMO: Loaded ${mockDevices.length} mock devices`);
+          console.log(`🎯 LIVE Device ${target.name}: status="${target.status}", isOnline=${isOnline}`);
           
-        } else {
-          // Live mode - use ONLY real ThingsBoard data
-          console.log('🔗 LIVE MODE: Loading devices from ThingsBoard...');
-          const targets = await API.getTargets() as Target[];
-          
-          console.log('📊 LIVE: Raw targets data:', targets);
-          console.log('📊 LIVE: Target statuses:', targets.map(t => ({ name: t.name, status: t.status, id: t.id })));
-          
-          // Convert targets to device statuses
-          const deviceStatuses: DeviceStatus[] = targets.map(target => {
-            // Check various possible status values
-            const isOnline = target.status === 'online';
-            
-            console.log(`🎯 LIVE Device ${target.name}: status="${target.status}", isOnline=${isOnline}`);
-            
-            return {
-              deviceId: typeof target.id === 'string' ? target.id : (target.id as { id: string })?.id || String(target.id),
-              name: target.name,
-              gameStatus: 'idle',
-              wifiStrength: isOnline ? 85 : 0,
-              ambientLight: 'good',
-              hitCount: 0,
-              lastSeen: isOnline ? Date.now() : 0,
-              isOnline: isOnline,
-              hitTimes: []
-            };
+          return {
+            deviceId: typeof target.id === 'string' ? target.id : (target.id as { id: string })?.id || String(target.id),
+            name: target.name,
+            gameStatus: 'idle',
+            wifiStrength: target.wifiStrength || (isOnline ? 85 : 0), // Use real WiFi or default
+            ambientLight: 'good',
+            hitCount: 0,
+            lastSeen: isOnline ? Date.now() : 0,
+            isOnline: isOnline,
+            hitTimes: []
+          };
+        });
+
+        console.log('🎮 LIVE: Converted device statuses:', deviceStatuses);
+        console.log(`📈 LIVE: Online devices: ${deviceStatuses.filter(d => d.isOnline).length}/${deviceStatuses.length}`);
+
+        setAvailableDevices(deviceStatuses);
+        await initializeDevices(deviceStatuses.map(d => d.deviceId));
+        
+        console.log(`✅ LIVE: Loaded ${deviceStatuses.length} devices from ThingsBoard`);
+        
+        // Show user feedback about device status
+        const onlineCount = deviceStatuses.filter(d => d.isOnline).length;
+        const offlineCount = deviceStatuses.length - onlineCount;
+        
+        if (deviceStatuses.length === 0) {
+          toast.warning('🔗 No devices found in ThingsBoard');
+        } else if (onlineCount === 0) {
+          toast.warning('🔗 All devices are currently offline', {
+            description: 'At least 1 online device is required to create a game'
           });
-
-          console.log('🎮 LIVE: Converted device statuses:', deviceStatuses);
-          console.log(`📈 LIVE: Online devices: ${deviceStatuses.filter(d => d.isOnline).length}/${deviceStatuses.length}`);
-
-          setAvailableDevices(deviceStatuses);
-          await initializeDevices(deviceStatuses.map(d => d.deviceId));
-          
-          console.log(`✅ LIVE: Loaded ${deviceStatuses.length} devices from ThingsBoard`);
-          
-          // Show user feedback about device status
-          const onlineCount = deviceStatuses.filter(d => d.isOnline).length;
-          const offlineCount = deviceStatuses.length - onlineCount;
-          
-          if (deviceStatuses.length === 0) {
-            toast.warning('🔗 No devices found in ThingsBoard');
-          } else if (onlineCount === 0) {
-            toast.warning('🔗 All devices are currently offline', {
-              description: 'At least 1 online device is required to create a game'
-            });
-          } else if (offlineCount > 0) {
-            toast.info(`🔗 ${onlineCount} online, ${offlineCount} offline devices found`);
-          } else {
-            toast.success(`🔗 ${onlineCount} devices online and ready for games`);
-          }
+        } else if (offlineCount > 0) {
+          toast.info(`🔗 ${onlineCount} online, ${offlineCount} offline devices found`);
+        } else {
+          toast.success(`🔗 ${onlineCount} devices online and ready for games`);
         }
         
       } catch (error) {
@@ -188,13 +174,53 @@ const Games: React.FC = () => {
     };
 
     loadDevices();
-  }, [initializeDevices, isDemoMode]);
+  }, [initializeDevices]);
 
-  // Load game history when component mounts or mode changes
+  // Fetch total shots from ThingsBoard
+  const fetchTotalShots = async () => {
+    setLoadingTotalShots(true);
+    try {
+      // Use targets from useTargets store
+      const { useTargets } = await import('@/store/useTargets');
+      const targets = useTargets.getState().targets as Target[];
+      let totalShots = 0;
+      
+      // Fetch latest 'hits' telemetry from each device
+      for (const target of targets) {
+        const deviceId = typeof target.id === 'string' ? target.id : (target.id as { id: string })?.id || String(target.id);
+        
+        try {
+          const telemetry = await thingsBoardService.getLatestTelemetry(deviceId, ['hits']);
+          
+          if (telemetry?.hits?.[0]?.value) {
+            const hits = parseInt(telemetry.hits[0].value);
+            if (!isNaN(hits)) {
+              totalShots += hits;
+            }
+          }
+        } catch (error) {
+          console.error(`Failed to fetch hits for device ${deviceId}:`, error);
+        }
+      }
+      
+      setTotalShotsFromThingsBoard(totalShots);
+    } catch (error) {
+      console.error('Failed to fetch total shots:', error);
+    } finally {
+      setLoadingTotalShots(false);
+    }
+  };
+
+  // Load total shots on page mount
   useEffect(() => {
-    console.log(`🔄 Games: Loading game history (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
-    loadGameHistory(isDemoMode);
-  }, [loadGameHistory, isDemoMode]);
+    fetchTotalShots();
+  }, []);
+
+  // Load game history when component mounts
+  useEffect(() => {
+    console.log('🔄 Games: Loading game history...');
+    loadGameHistory(false);
+  }, [loadGameHistory]);
 
   // Handle device selection
   const handleDeviceSelection = (deviceId: string, checked: boolean) => {
@@ -272,17 +298,11 @@ const Games: React.FC = () => {
       });
       
       // Send configure commands according to DeviceManagement.md
-      const configResults = isDemoMode 
-        ? await demoGameFlowService.configureDevices(
-            onlineSelectedDevices.map(d => d.deviceId),
-            gameId,
-            gameDuration
-          )
-        : await deviceGameFlowService.configureDevices(
-            onlineSelectedDevices.map(d => d.deviceId),
-            gameId,
-            gameDuration
-          );
+      const configResults = await deviceGameFlowService.configureDevices(
+        onlineSelectedDevices.map(d => d.deviceId),
+        gameId,
+        gameDuration
+      );
 
       if (configResults.failed.length > 0) {
         toast.error(`Failed to configure ${configResults.failed.length} devices`);
@@ -297,16 +317,15 @@ const Games: React.FC = () => {
       // Step 3: Subscribe to device events to receive responses
       console.log('📡 Step 3: Subscribing to device telemetry...');
       configResults.success.forEach(deviceId => {
-        const service = isDemoMode ? demoGameFlowService : deviceGameFlowService;
-        service.subscribeToDeviceEvents(deviceId, (event) => {
+        deviceGameFlowService.subscribeToDeviceEvents(deviceId, (event) => {
           console.log(`📨 Device response received from ${deviceId}:`, event);
           
           // Update the UI state when devices respond
-          const updatedDevices = service.getAllDeviceStatuses();
+          const updatedDevices = deviceGameFlowService.getAllDeviceStatuses();
           setAvailableDevices(updatedDevices);
           
-          // In live mode, also update countdown popup if it's open
-          if (!isDemoMode && showCountdownPopup && countdownGameData) {
+          // Update countdown popup if it's open
+          if (showCountdownPopup && countdownGameData) {
             setCountdownGameData(prev => ({
               ...prev!,
               devices: updatedDevices
@@ -325,8 +344,7 @@ const Games: React.FC = () => {
       await new Promise(resolve => setTimeout(resolve, 3000));
 
       // Step 5: Update game session with current device states
-      const service = isDemoMode ? demoGameFlowService : deviceGameFlowService;
-      const updatedSession = service.getGameSession(gameId);
+      const updatedSession = deviceGameFlowService.getGameSession(gameId);
       if (updatedSession) {
         // Update our local state to match the game session
         setAvailableDevices(updatedSession.devices);
@@ -360,29 +378,17 @@ const Games: React.FC = () => {
   const handleStartGame = async () => {
     if (!currentSession) return;
     
-    console.log(`🚀 ${isDemoMode ? 'DEMO' : 'LIVE'}: Starting game from countdown popup`);
+    console.log('🚀 LIVE: Starting game from countdown popup');
     
     try {
       const deviceIds = currentSession.devices.map(d => d.deviceId);
-      const service = isDemoMode ? demoGameFlowService : deviceGameFlowService;
       
       // Send start commands
-      const startResults = await service.startGame(deviceIds, currentSession.gameId);
+      const startResults = await deviceGameFlowService.startGame(deviceIds, currentSession.gameId);
       
       if (startResults.success.length > 0) {
         // Update session status
-        service.updateGameSessionStatus(currentSession.gameId, 'active');
-        
-        // Start periodic monitoring (demo mode simulates this)
-        if (isDemoMode) {
-          const intervalId = service.startPeriodicInfoRequests(deviceIds, currentSession.gameId);
-          // In demo mode, also simulate game timeout
-          demoGameFlowService.simulateGameTimeout(
-            currentSession.gameId, 
-            deviceIds, 
-            currentSession.duration * 60 * 1000 // Convert minutes to milliseconds
-          );
-        }
+        deviceGameFlowService.updateGameSessionStatus(currentSession.gameId, 'active');
         
         console.log(`✅ Game started! ${startResults.success.length} devices are now active.`);
       } else {
@@ -398,18 +404,17 @@ const Games: React.FC = () => {
   const handleStopGame = async () => {
     if (!currentSession) return;
     
-    console.log(`🛑 ${isDemoMode ? 'DEMO' : 'LIVE'}: Stopping game according to DeviceManagement.md`);
+    console.log('🛑 LIVE: Stopping game according to DeviceManagement.md');
     
     try {
       const deviceIds = currentSession.devices.map(d => d.deviceId);
-      const service = isDemoMode ? demoGameFlowService : deviceGameFlowService;
       
       // Send stop commands
-      const stopResults = await service.stopGame(deviceIds, currentSession.gameId);
+      const stopResults = await deviceGameFlowService.stopGame(deviceIds, currentSession.gameId);
       
       if (stopResults.success.length > 0) {
         // Update session status
-        service.updateGameSessionStatus(currentSession.gameId, 'stopped');
+        deviceGameFlowService.updateGameSessionStatus(currentSession.gameId, 'stopped');
         
         toast.success(`Game stopped! Final scores recorded for ${stopResults.success.length} devices.`);
       } else {
@@ -434,11 +439,10 @@ const Games: React.FC = () => {
   const handleCountdownEndGame = async (gameSummary: GameSummary) => {
     if (currentSession) {
       // Save game to history with detailed statistics
-      const service = isDemoMode ? demoGameFlowService : deviceGameFlowService;
-      const session = service.getGameSession(currentSession.gameId);
+      const session = deviceGameFlowService.getGameSession(currentSession.gameId);
       if (session) {
         // Update session with end time
-        service.updateGameSessionStatus(currentSession.gameId, 'completed');
+        deviceGameFlowService.updateGameSessionStatus(currentSession.gameId, 'completed');
         
         // Save to history with detailed statistics
         const historyEntry: GameHistory = {
@@ -466,12 +470,23 @@ const Games: React.FC = () => {
 
         // Save to Supabase
         try {
-          const sessionId = await supabaseRoomsService.storeGameSummary({
-            gameId: session.gameId,
-            gameName: session.gameName,
-            startTime: session.startTime,
-            endTime: Date.now(),
-            gameSummary: gameSummary
+          const sessionId = await supabaseRoomsService.storeSession({
+            room_id: 'default-room', // Use a default room ID for games
+            room_name: 'Games Room',
+            scenario_name: session.gameName,
+            scenario_type: 'game',
+            score: gameSummary.totalHits,
+            duration_ms: gameSummary.gameDuration * 1000, // Convert to milliseconds
+            hit_count: gameSummary.totalHits,
+            miss_count: 0, // We don't track misses in games
+            total_shots: gameSummary.totalHits,
+            avg_reaction_time_ms: gameSummary.averageHitInterval * 1000, // Convert to milliseconds
+            best_reaction_time_ms: Math.min(...gameSummary.targetStats.map(t => t.averageInterval)) * 1000,
+            worst_reaction_time_ms: Math.max(...gameSummary.targetStats.map(t => t.averageInterval)) * 1000,
+            started_at: new Date(session.startTime).toISOString(),
+            ended_at: new Date().toISOString(),
+            thingsboard_data: gameSummary,
+            raw_sensor_data: {}
           });
           console.log('✅ Game summary saved to Supabase with session ID:', sessionId);
           toast.success('Game completed! Results saved to history and database.');
@@ -479,11 +494,6 @@ const Games: React.FC = () => {
           console.error('❌ Failed to save game summary to Supabase:', error);
           toast.error('Game completed! Results saved to history, but failed to save to database.');
         }
-      }
-      
-      // Clean up resources
-      if (isDemoMode) {
-        demoGameFlowService.cleanup();
       }
     }
     
@@ -500,51 +510,6 @@ const Games: React.FC = () => {
     if (isGameActive) {
       // If game is running, stop it first
       await handleStopGame();
-    }
-    
-    // Clean up based on mode
-    if (isDemoMode && currentSession) {
-      // Save demo game to history
-      const service = demoGameFlowService;
-      const session = service.getGameSession(currentSession.gameId);
-      if (session && session.endTime) {
-        const historyEntry: GameHistory = {
-          gameId: session.gameId,
-          gameName: session.gameName,
-          duration: session.duration,
-          startTime: session.startTime,
-          endTime: session.endTime,
-          deviceResults: session.devices.map(device => ({
-            deviceId: device.deviceId,
-            deviceName: device.name,
-            hitCount: device.hitCount
-          })),
-          // Add required properties with default values
-          totalHits: session.devices.reduce((sum, device) => sum + device.hitCount, 0),
-          actualDuration: Math.round((session.endTime - session.startTime) / 1000),
-          averageHitInterval: 0,
-          targetStats: session.devices.map(device => ({
-            deviceId: device.deviceId,
-            deviceName: device.name,
-            hitCount: device.hitCount,
-            hitTimes: device.hitTimes || [],
-            averageInterval: 0,
-            firstHitTime: 0,
-            lastHitTime: 0
-          })),
-          crossTargetStats: {
-            totalSwitches: 0,
-            averageSwitchTime: 0,
-            switchTimes: []
-          }
-        };
-        
-        // Add to game history (we'll update the store to handle this)
-        console.log('💾 DEMO: Saving game to history:', historyEntry);
-      }
-      
-      // Clean up demo resources
-      demoGameFlowService.cleanup();
     }
     
     await endGame();
@@ -622,20 +587,6 @@ const Games: React.FC = () => {
               </Card>
             )}
 
-            {/* Demo Mode Banner */}
-            {isDemoMode && (
-              <Card className="bg-yellow-50 border-yellow-200 mb-6">
-                <CardContent className="p-3 md:p-4">
-                  <div className="flex items-center gap-2">
-                    <div className="text-xl">🎭</div>
-                    <div>
-                      <div className="font-semibold text-yellow-800 text-sm">Demo Mode Active</div>
-                      <div className="text-xs text-yellow-700">Playing with mock devices. Toggle to Live mode for real ThingsBoard integration.</div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
 
             {/* Main Dashboard Stage */}
             {currentStage === 'main-dashboard' && (
@@ -706,11 +657,13 @@ const Games: React.FC = () => {
                         <div className="flex-1 space-y-0.5 md:space-y-1 text-center md:text-left">
                           <p className="text-xs font-medium text-brand-dark/70 font-body">Total Hits</p>
                           <p className="text-sm md:text-xl lg:text-2xl font-bold text-brand-dark font-heading">
-                            {gameHistory.reduce((sum, game) => 
-                              sum + game.deviceResults.reduce((gameSum, result) => gameSum + result.hitCount, 0), 0
+                            {loadingTotalShots ? (
+                              <span className="animate-pulse">...</span>
+                            ) : (
+                              totalShotsFromThingsBoard.toLocaleString()
                             )}
                           </p>
-                          <p className="text-xs text-brand-dark/50 font-body">All time</p>
+                          <p className="text-xs text-brand-dark/50 font-body">All time shots</p>
                         </div>
                         <div className="flex-shrink-0 p-1 md:p-2 bg-brand-secondary/10 rounded-sm md:rounded-lg">
                           <Activity className="text-brand-primary w-6 h-6 md:w-10 md:h-10" />
@@ -741,137 +694,6 @@ const Games: React.FC = () => {
                   </Card>
                 </div>
 
-                {/* Device Status Cards */}
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <TargetIcon className="h-5 w-5" />
-                    <h2 className="font-heading text-xl font-semibold text-brand-text">Device Status</h2>
-                  </div>
-                  
-                  {loadingDevices ? (
-                    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
-                      {[...Array(6)].map((_, i) => (
-                        <Card key={i} className="bg-white border-gray-200 shadow-sm rounded-sm md:rounded-lg">
-                          <CardContent className="p-2 md:p-6">
-                            <div className="animate-pulse space-y-3">
-                              <div className="h-4 bg-gray-200 rounded"></div>
-                              <div className="h-8 bg-gray-200 rounded"></div>
-                              <div className="h-4 bg-gray-200 rounded"></div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  ) : availableDevices.length === 0 ? (
-                    <Card className="bg-white border-gray-200 shadow-sm rounded-sm md:rounded-lg">
-                      <CardContent className="p-8 text-center">
-                        <TargetIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                        <h3 className="text-lg font-medium text-gray-900 mb-2">No Devices Found</h3>
-                        <p className="text-gray-600">Connect devices to ThingsBoard to get started</p>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
-                      {availableDevices.map(device => (
-                        <Card 
-                          key={device.deviceId} 
-                          className="bg-white border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 rounded-sm md:rounded-lg"
-                        >
-                          <CardContent className="p-2 md:p-6">
-                            <div className="flex items-start justify-between mb-2 md:mb-4">
-                              <div className="flex-1 flex flex-col items-center">
-                                <div className="flex items-center gap-1 md:gap-2 mb-1">
-                                  <div className={`w-2 h-2 md:w-4 md:h-4 rounded-full ${
-                                    device.isOnline ? 'bg-green-500' : 'bg-gray-400'
-                                  }`}></div>
-                                  <h3 className="font-heading font-semibold text-brand-dark text-xs md:text-base text-center">
-                                    {device.name}
-                                  </h3>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="space-y-1 md:space-y-3">
-                              {/* Hit Count - Primary Metric */}
-                              <div className="text-center">
-                                <div className="text-lg md:text-2xl font-bold text-brand-primary font-heading">
-                                  {device.hitCount}
-                                </div>
-                                <div className="text-xs md:text-sm text-brand-dark/70 font-body">Hits</div>
-                              </div>
-
-                              {/* Device Status Indicators */}
-                              <div className="space-y-1 md:space-y-2">
-                                {/* WiFi Strength */}
-                                <div className="flex items-center justify-between text-xs md:text-sm">
-                                  <span className="text-brand-dark/70 font-body">WiFi</span>
-                                  <div className="flex items-center gap-1">
-                                    {getWifiIndicator(device.wifiStrength)}
-                                    <span className="font-medium text-brand-dark">{device.wifiStrength}%</span>
-                                  </div>
-                                </div>
-
-                                {/* Ambient Light */}
-                                <div className="flex items-center justify-between text-xs md:text-sm">
-                                  <span className="text-brand-dark/70 font-body">Light</span>
-                                  <div className={`flex items-center gap-1 ${getAmbientLightColor(device.ambientLight)}`}>
-                                    <div className="w-2 h-2 rounded-full bg-current"></div>
-                                    <span className="font-medium capitalize">{device.ambientLight}</span>
-                                  </div>
-                                </div>
-
-                                {/* Game Status */}
-                                <div className="flex items-center justify-between text-xs md:text-sm">
-                                  <span className="text-brand-dark/70 font-body">Status</span>
-                                  <span className="font-medium text-brand-dark capitalize">{device.gameStatus}</span>
-                                </div>
-
-                                {/* Last Seen */}
-                                {device.lastSeen > 0 && (
-                                  <div className="flex items-center justify-between text-xs md:text-sm">
-                                    <span className="text-brand-dark/70 font-body">Last Seen</span>
-                                    <span className="font-medium text-brand-dark">
-                                      {new Date(device.lastSeen).toLocaleTimeString()}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Status Badges */}
-                              <div className="pt-1 md:pt-2 flex justify-center gap-1 md:gap-2">
-                                <Badge 
-                                  variant={device.isOnline ? 'default' : 'secondary'}
-                                  className={`text-xs rounded-sm md:rounded ${
-                                    device.isOnline 
-                                      ? 'bg-green-100 text-green-700 border-green-200' 
-                                      : 'bg-gray-100 text-gray-600 border-gray-200'
-                                  }`}
-                                >
-                                  {device.isOnline ? 'Online' : 'Offline'}
-                                </Badge>
-                                
-                                <Badge 
-                                  variant="outline"
-                                  className={`text-xs rounded-sm md:rounded ${
-                                    device.gameStatus === 'start' 
-                                      ? 'bg-red-50 text-red-700 border-red-200' 
-                                      : device.gameStatus === 'stop'
-                                      ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                                      : 'bg-gray-50 text-gray-600 border-gray-200'
-                                  }`}
-                                >
-                                  {device.gameStatus === 'start' ? '🎯' + (!isMobile ? ' Active' : '') : 
-                                   device.gameStatus === 'stop' ? '🛑' + (!isMobile ? ' Stopped' : '') : 
-                                   '😴' + (!isMobile ? ' Idle' : '')}
-                                </Badge>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  )}
-                </div>
 
                 {/* Game History - Stats Card Style */}
                 <div className="space-y-4">
@@ -1323,7 +1145,6 @@ const Games: React.FC = () => {
           onStartGame={handleStartGame}
           onStopGame={handleStopGame}
           onEndGame={handleCountdownEndGame}
-          isDemoMode={isDemoMode}
         />
       )}
     </div>

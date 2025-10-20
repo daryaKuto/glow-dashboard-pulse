@@ -19,7 +19,6 @@ interface GameCountdownPopupProps {
   onStartGame: () => void;
   onStopGame: () => void;
   onEndGame: (gameSummary: GameSummary) => void;
-  isDemoMode: boolean;
 }
 
 interface LiveScore {
@@ -90,8 +89,7 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
   devices,
   onStartGame,
   onStopGame,
-  onEndGame,
-  isDemoMode
+  onEndGame
 }) => {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
@@ -107,7 +105,7 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
 
   // Update live scores when devices change (for real data)
   useEffect(() => {
-    if (gameStarted && !gameEnded && !isDemoMode) {
+    if (gameStarted && !gameEnded) {
       setLiveScores(prevScores => {
         return prevScores.map(score => {
           const device = devices.find(d => d.deviceId === score.deviceId);
@@ -123,7 +121,7 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
         });
       });
     }
-  }, [devices, gameStarted, gameEnded, isDemoMode]);
+  }, [devices, gameStarted, gameEnded]);
 
   // Initialize live scores from devices
   useEffect(() => {
@@ -197,18 +195,14 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
       });
     }, 1000);
 
-    // Start hit simulation (demo mode)
-    if (isDemoMode) {
-      startHitSimulation();
-    }
+    // Start hit simulation (disabled in live mode)
+    // startHitSimulation();
   };
 
   const startHitSimulation = () => {
-    if (!isDemoMode) {
-      // In live mode, don't simulate hits - they come from real devices
-      console.log('🔗 LIVE MODE: Hit simulation disabled - waiting for real device events');
-      return;
-    }
+    // In live mode, don't simulate hits - they come from real devices
+    console.log('🔗 LIVE MODE: Hit simulation disabled - waiting for real device events');
+    return;
 
     // Demo mode: Start with all hit counts at 0
     setLiveScores(prevScores => {
@@ -356,7 +350,7 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
               <div>
                 <h2 className="text-2xl font-bold font-heading">{gameName}</h2>
                 <p className="text-white/80 font-body">
-                  {isDemoMode ? '🎭 Demo Mode' : '🔗 Live Mode'} • {duration} minute{duration !== 1 ? 's' : ''}
+                  🔗 Live Mode • {duration} minute{duration !== 1 ? 's' : ''}
                 </p>
               </div>
               <Button

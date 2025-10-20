@@ -5,19 +5,17 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App.tsx'
 import './index.css'
 import { AuthProvider } from './providers/AuthProvider'
-import { DemoModeProvider } from './providers/DemoModeProvider'
 
 // Initialize application
 console.log('Application starting...');
+// Demo mode provider removed - app uses live data only
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
-      <DemoModeProvider>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
-      </DemoModeProvider>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>,
 )

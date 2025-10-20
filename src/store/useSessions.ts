@@ -36,6 +36,7 @@ interface SessionsState {
   error: string | null;
   fetchSessions: (userId: string, limit?: number) => Promise<void>;
   clearSessions: () => void;
+  setSessions: (sessions: Session[]) => void;
 }
 
 export const useSessions = create<SessionsState>((set, get) => ({
@@ -61,5 +62,9 @@ export const useSessions = create<SessionsState>((set, get) => ({
 
   clearSessions: () => {
     set({ sessions: [], error: null });
+  },
+
+  setSessions: (sessions: Session[]) => {
+    set({ sessions, isLoading: false, error: null });
   }
 }));

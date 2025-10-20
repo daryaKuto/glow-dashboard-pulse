@@ -158,8 +158,17 @@ class ThingsBoardService {
     }
   }
 
+  // Clear invalid tokens and force re-authentication
+  clearInvalidTokens(): void {
+    console.log('[ThingsBoard] Clearing invalid tokens and forcing re-authentication');
+    localStorage.removeItem('tb_access');
+    localStorage.removeItem('tb_refresh');
+    this.accessToken = null;
+    this.refreshToken = null;
+  }
+
   // Device Management
-  async getDevices(pageSize: number = 100, page: number = 0, type?: string, textSearch?: string, sortProperty?: string, sortOrder?: 'ASC' | 'DESC'): Promise<ThingsBoardDeviceListResponse> {
+  async getDevices(pageSize: number = 100, page: number = 0, type?: string, textSearch?: string, sortProperty?: string, sortOrder?: 'ASC' | 'DESC', fetchTelemetry: boolean = true): Promise<ThingsBoardDeviceListResponse> {
     const token = localStorage.getItem('tb_access');
     if (!token) {
       throw new Error('Not authenticated');
@@ -183,17 +192,19 @@ class ThingsBoardService {
       if (response.data && response.data.data) {
         const devices = response.data.data;
         
-        // Fetch telemetry for all devices in parallel to determine real status
-        console.log(`🔍 [ThingsBoard] Fetching status for ${devices.length} devices in parallel`);
-        const statusPromises = devices.map(device => 
-          this.getLatestTelemetry(device.id.id, [
-            'hits',           // Total shot count
-            'hit_ts',         // Last hit timestamp
-            'battery',        // Battery level
-            'wifiStrength',   // WiFi signal strength
-            'event',          // Last event type
-            'gameStatus'      // Current game status
-          ]).then(telemetry => {
+        // Only fetch telemetry if requested (expensive operation)
+        if (fetchTelemetry) {
+          // Fetch telemetry for all devices in parallel to determine real status
+          console.log(`🔍 [ThingsBoard] Fetching status for ${devices.length} devices in parallel`);
+          const statusPromises = devices.map(device => 
+            this.getLatestTelemetry(device.id.id, [
+              'hits',           // Total shot count
+              'hit_ts',         // Last hit timestamp
+              'battery',        // Battery level
+              'wifiStrength',   // WiFi signal strength
+              'event',          // Last event type
+              'gameStatus'      // Current game status
+            ]).then(telemetry => {
               // Check last activity timestamp - look for any recent telemetry data
               console.log(`🔍 [ThingsBoard] Raw telemetry for ${device.name}:`, telemetry);
               
@@ -291,6 +302,27 @@ class ThingsBoardService {
           ...response.data,
           data: enhancedDevices
         };
+        } else {
+          // Return devices without telemetry data (faster)
+          console.log(`🔍 [ThingsBoard] Skipping telemetry fetch for ${devices.length} devices (fetchTelemetry=false)`);
+          const basicDevices = devices.map(device => ({
+            ...device,
+            status: 'unknown', // Default status when no telemetry
+            lastActivityTime: null,
+            active: false,
+            gameStatus: null,
+            gameId: null,
+            battery: null,
+            wifiStrength: null,
+            lastEvent: null,
+            ambientLight: null
+          }));
+          
+          return {
+            ...response.data,
+            data: basicDevices
+          };
+        }
       }
 
       return response.data;
@@ -952,5 +984,7 @@ export const openTelemetryWS = (token: string) => {
   
   return ws;
 };
+
+// Security: No global token manipulation functions exposed
 
 export default thingsBoardService; 

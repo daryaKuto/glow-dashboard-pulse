@@ -20,14 +20,13 @@ interface RunState {
   start: (tpl: GameTemplate, roomId: string, selectedTargetIds?: string[]) => Promise<void>;
   stop: () => Promise<void>;
   getStatus: () => Promise<void>;
-  toggleMockMode: () => void;
 }
 
 export const useScenarioRun = create<RunState>((set, get) => ({
   active: false,
   progress: 0,
   timeRemaining: 0,
-  useMockData: true, // Default to mock mode since ThingsBoard isn't implemented yet
+  useMockData: false, // Demo mode removed - using live data only
 
   start: async (tpl: GameTemplate, roomId: string, selectedTargetIds?: string[]) => {
     try {
@@ -177,13 +176,4 @@ export const useScenarioRun = create<RunState>((set, get) => ({
     }
   },
 
-  toggleMockMode: () => {
-    const state = get();
-    if (state.active) {
-      console.warn('Cannot toggle mock mode while scenario is active');
-      return;
-    }
-    set({ useMockData: !state.useMockData });
-    console.log(`Mock mode ${!state.useMockData ? 'enabled' : 'disabled'}`);
-  }
 })); 

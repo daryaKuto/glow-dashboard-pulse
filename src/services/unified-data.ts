@@ -68,11 +68,11 @@ class UnifiedDataService {
           await thingsBoardService.getDevices(1, 0); // Fetch 1 device as validation
           console.log(`✅ Existing token is valid, skipping re-authentication`);
         } catch (error) {
-          console.log(`🔄 Cached token invalid, will re-authenticate: ${error.message}`);
-          await thingsBoardService.logout(); // Clear invalid token
+          console.log(`🔄 Token invalid, will re-authenticate`);
+          thingsBoardService.clearInvalidTokens(); // Clear invalid tokens silently
           // Try to authenticate with ThingsBoard using stored credentials
           const auth = await thingsBoardService.login(credentials.email, credentials.password);
-          console.log(`✅ ThingsBoard connected for: ${userEmail} using stored credentials`);
+          console.log(`✅ ThingsBoard re-authentication successful`);
         }
       }
       
@@ -229,7 +229,7 @@ class UnifiedDataService {
   private async fetchTargets(): Promise<any[]> {
     try {
       const { thingsBoardService } = await import('@/services/thingsboard');
-      const devicesResponse = await thingsBoardService.getDevices();
+      const devicesResponse = await thingsBoardService.getDevices(100, 0, undefined, undefined, undefined, undefined, false);
       const devices = devicesResponse.data || [];
       
       console.log('🔍 FETCH TARGETS - Raw devices from ThingsBoard:', {
@@ -271,7 +271,7 @@ class UnifiedDataService {
   private async fetchDevices(): Promise<any[]> {
     try {
       const { thingsBoardService } = await import('@/services/thingsboard');
-      const devicesResponse = await thingsBoardService.getDevices();
+      const devicesResponse = await thingsBoardService.getDevices(100, 0, undefined, undefined, undefined, undefined, false);
       return devicesResponse.data || [];
     } catch (error) {
       console.error('Error fetching devices:', error);

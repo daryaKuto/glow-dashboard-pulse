@@ -15,8 +15,33 @@ import { getThingsBoardCredentials } from '@/services/profile';
 // Request deduplication - prevent multiple simultaneous calls to same endpoint
 const pendingRequests = new Map<string, Promise<any>>();
 
-// Helper function for request deduplication
-async function deduplicateRequest<T>(key: string, requestFn: () => Promise<T>): Promise<T> {
+// Cache for API responses with TTL
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+  ttl: number;
+}
+
+const responseCache = new Map<string, CacheEntry<any>>();
+
+// Default TTL values for different types of requests
+const CACHE_TTL = {
+  TARGETS: 30000,        // 30 seconds for targets
+  ROOMS: 60000,          // 1 minute for rooms
+  SESSIONS: 30000,       // 30 seconds for sessions
+  STATS: 60000,          // 1 minute for stats
+  DEFAULT: 30000         // 30 seconds default
+};
+
+// Helper function for request deduplication with caching
+async function deduplicateRequest<T>(key: string, requestFn: () => Promise<T>, ttl: number = CACHE_TTL.DEFAULT): Promise<T> {
+  // Check cache first
+  const cached = responseCache.get(key);
+  if (cached && Date.now() - cached.timestamp < cached.ttl) {
+    console.log(`✅ [CACHE] Returning cached response for: ${key} (age: ${Date.now() - cached.timestamp}ms)`);
+    return cached.data;
+  }
+
   // If request is already in progress, return the existing promise
   if (pendingRequests.has(key)) {
     console.log(`🔄 [DEDUP] Reusing existing request for: ${key}`);
@@ -25,7 +50,16 @@ async function deduplicateRequest<T>(key: string, requestFn: () => Promise<T>): 
 
   // Create new request
   console.log(`🔄 [DEDUP] Starting new request for: ${key}`);
-  const promise = requestFn().finally(() => {
+  const promise = requestFn().then(result => {
+    // Cache the result
+    responseCache.set(key, {
+      data: result,
+      timestamp: Date.now(),
+      ttl: ttl
+    });
+    console.log(`✅ [CACHE] Cached response for: ${key} (TTL: ${ttl}ms)`);
+    return result;
+  }).finally(() => {
     // Clean up when request completes
     pendingRequests.delete(key);
     console.log(`✅ [DEDUP] Completed request for: ${key}`);
@@ -33,6 +67,20 @@ async function deduplicateRequest<T>(key: string, requestFn: () => Promise<T>): 
 
   pendingRequests.set(key, promise);
   return promise;
+}
+
+// Helper function to clear cache for specific patterns
+export function clearCache(pattern?: string): void {
+  if (pattern) {
+    // Clear cache entries matching pattern
+    const keysToDelete = Array.from(responseCache.keys()).filter(key => key.includes(pattern));
+    keysToDelete.forEach(key => responseCache.delete(key));
+    console.log(`🧹 [CACHE] Cleared ${keysToDelete.length} cache entries matching: ${pattern}`);
+  } else {
+    // Clear all cache
+    responseCache.clear();
+    console.log(`🧹 [CACHE] Cleared all cache entries`);
+  }
 }
 
 const controllerId = import.meta.env.VITE_TB_CONTROLLER_ID as string;
@@ -174,20 +222,7 @@ export const API = {
   getTargets: async () => {
     console.log('🔍 [API] getTargets() called');
     
-    // Check cache first with proper TTL
-    const cached = cache.get(CACHE_KEYS.TARGETS);
-    if (cached) {
-      console.log('🔍 [API] Using cached data:', cached.length, 'targets');
-      console.log('🔍 [API] Cached targets summary:', cached.map(t => ({
-        id: t.id,
-        name: t.name,
-        status: t.status,
-        roomId: t.roomId
-      })));
-      return cached;
-    }
-
-    // Use deduplication to prevent multiple simultaneous calls
+    // Use enhanced deduplication with caching
     return deduplicateRequest('getTargets', async () => {
       try {
         // Check if we have a valid ThingsBoard token first
@@ -215,7 +250,7 @@ export const API = {
         let isTokenValid = false;
         try {
           console.log('🔍 [API] Testing existing ThingsBoard token validity...');
-          await thingsBoardService.getDevices(1, 0); // Fetch 1 device as validation
+          await thingsBoardService.getDevices(1, 0, undefined, undefined, undefined, undefined, false); // Fetch 1 device as validation (no telemetry)
           isTokenValid = true;
           console.log('🔍 [API] Existing token is valid, using it');
         } catch (error) {
@@ -262,7 +297,7 @@ export const API = {
         console.log('🔍 [API] Fetching data with valid token for user:', user.email);
         
         // Fetch devices directly from ThingsBoard
-        const devicesResponse = await thingsBoardService.getDevices();
+        const devicesResponse = await thingsBoardService.getDevices(100, 0, undefined, undefined, undefined, undefined, true);
         const devices = devicesResponse.data || [];
         
         console.log('🔍 [API] Raw ThingsBoard devices response:', {
@@ -293,14 +328,12 @@ export const API = {
           }))
         });
         
-        cache.set(CACHE_KEYS.TARGETS, mappedDevices, 300000); // Increased cache time to 5 minutes
         return mappedDevices;
       } catch (error) {
         console.log('🔍 API.getTargets - Error, returning empty targets:', error.message);
-        cache.set(CACHE_KEYS.TARGETS, [], 300000); // Increased cache time to 5 minutes
         return [];
       }
-    });
+    }, CACHE_TTL.TARGETS);
   },
 
   /** Wrapper for live telemetry WebSocket */
@@ -358,15 +391,16 @@ export const API = {
 
   /* ----------  ROOM MANAGEMENT  ---------- */
   getRooms: async () => {
-    try {
-      // Ensure user-specific ThingsBoard authentication
-      const { user, thingsBoardData } = await ensureUserThingsBoardAuth();
-      
-      // If no ThingsBoard connection, return empty array
-      if (!thingsBoardData.isConnected) {
-        console.log('ℹ️ No ThingsBoard data available for rooms, returning empty array');
-        return [];
-      }
+    return deduplicateRequest('getRooms', async () => {
+      try {
+        // Ensure user-specific ThingsBoard authentication
+        const { user, thingsBoardData } = await ensureUserThingsBoardAuth();
+        
+        // If no ThingsBoard connection, return empty array
+        if (!thingsBoardData.isConnected) {
+          console.log('ℹ️ No ThingsBoard data available for rooms, returning empty array');
+          return [];
+        }
       
       // Get the ThingsBoard service
       const thingsBoardService = (await import('@/services/thingsboard')).default;
@@ -434,10 +468,11 @@ export const API = {
 
       console.log('Fetched rooms from ThingsBoard devices:', rooms);
       return rooms;
-    } catch (error) {
-      console.error('Error fetching rooms from ThingsBoard:', error);
-      throw error;
-    }
+      } catch (error) {
+        console.error('Error fetching rooms from ThingsBoard:', error);
+        throw error;
+      }
+    }, CACHE_TTL.ROOMS);
   },
   
   createRoom: async (name: string, icon: string = 'home') => {
@@ -844,14 +879,8 @@ export const API = {
 
   /* Stats & trend helpers used by dashboard hero bar */
   async getStats() {
-    // Check cache first
-    const cached = cache.get(CACHE_KEYS.STATS);
-    if (cached) {
-      console.log('Using cached stats data');
-      return cached;
-    }
-
-    try {
+    return deduplicateRequest('getStats', async () => {
+      try {
       // Check if ThingsBoard is properly configured
       const tbBaseUrl = import.meta.env.VITE_TB_BASE_URL;
       if (!tbBaseUrl) {
@@ -874,30 +903,110 @@ export const API = {
       };
       
       console.log('Stats calculated for current user:', stats);
-      cache.set(CACHE_KEYS.STATS, stats, 15000); // Cache for 15 seconds
       return stats;
-    } catch (error) {
-      console.error('Error fetching stats from ThingsBoard:', error);
-      throw error;
-    }
+      } catch (error) {
+        console.error('Error fetching stats from ThingsBoard:', error);
+        throw error;
+      }
+    }, CACHE_TTL.STATS);
   },
-  /** 7-day hit trend – stub empty array until we wire TB aggregate API */
-  getTrend7d: async () => [],
+  /** 7-day hit trend – fetch historical hit data from ThingsBoard */
+  getTrend7d: deduplicateRequest('trend7d', async () => {
+    try {
+      const { thingsBoardService } = await import('@/services/thingsboard');
+      
+      // Get all targets (without telemetry for speed)
+      const devicesResponse = await thingsBoardService.getDevices(100, 0, undefined, undefined, undefined, undefined, false);
+      const devices = devicesResponse.data || [];
+      
+      if (devices.length === 0) {
+        return [];
+      }
+      
+      // Calculate time range (last 7 days)
+      const endTime = Date.now();
+      const startTime = endTime - (7 * 24 * 60 * 60 * 1000);
+      
+      // Initialize daily buckets
+      const dailyHits: Record<string, number> = {};
+      for (let i = 0; i < 7; i++) {
+        const date = new Date(endTime - (i * 24 * 60 * 60 * 1000));
+        const dayKey = date.toISOString().split('T')[0];
+        dailyHits[dayKey] = 0;
+      }
+      
+      // Fetch historical telemetry for each device (only 'hits' key)
+      const trendPromises = devices.map(async (device) => {
+        try {
+          const deviceId = device.id?.id || device.id;
+          const telemetry = await thingsBoardService.getHistoricalTelemetry(
+            deviceId,
+            ['hits'], 
+            startTime,
+            endTime,
+            1000 
+          );
+          
+          return telemetry?.hits || [];
+        } catch (error) {
+          console.warn(`Failed to fetch historical data for device ${device.id}:`, error);
+          return [];
+        }
+      });
+      
+      const results = await Promise.allSettled(trendPromises);
+      
+      // Aggregate hits by day
+      results.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value.length > 0) {
+          result.value.forEach((hit: any) => {
+            const hitDate = new Date(hit.ts).toISOString().split('T')[0];
+            if (dailyHits[hitDate] !== undefined) {
+              dailyHits[hitDate] += (hit.value || 0);
+            }
+          });
+        }
+      });
+      
+      // Convert to array format
+      return Object.entries(dailyHits)
+        .map(([day, hits]) => ({ day, hits }))
+        .sort((a, b) => a.day.localeCompare(b.day));
+        
+    } catch (error) {
+      console.error('Error fetching 7-day trend:', error);
+      return [];
+    }
+  }, 60 * 60 * 1000), // 1 hour TTL
+};
+
+// Get targets with telemetry for display purposes
+API.getTargetsWithTelemetry = async (): Promise<any[]> => {
+  try {
+    const { thingsBoardService } = await import('@/services/thingsboard');
+    const devicesResponse = await thingsBoardService.getDevices(); // Default fetchTelemetry=true
+    return devicesResponse.data || [];
+  } catch (error) {
+    console.error('Error fetching targets with telemetry:', error);
+    return [];
+  }
 };
 
 export default API;
 
 // Cache management functions
-export const clearCache = () => {
-  cache.clear();
-};
-
 export const invalidateCache = (key: string) => {
   cache.delete(key);
 };
 
 // Specific function to clear targets cache
 export const clearTargetsCache = () => {
+  // Clear old cache system
   cache.delete(CACHE_KEYS.TARGETS);
-  console.log('Targets cache cleared');
+  
+  // Clear new responseCache for all target-related requests
+  clearCache('getTargets');
+  clearCache('targets');
+  
+  console.log('Targets cache cleared (both old and new cache systems)');
 };

@@ -31,36 +31,12 @@ const Scenarios: React.FC = () => {
   const { active, current, error, start, stop, progress, timeRemaining, currentSession } = useScenarioRun();
   const { devices: gameFlowDevices, initializeDevices } = useGameFlow();
   
-  // Demo mode toggle (Scenarios page only)
-  const [isDemoMode, setIsDemoMode] = useState(true); // Default to demo mode
+  // Demo mode removed - using live data only
   const [activeTab, setActiveTab] = useState<'scenarios' | 'game-flow' | 'history'>('scenarios');
   const [gameDuration, setGameDuration] = useState(30); // Default 30 minutes
 
-  // Mock data for demo mode
-  const mockRooms = [
-    { id: '1', name: 'Training Room A', order: 1, targetCount: 4, icon: 'home', room_type: 'training' },
-    { id: '2', name: 'Training Room B', order: 2, targetCount: 3, icon: 'briefcase', room_type: 'training' },
-    { id: '3', name: 'Practice Range', order: 3, targetCount: 6, icon: 'building', room_type: 'range' }
-  ];
-
-  const mockTargets: Target[] = [
-    { id: 'demo-target-1', name: 'Target Alpha', status: 'online', roomId: 1 },
-    { id: 'demo-target-2', name: 'Target Beta', status: 'online', roomId: 1 },
-    { id: 'demo-target-3', name: 'Target Gamma', status: 'online', roomId: 1 },
-    { id: 'demo-target-4', name: 'Target Delta', status: 'offline', roomId: 1 },
-    { id: 'demo-target-5', name: 'Target Echo', status: 'online', roomId: 2 },
-    { id: 'demo-target-6', name: 'Target Foxtrot', status: 'online', roomId: 2 },
-    { id: 'demo-target-7', name: 'Target Golf', status: 'online', roomId: 2 },
-    { id: 'demo-target-8', name: 'Target Hotel', status: 'online', roomId: 3 },
-    { id: 'demo-target-9', name: 'Target India', status: 'online', roomId: 3 },
-    { id: 'demo-target-10', name: 'Target Juliet', status: 'offline', roomId: 3 },
-    { id: 'demo-target-11', name: 'Target Kilo', status: 'online', roomId: 3 },
-    { id: 'demo-target-12', name: 'Target Lima', status: 'online', roomId: 3 },
-    { id: 'demo-target-13', name: 'Target Mike', status: 'online', roomId: 3 }
-  ];
-
-  // Use demo or real data based on mode
-  const rooms = isDemoMode ? mockRooms : storeRooms;
+  // Use live data only
+  const rooms = storeRooms;
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
   const [availableTargets, setAvailableTargets] = useState<Target[]>([]);
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
@@ -103,7 +79,6 @@ const Scenarios: React.FC = () => {
     availableTargetsCount: availableTargets.length,
     selectedTargetsCount: selectedTargets.length,
     loadingTargets,
-    isDemoMode,
     active,
     showCountdown,
     rooms: rooms.map(r => ({ id: r.id, name: r.name, idType: typeof r.id })),
@@ -194,22 +169,16 @@ const Scenarios: React.FC = () => {
     fetchRooms();
   }, [fetchRooms]);
 
-  // Load targets based on demo/live mode
+  // Load targets - using live data only
   useEffect(() => {
     const loadTargets = async () => {
       setLoadingTargets(true);
       try {
-        if (isDemoMode) {
-          // Demo mode - use mock data
-          setAvailableTargets(mockTargets);
-          console.log(`🎭 Demo mode: Loaded ${mockTargets.length} mock targets`);
-        } else {
-          // Live mode - use real ThingsBoard data
-          console.log('🔄 Live mode: Loading all targets from ThingsBoard...');
-          const targets = await API.getTargets() as Target[];
-          setAvailableTargets(targets);
-          console.log(`✅ Live mode: Loaded ${targets.length} real targets from ThingsBoard`);
-        }
+        // Live mode - use real ThingsBoard data
+        console.log('🔄 Live mode: Loading all targets from ThingsBoard...');
+        const targets = await API.getTargets() as Target[];
+        setAvailableTargets(targets);
+        console.log(`✅ Live mode: Loaded ${targets.length} real targets from ThingsBoard`);
       } catch (error) {
         console.error('❌ Failed to load targets:', error);
         setAvailableTargets([]);
@@ -219,7 +188,7 @@ const Scenarios: React.FC = () => {
     };
 
     loadTargets();
-  }, [isDemoMode]);
+  }, []);
 
   // Don't auto-select room - let user choose or see all targets
   // React.useEffect(() => {
@@ -233,41 +202,28 @@ const Scenarios: React.FC = () => {
     const loadRoomTargets = async () => {
       if (selectedRoomId === null) {
         // No room selected - show all targets
-        if (isDemoMode) {
-          setAvailableTargets(mockTargets);
-        } else {
-          try {
-            const targets = await API.getTargets() as Target[];
-            setAvailableTargets(targets);
-          } catch (error) {
-            console.error('Failed to load all targets:', error);
-            setAvailableTargets([]);
-          }
+        try {
+          const targets = await API.getTargets() as Target[];
+          setAvailableTargets(targets);
+        } catch (error) {
+          console.error('Failed to load all targets:', error);
+          setAvailableTargets([]);
         }
         return;
       }
       
       setLoadingTargets(true);
       try {
-        if (isDemoMode) {
-          // Demo mode - filter mock targets by room
-          const roomTargets = mockTargets.filter(t => t.roomId === selectedRoomId);
-          setAvailableTargets(roomTargets);
-          console.log(`🎭 Demo mode: Filtered ${roomTargets.length} targets for room ${selectedRoomId}`);
-        } else {
-          // Live mode - get targets from Supabase
-          console.log(`🔄 Live mode: Loading targets for room ${selectedRoomId} from Supabase...`);
-          const roomTargets = await getRoomTargets(selectedRoomId.toString());
-          setAvailableTargets(roomTargets);
-          console.log(`✅ Live mode: Loaded ${roomTargets.length} targets for room ${selectedRoomId}`);
-        }
+        // Live mode - get targets from Supabase
+        console.log(`🔄 Live mode: Loading targets for room ${selectedRoomId} from Supabase...`);
+        const roomTargets = await getRoomTargets(selectedRoomId.toString());
+        setAvailableTargets(roomTargets);
+        console.log(`✅ Live mode: Loaded ${roomTargets.length} targets for room ${selectedRoomId}`);
         
         setSelectedTargets([]); // Clear selection when targets change
       } catch (error) {
         console.error('❌ Failed to load room targets:', error);
-        if (!isDemoMode) {
-          toast.error('Failed to load room targets');
-        }
+        toast.error('Failed to load room targets');
         setAvailableTargets([]);
       } finally {
         setLoadingTargets(false);
@@ -275,7 +231,7 @@ const Scenarios: React.FC = () => {
     };
 
     loadRoomTargets();
-  }, [selectedRoomId, isDemoMode, getRoomTargets]);
+  }, [selectedRoomId, getRoomTargets]);
 
   const handleTargetSelection = (targetId: string, checked: boolean) => {
     if (checked) {
@@ -320,21 +276,19 @@ const Scenarios: React.FC = () => {
       return;
     }
 
-    if (isDemoMode) {
-      // Demo mode - use existing countdown flow
-      setPendingGame(gameTemplate);
-      setShowCountdown(true);
-      startInlineCountdown(gameTemplate);
-    } else {
-      // Live mode - use ThingsBoard game flow according to DeviceManagement.md
-      console.log('🔴 LIVE MODE: Starting ThingsBoard game flow');
-      
-      // Generate unique game ID
-      const gameId = `GM-${Date.now()}`;
-      
-      // Start the game flow according to documentation
-      await startLiveModeGame(gameTemplate, gameId, selectedTargets, gameDuration);
-    }
+    // Use countdown flow for all games
+    setPendingGame(gameTemplate);
+    setShowCountdown(true);
+    startInlineCountdown(gameTemplate);
+    
+    // Live mode - use ThingsBoard game flow according to DeviceManagement.md
+    console.log('🔴 LIVE MODE: Starting ThingsBoard game flow');
+    
+    // Generate unique game ID
+    const gameId = `GM-${Date.now()}`;
+    
+    // Start the game flow according to documentation
+    await startLiveModeGame(gameTemplate, gameId, selectedTargets, gameDuration);
   };
 
   // Live mode game flow according to DeviceManagement.md
@@ -519,24 +473,11 @@ const Scenarios: React.FC = () => {
                   </p>
                 </div>
                 
-                {/* Mode Toggle - Compact */}
+                {/* Mode Indicator - Live Only */}
                 <div className="flex items-center gap-2">
-                  <div className={`px-2 py-1 rounded-lg text-xs font-body font-medium ${
-                    isDemoMode 
-                      ? 'bg-yellow-100 text-yellow-800' 
-                      : 'bg-green-100 text-green-800'
-                  }`}>
-                    {isDemoMode ? '🎭 Demo' : '🔗 Live'}
+                  <div className="px-2 py-1 rounded-lg text-xs font-body font-medium bg-green-100 text-green-800">
+                    🔗 Live
                   </div>
-                  <Button
-                    onClick={() => setIsDemoMode(!isDemoMode)}
-                    disabled={active}
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2 text-xs font-body border border-brand-secondary/30 text-brand-secondary hover:bg-brand-primary hover:text-white hover:border-brand-primary"
-                  >
-                    Toggle
-                  </Button>
 
                   {active && (
                     <Button 
@@ -603,9 +544,7 @@ const Scenarios: React.FC = () => {
               <div className="lg:col-span-3 space-y-4">
                 
                 {/* Room Selection - Compact */}
-                <div className={`bg-brand-surface rounded-xl p-4 shadow-subtle border border-gray-100 ${
-                  !isDemoMode ? 'opacity-50 pointer-events-none' : ''
-                }`}>
+                <div className="bg-brand-surface rounded-xl p-4 shadow-subtle border border-gray-100">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-heading text-sm font-semibold text-brand-text">Training Room</h3>
                     {/* Demo badge - disabled */}
@@ -672,9 +611,7 @@ const Scenarios: React.FC = () => {
                 )}
                 
                 {/* Target Selection - Compact */}
-                <div className={`bg-brand-surface rounded-xl p-4 shadow-subtle border border-gray-100 ${
-                  !isDemoMode ? 'opacity-50 pointer-events-none' : ''
-                }`}>
+                <div className="bg-brand-surface rounded-xl p-4 shadow-subtle border border-gray-100">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-heading text-sm font-semibold text-brand-text">Select Targets</h3>
                       <div className="px-2 py-1 bg-brand-primary/10 text-brand-primary text-xs font-body rounded-full">
@@ -867,7 +804,6 @@ const Scenarios: React.FC = () => {
                       disabled={
                         active || 
                         showCountdown || 
-                        (!isDemoMode && selectedRoomId === null) || 
                         selectedTargets.length < template.targetCount
                       }
                       className="w-full h-12 bg-brand-primary hover:bg-brand-primary/90 disabled:bg-gray-300 disabled:text-gray-500 text-white font-body text-base font-medium rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"

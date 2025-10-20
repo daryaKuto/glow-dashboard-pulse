@@ -43,7 +43,7 @@ export const useSmartPolling = (
       for (const target of targets) {
         try {
           // Get latest telemetry for activity indicators
-          const telemetry = await thingsBoardService.getLatestTelemetry(target.id, [
+          const telemetry = await thingsBoardService.getLatestTelemetry(target.id?.id || target.id, [
             'lastActivityTime', 'created_at', 'event', 'hits', 'battery'
           ]);
 

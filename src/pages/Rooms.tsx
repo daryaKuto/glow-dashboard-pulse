@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useMemo, startTransition } from 'react';
 import { useLocation } from 'react-router-dom';
-import { useDemoMode } from '@/providers/DemoModeProvider';
 import { useRooms } from '@/store/useRooms';
 import { useTargets } from '@/store/useTargets';
 import { apiWrapper } from '@/services/api-wrapper';
@@ -24,9 +23,8 @@ const Rooms: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-  const { isDemoMode } = useDemoMode();
   const { 
-    rooms: liveRooms, 
+    rooms, 
     isLoading, 
     fetchRooms, 
     createRoom, 
@@ -34,13 +32,13 @@ const Rooms: React.FC = () => {
     deleteRoom,
     updateRoomOrder,
     assignTargetToRoom,
+    assignTargetsToRoomBatch,
     getAllTargetsWithAssignments,
     updateRoomTargetCount
   } = useRooms();
   const { targets, refresh: refreshTargets } = useTargets();
   
-  // Local state for demo mode
-  const [demoRooms, setDemoRooms] = useState<any[]>([]);
+  // Local state
   const [createRoomModalOpen, setCreateRoomModalOpen] = useState(false);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<any>(null);
@@ -52,15 +50,25 @@ const Rooms: React.FC = () => {
   const [targetsWithAssignments, setTargetsWithAssignments] = useState<any[]>([]);
   const [pendingAssignments, setPendingAssignments] = useState<Map<string, string | null>>(new Map()); // targetId -> roomId
   const [targetsLoading, setTargetsLoading] = useState(false);
-  
-  // Use demo or live rooms based on mode
-  const rooms = isDemoMode ? demoRooms : liveRooms;
+  const [initialLoading, setInitialLoading] = useState(true);
 
   // Helper function to safely get target ID
   const getTargetId = (target: any) => {
     if (target.id?.id) return target.id.id;
     if (target.id) return target.id;
     return 'unknown';
+  };
+
+  // Optimistically update local state without API call
+  const updateTargetsOptimistically = (targetIds: string[], newRoomId: string | null) => {
+    setTargetsWithAssignments(prev => 
+      prev.map(target => 
+        targetIds.includes(getTargetId(target))
+          ? { ...target, roomId: newRoomId }
+          : target
+      )
+    );
+    console.log(`✨ [OPTIMISTIC] UI: Updated ${targetIds.length} targets locally to room ${newRoomId}`);
   };
 
   // Available room icons
@@ -81,43 +89,28 @@ const Rooms: React.FC = () => {
   ];
 
   // Function to refresh targets with assignments
+  // NOTE: Demo mode has been removed from this file.
+  // If you see errors related to isDemoMode, mockData, or demo services,
+  // it's because those systems no longer exist. Use live ThingsBoard/Supabase data only.
   const refreshTargetsWithAssignments = async () => {
     console.log('🔄 [REFRESH] UI: Starting refreshTargetsWithAssignments...');
     setTargetsLoading(true);
     try {
-      console.log(`🔄 [REFRESH] UI: Refreshing targets with assignments (${isDemoMode ? 'DEMO' : 'LIVE'} mode)...`);
-      
-      if (isDemoMode) {
-        // Demo mode: use mock data
-        console.log('🎭 [REFRESH] UI: Using demo mode - fetching mock targets...');
-        const mockTargets = await apiWrapper.getTargetsWithAssignments(true);
-        setTargetsWithAssignments(mockTargets);
-        console.log('✅ [SUCCESS] UI: Mock targets with assignments loaded:', mockTargets.length);
-        console.log('📊 [DATA] UI: Sample mock targets:', mockTargets.slice(0, 3).map(t => ({
-          name: t.name,
-          roomId: t.roomId,
-          id: t.id
-        })));
-        return mockTargets;
-      } else {
-        // Live mode: use real data
-        console.log('🔄 [REFRESH] UI: Using live mode - fetching real targets...');
-        const targetsWithAssignmentsData = await getAllTargetsWithAssignments();
-        setTargetsWithAssignments(targetsWithAssignmentsData);
-        console.log('✅ [SUCCESS] UI: Real targets with assignments refreshed:', targetsWithAssignmentsData.length);
-        console.log('📊 [DATA] UI: Sample real targets:', targetsWithAssignmentsData.slice(0, 3).map(t => ({
-          name: t.name,
-          roomId: t.roomId,
-          id: t.id
-        })));
-        return targetsWithAssignmentsData;
-      }
+      console.log('🔄 [REFRESH] UI: Using live mode - fetching real targets...');
+      const targetsWithAssignmentsData = await getAllTargetsWithAssignments(true); // forceRefresh on page load
+      setTargetsWithAssignments(targetsWithAssignmentsData);
+      console.log('✅ [SUCCESS] UI: Real targets with assignments refreshed:', targetsWithAssignmentsData.length);
+      console.log('📊 [DATA] UI: Sample real targets:', targetsWithAssignmentsData.slice(0, 3).map(t => ({
+        name: t.name,
+        roomId: t.roomId,
+        id: t.id
+      })));
+      return targetsWithAssignmentsData;
     } catch (error) {
       console.error('❌ [ERROR] UI: Error refreshing targets with assignments:', error);
       console.error('❌ [ERROR] UI: Error details:', {
         message: error.message,
-        stack: error.stack,
-        isDemoMode
+        stack: error.stack
       });
       setTargetsWithAssignments([]);
       return [];
@@ -128,67 +121,38 @@ const Rooms: React.FC = () => {
   };
 
   useEffect(() => {
-    const fetchData = async () => {
-      console.log(`🔄 Rooms page: Mode changed to ${isDemoMode ? 'DEMO' : 'LIVE'}, clearing old data...`);
+    const loadData = async () => {
+      console.log('🔄 Rooms page: Loading data from stores...');
+      setInitialLoading(true);
       
-      // Clear all data when switching modes to prevent leakage
-      setTargetsWithAssignments([]);
-      setDemoRooms([]);
-      setPendingAssignments(new Map());
-      setSelectedTargets([]);
-      
-      console.log(`🧹 Rooms: Cleared old data. Fetching ${isDemoMode ? 'MOCK' : 'REAL'} data...`);
-      
-      if (isDemoMode) {
-        // Demo mode: load mock rooms and targets
+      try {
+        // Use data from Zustand stores (populated by useInitialSync)
+        console.log('🔄 Reading from stores...');
+        
+        // Get targets with assignments (use existing data, no API call)
+        const targets = await getAllTargetsWithAssignments(false);
+        setTargetsWithAssignments(targets);
+        
+        // Fetch rooms (light operation from Supabase)
+        await fetchRooms();
+        
+        console.log('✅ Rooms page: Data loaded successfully');
+      } catch (error) {
+        console.error('❌ Error loading data:', error);
+        // Fallback: try to fetch fresh data
         try {
-          console.log('🎭 DEMO: Loading mock rooms...');
-          const mockRooms = await apiWrapper.getRooms(true);
-          
-          // Transform mock rooms to match the Room interface
-          const transformedRooms = mockRooms.map(room => ({
-            id: room.id,
-            name: room.name,
-            order: room.order_index,
-            targetCount: 0, // Will be calculated from assignments
-            icon: room.icon,
-            room_type: room.room_type
-          }));
-          
-          setDemoRooms(transformedRooms);
-          console.log('✅ DEMO: Loaded mock rooms:', transformedRooms.length);
-        } catch (error) {
-          console.error('❌ DEMO: Error loading mock rooms:', error);
-          setDemoRooms([]);
-        }
-      } else {
-        // Live mode: fetch real data in parallel for better performance
-        try {
-          console.log('🔄 Fetching rooms and targets in parallel...');
-          
-          // Fetch rooms and targets simultaneously
-          await Promise.all([
-            fetchRooms().then(() => console.log('✅ Rooms fetched successfully')),
-            refreshTargets().then(() => console.log('✅ Targets refreshed successfully'))
-          ]);
-          
-          // Then fetch targets with assignments (this will use the cached targets)
           await refreshTargetsWithAssignments();
-        } catch (error) {
-          console.error('❌ Error fetching data:', error);
-          // Still try to fetch assignments even if other calls failed
-          try {
-            await refreshTargetsWithAssignments();
-          } catch (assignError) {
-            console.error('❌ Error fetching assignments:', assignError);
-          }
+        } catch (assignError) {
+          console.error('❌ Error fetching assignments as fallback:', assignError);
         }
+      } finally {
+        setInitialLoading(false);
       }
     };
     
-    fetchData();
+    loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDemoMode]);
+  }, []);
 
   const handleCreateRoom = (roomData: {
     name: string;
@@ -248,15 +212,17 @@ const Rooms: React.FC = () => {
     console.log(`🔍 [ID-CHECK] UI: Room ID format: ${selectedRoom.id} (type: ${typeof selectedRoom.id})`);
     
     try {
-      console.log('🎯 [ASSIGNMENT] UI: Calling apiWrapper.assignTargetToRoom...');
-      await apiWrapper.assignTargetToRoom(isDemoMode, selectedTarget, selectedRoom.id);
-      console.log('✅ [SUCCESS] UI: Target assignment completed via apiWrapper');
+      console.log('🎯 [ASSIGNMENT] UI: Calling assignTargetToRoom...');
+      await assignTargetToRoom(selectedTarget, selectedRoom.id);
+      console.log('✅ [SUCCESS] UI: Target assignment completed');
       
       setAssignDialogOpen(false);
       setSelectedTarget('');
       setSelectedRoom(null);
-      console.log('🔄 [REFRESH] UI: Refreshing targets after assignment...');
-      await refreshTargetsWithAssignments();
+      
+      // Remove this line - already refreshed in assignTargetToRoom
+      // await refreshTargetsWithAssignments();
+      
       toast.success('Target assigned to room successfully');
     } catch (error) {
       console.error('❌ [ERROR] UI: Error assigning target:', error);
@@ -264,8 +230,7 @@ const Rooms: React.FC = () => {
         message: error.message,
         stack: error.stack,
         selectedTarget,
-        selectedRoom: selectedRoom?.id,
-        isDemoMode
+        selectedRoom: selectedRoom?.id
       });
       toast.error('Failed to assign target to room');
     }
@@ -302,39 +267,31 @@ const Rooms: React.FC = () => {
 
   const handleBulkAssign = async () => {
     if (selectedTargets.length === 0 || !roomForDetails) {
-      console.log('❌ [ERROR] UI: Cannot assign targets - missing selectedTargets or roomForDetails');
-      console.log('❌ [ERROR] UI: selectedTargets:', selectedTargets);
-      console.log('❌ [ERROR] UI: roomForDetails:', roomForDetails);
       return;
     }
     
-    console.log('🎯 [ASSIGNMENT] UI: Starting bulk target assignment...');
-    console.log(`🎯 [ASSIGNMENT] UI: Assigning ${selectedTargets.length} targets to room ${roomForDetails.id} (${roomForDetails.name})`);
-    console.log('🎯 [ASSIGNMENT] UI: Selected targets:', selectedTargets);
-    console.log(`🔍 [ID-CHECK] UI: Room ID format: ${roomForDetails.id} (type: ${typeof roomForDetails.id})`);
+    console.log(`🎯 [BULK] UI: Assigning ${selectedTargets.length} targets to room ${roomForDetails.id}`);
     
-    // Log each target ID format
-    selectedTargets.forEach((targetId, index) => {
-      console.log(`🔍 [ID-CHECK] UI: Target ${index + 1} ID: ${targetId} (type: ${typeof targetId})`);
-    });
-    
-    console.log('📝 [ASSIGNMENT] UI: Adding targets to pending assignments (optimistic update)...');
-    
-    // Optimistic update: Add to pending assignments immediately
-    startTransition(() => {
-      const newPendingAssignments = new Map(pendingAssignments);
-      selectedTargets.forEach(targetId => {
-        console.log(`📝 [ASSIGNMENT] UI: Adding pending assignment: ${targetId} → ${roomForDetails.id}`);
-        newPendingAssignments.set(targetId, roomForDetails.id);
-      });
-      setPendingAssignments(newPendingAssignments);
+    try {
+      // Optimistically update UI immediately for instant feedback
+      updateTargetsOptimistically(selectedTargets, roomForDetails.id);
       
-      // Clear selection
+      // Clear selection immediately for better UX
       setSelectedTargets([]);
-      console.log('✅ [SUCCESS] UI: Targets added to pending assignments and selection cleared');
-    });
-    
-    console.log(`✅ [SUCCESS] UI: ${selectedTargets.length} targets immediately assigned to room (optimistic update)`);
+      
+      // Use batch assignment in background - includes single refresh
+      await assignTargetsToRoomBatch(selectedTargets, roomForDetails.id);
+      
+      // After batch completes, do one final refresh to ensure sync
+      await refreshTargetsWithAssignments();
+      
+      console.log(`✅ [BULK] UI: ${selectedTargets.length} targets assigned successfully`);
+    } catch (error) {
+      console.error('❌ [BULK] UI: Error assigning targets:', error);
+      // On error, refresh to revert optimistic update
+      await refreshTargetsWithAssignments();
+      toast.error('Failed to assign targets to room');
+    }
   };
 
   const clearSelection = () => {
@@ -344,65 +301,37 @@ const Rooms: React.FC = () => {
   // Save pending assignments when modal closes
   const savePendingAssignments = async () => {
     if (pendingAssignments.size === 0) {
-      console.log('❌ [ERROR] UI: No pending assignments to save');
       return;
     }
     
-    console.log('🎯 [ASSIGNMENT] UI: Starting to save pending assignments...');
-    console.log(`🎯 [ASSIGNMENT] UI: ${pendingAssignments.size} pending assignments to save (${isDemoMode ? 'DEMO' : 'LIVE'} mode)`);
-    console.log('🎯 [ASSIGNMENT] UI: Pending assignments:', Array.from(pendingAssignments.entries()));
+    console.log(`🎯 [PENDING] UI: Saving ${pendingAssignments.size} pending assignments`);
     
     try {
-      // Track which rooms need target count updates
-      const affectedRooms = new Set<string>();
+      // Group assignments by room for batch operations
+      const assignmentsByRoom = new Map<string | null, string[]>();
       
-      // Save all pending assignments
       for (const [targetId, roomId] of pendingAssignments.entries()) {
-        console.log(`🎯 [ASSIGNMENT] UI: Saving assignment: ${targetId} → ${roomId || 'unassigned'}`);
-        console.log(`🔍 [ID-CHECK] UI: Target ID: ${targetId} (type: ${typeof targetId})`);
-        console.log(`🔍 [ID-CHECK] UI: Room ID: ${roomId} (type: ${typeof roomId})`);
-        
-        await apiWrapper.assignTargetToRoom(isDemoMode, targetId, roomId);
-        console.log(`✅ [SUCCESS] UI: Assignment saved: ${targetId} → ${roomId || 'unassigned'}`);
-        
-        // Track affected rooms for targeted updates
-        if (roomId) {
-          affectedRooms.add(roomId);
-          console.log(`📊 [DATA] UI: Added ${roomId} to affected rooms`);
+        if (!assignmentsByRoom.has(roomId)) {
+          assignmentsByRoom.set(roomId, []);
         }
+        assignmentsByRoom.get(roomId)!.push(targetId);
       }
       
-      console.log('✅ [SUCCESS] UI: All pending assignments saved');
-      console.log(`📊 [DATA] UI: Affected rooms: ${Array.from(affectedRooms)}`);
+      // Batch assign by room
+      for (const [roomId, targetIds] of assignmentsByRoom.entries()) {
+        await assignTargetsToRoomBatch(targetIds, roomId);
+      }
       
       // Clear pending assignments
       setPendingAssignments(new Map());
-      console.log('🔄 [REFRESH] UI: Cleared pending assignments');
       
-      // Refresh targets and update specific room counts (optimized)
-      startTransition(async () => {
-        console.log('🔄 [REFRESH] UI: Refreshing targets after saving assignments...');
-        await refreshTargetsWithAssignments();
-        
-        // Update target counts for affected rooms only
-        for (const roomId of affectedRooms) {
-          console.log(`🔄 [REFRESH] UI: Updating target count for room ${roomId}...`);
-          await updateRoomTargetCount(roomId);
-        }
-        console.log('✅ [SUCCESS] UI: All room target counts updated');
-      });
+      // Refresh UI
+      await refreshTargetsWithAssignments();
+      await fetchRooms();
       
-      console.log('✅ [SUCCESS] UI: All pending assignments saved');
-      
+      console.log(`✅ [PENDING] UI: All pending assignments saved`);
     } catch (error) {
-      console.error('❌ [ERROR] UI: Error saving pending assignments:', error);
-      console.error('❌ [ERROR] UI: Error details:', {
-        message: error.message,
-        stack: error.stack,
-        pendingAssignments: Array.from(pendingAssignments.entries()),
-        isDemoMode
-      });
-      toast.error('Failed to save some assignments');
+      console.error('❌ [PENDING] UI: Error saving assignments:', error);
     }
   };
 
@@ -491,7 +420,7 @@ const Rooms: React.FC = () => {
             
             {/* Stats Overview - Mobile Optimized */}
             <div className="responsive-grid grid-cols-3 mb-6">
-              {isLoading || targetsLoading ? (
+              {isLoading || targetsLoading || initialLoading ? (
                 // Loading skeleton for stats cards
                 <>
                   {[...Array(3)].map((_, i) => (
@@ -552,7 +481,7 @@ const Rooms: React.FC = () => {
               </Button>
             </div>
             
-            {isLoading ? (
+            {isLoading || initialLoading ? (
               <div className="space-y-4">
                 {/* Loading skeleton for rooms */}
                 {[...Array(3)].map((_, i) => (
@@ -884,7 +813,7 @@ const Rooms: React.FC = () => {
                       </Button>
                     </div>
                   </div>
-                  <div className="space-y-2 sm:space-y-3 max-h-60 sm:max-h-80 overflow-y-auto">
+                  <div className="space-y-2 sm:space-y-3 max-h-48 sm:max-h-64 overflow-y-auto">
                     {unassignedTargets.map((target) => (
                       <div
                         key={getTargetId(target)}

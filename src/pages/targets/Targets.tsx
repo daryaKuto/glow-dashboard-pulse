@@ -234,7 +234,7 @@ const Targets: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const { rooms: liveRooms, isLoading: roomsLoading, fetchRooms, getAllTargetsWithAssignments } = useRooms();
   const { forceSync: forceThingsBoardSync } = useThingsBoardSync();
-  const { setTargets: setTargetsStore } = useTargets();
+  const { targets: cachedTargets, setTargets: setTargetsStore } = useTargets();
   
   // Local state
   const [targets, setTargets] = useState<Target[]>([]);
@@ -266,10 +266,26 @@ const Targets: React.FC = () => {
   const fetchTargetsWithAssignments = useCallback(async () => {
     console.log('🔍 [Targets] fetchTargetsWithAssignments() called');
     
-    // Check cache first
+    // Check Zustand store first for cached targets with telemetry
+    if (cachedTargets && cachedTargets.length > 0) {
+      console.log('✅ [Targets] Using cached targets from Zustand store:', cachedTargets.length, 'targets');
+      console.log('✅ [Targets] Cached targets summary:', cachedTargets.map(t => ({
+        id: t.id,
+        name: t.name,
+        status: t.status,
+        roomId: t.roomId,
+        battery: t.battery,
+        wifiStrength: t.wifiStrength
+      })));
+      setTargets(cachedTargets);
+      setDataCache({ targets: cachedTargets, fetchTime: Date.now() });
+      return;
+    }
+    
+    // Check local cache second
     if (dataCache && Date.now() - dataCache.fetchTime < CACHE_DURATION) {
-      console.log('✅ [Targets] Using cached targets data:', dataCache.targets.length, 'targets');
-      console.log('✅ [Targets] Cached targets summary:', dataCache.targets.map(t => ({
+      console.log('✅ [Targets] Using local cache targets data:', dataCache.targets.length, 'targets');
+      console.log('✅ [Targets] Local cache targets summary:', dataCache.targets.map(t => ({
         id: t.id,
         name: t.name,
         status: t.status,
@@ -343,7 +359,7 @@ const Targets: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [getAllTargetsWithAssignments, dataCache]);
+  }, [getAllTargetsWithAssignments, dataCache, cachedTargets]);
 
   // Smart polling system for targets data (optimized with parallel fetching)
   const fetchTargetsData = useCallback(async () => {
@@ -351,6 +367,15 @@ const Targets: React.FC = () => {
     setIsLoading(true);
     try {
       console.log('🔄 Polling targets data (LIVE mode)...');
+      
+      // Check Zustand store first for cached targets with telemetry
+      if (cachedTargets && cachedTargets.length > 0) {
+        console.log('✅ [Targets] Using cached targets from Zustand store for polling:', cachedTargets.length, 'targets');
+        setTargets(cachedTargets);
+        setDataCache({ targets: cachedTargets, fetchTime: Date.now() });
+        setIsLoading(false);
+        return;
+      }
       
       // Live mode: fetch in parallel with direct API calls
       try {
@@ -433,7 +458,7 @@ const Targets: React.FC = () => {
       console.log('🔄 Setting loading to false');
       setIsLoading(false);
     }
-  }, [fetchRooms, getAllTargetsWithAssignments, setTargetsStore]);
+  }, [fetchRooms, getAllTargetsWithAssignments, setTargetsStore, cachedTargets]);
 
   // Comprehensive refresh function for manual refresh button (optimized)
   const comprehensiveRefresh = useCallback(async () => {
@@ -582,7 +607,7 @@ const Targets: React.FC = () => {
   useEffect(() => {
     // Skip if data is fresh
     if (dataCache && Date.now() - dataCache.fetchTime < CACHE_DURATION) {
-      console.log('✅ Using cached data on mount');
+      console.log('✅ Using data on mount');
       setTargets(dataCache.targets);
       setIsLoading(false);
       return;

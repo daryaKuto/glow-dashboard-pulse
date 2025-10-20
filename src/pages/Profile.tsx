@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 import { useAuth } from '@/providers/AuthProvider';
-import { useDemoMode } from '@/providers/DemoModeProvider';
 import { apiWrapper } from '@/services/api-wrapper';
 import { useRooms } from '@/store/useRooms';
 import { useUserPrefs } from '@/store/useUserPrefs';
@@ -54,7 +53,6 @@ import { getWifiCredentials } from '@/services/profile';
 const Profile: React.FC = () => {
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-  const { isDemoMode } = useDemoMode();
   const { user: authUser } = useAuth();
   const { rooms: liveRooms, fetchRooms } = useRooms();
   const { prefs, loading: prefsLoading, load: loadPrefs, save: savePrefs, updatePref } = useUserPrefs();
@@ -70,7 +68,7 @@ const Profile: React.FC = () => {
     updateProfile: updateUserProfileData 
   } = useProfile();
   
-  // Local state for demo mode
+  // Local state for rooms
   const [demoRooms, setDemoRooms] = useState<Array<{
     id: string;
     name: string;
@@ -98,7 +96,6 @@ const Profile: React.FC = () => {
   } | null>(null);
   const [demoRecentSessions, setDemoRecentSessions] = useState<Array<{
     id: string;
-    game_name?: string;
     scenarioName?: string;
     score: number;
     duration: number;
@@ -106,14 +103,12 @@ const Profile: React.FC = () => {
     startedAt?: string;
   }>>([]);
   
-  // Use demo or live data based on mode
-  const profileData = isDemoMode ? demoProfileData : liveProfileData;
-  const recentSessions = isDemoMode ? demoRecentSessions : liveRecentSessions;
-  const rooms = isDemoMode ? demoRooms : liveRooms;
+  // Use live data
+  const profileData = liveProfileData;
+  const recentSessions = liveRecentSessions;
+  const rooms = liveRooms;
   
   // Debug logging
-  console.log(`📊 Profile: Current mode: ${isDemoMode ? 'DEMO' : 'LIVE'}`);
-  console.log(`📊 Profile: Demo sessions count: ${demoRecentSessions.length}`);
   console.log(`📊 Profile: Live sessions count: ${liveRecentSessions.length}`);
   console.log(`📊 Profile: Active sessions count: ${recentSessions.length}`);
   
@@ -156,127 +151,41 @@ const Profile: React.FC = () => {
     }
   }, [authUser?.id]);
 
-  // Fetch data when component mounts or mode changes
+  // Fetch data when component mounts
   useEffect(() => {
     const loadData = async () => {
-      console.log(`🔄 Profile: Mode changed to ${isDemoMode ? 'DEMO' : 'LIVE'}, clearing old data...`);
+      console.log('🔄 Profile: Loading data...');
       
-      // Clear old data when switching modes
-      setDemoProfileData(null);
-      setDemoRecentSessions([]);
-      setWifiFetched(false); // Reset WiFi fetch flag
+      if (!authUser?.id) {
+        console.log('⚠️ No authenticated user found');
+        return;
+      }
       
-      console.log(`🧹 Profile: Cleared old data. Fetching ${isDemoMode ? 'MOCK' : 'REAL'} data...`);
+      console.log('🔗 Fetching REAL data from Supabase for user:', authUser.id);
       
-      if (isDemoMode) {
-        // Demo mode: Load mock profile, sessions, and rooms
-        console.log('🎭 DEMO: Loading mock profile data...');
+      try {
+        // Call store methods directly to get REAL Supabase data
+        await Promise.all([
+          fetchProfile(authUser.id),    // → supabase.from('user_profiles')
+          fetchSessions(authUser.id, 10), // → supabase.from('sessions')
+          fetchRooms(),                  // → supabase.from('rooms')
+          loadPrefs()                    // → supabase.from('user_preferences')
+        ]);
         
-        try {
-          // Demo mode: Use andrew.tam user ID to fetch real data
-          const andrewTamUserId = '1dca810e-7f11-4ec9-8605-8633cf2b74f0';
-          const mockProfile = await apiWrapper.getUserProfile(true, andrewTamUserId);
-          const mockSessions = await apiWrapper.getRecentSessions(true, andrewTamUserId, 10);
-          const mockRoomsList = await apiWrapper.getRooms(true);
-          
-          // Transform mock profile to match expected UserProfileData format
-          // Use real data from Supabase, not hardcoded values
-          const transformedProfile = {
-            userId: mockProfile.id,
-            email: mockProfile.email,
-            name: mockProfile.full_name,
-            avatarUrl: mockProfile.avatar_url,
-            totalSessions: mockProfile.total_sessions || 0,
-            totalHits: mockProfile.total_hits || 0,
-            totalShots: mockProfile.total_shots || 0,
-            averageScore: mockProfile.average_score || 0,
-            bestScore: mockProfile.best_score || 0,
-            avgAccuracy: mockProfile.avg_accuracy || 0,
-            avgReactionTime: mockProfile.avg_reaction_time || null,
-            bestReactionTime: mockProfile.best_reaction_time || null,
-            totalDuration: mockProfile.total_duration || 0,
-            scoreImprovement: mockProfile.score_improvement || 0,
-            accuracyImprovement: mockProfile.accuracy_improvement || 0
-          };
-          
-          // Transform mock rooms to match Room interface with target counts
-          // Use real target count from Supabase data, not hardcoded values
-          const transformedRooms = mockRoomsList.map((room) => ({
-            id: room.id,
-            name: room.name,
-            order: room.order_index,
-            targetCount: room.target_count || 0, // Use real target count from database
-            icon: room.icon,
-            room_type: room.room_type
-          }));
-          
-          setDemoProfileData(transformedProfile);
-          setDemoRecentSessions(mockSessions);
-          setDemoRooms(transformedRooms);
-          
-          console.log('✅ DEMO: Loaded mock profile, sessions, and rooms');
-          console.log('✅ DEMO: Mock sessions count:', mockSessions.length);
-        } catch (error) {
-          console.error('❌ DEMO: Error loading mock data:', error);
-        }
-      } else {
-        // Live mode: ONLY use real Supabase data via store methods
-        if (!authUser?.id) {
-          console.log('⚠️ LIVE: No authenticated user found');
-          // Clear demo data to ensure we show "no sessions" message
-          setDemoProfileData(null);
-          setDemoRecentSessions([]);
-          setDemoRooms([]);
-          return;
-        }
-        
-        console.log('🔗 LIVE: Fetching REAL data from Supabase for user:', authUser.id);
-        console.log('🔗 LIVE: NOT using apiWrapper - calling store methods directly');
-        
-        try {
-          // Call store methods directly to get REAL Supabase data
-          await Promise.all([
-            fetchProfile(authUser.id),    // → supabase.from('user_profiles')
-            fetchSessions(authUser.id, 10), // → supabase.from('sessions')
-            fetchRooms(),                  // → supabase.from('rooms')
-            loadPrefs()                    // → supabase.from('user_preferences')
-          ]);
-          
-          console.log('✅ LIVE: All REAL data loaded from Supabase');
-          console.log('✅ LIVE: Profile data from store:', liveProfileData);
-          console.log('✅ LIVE: Recent sessions from store:', liveRecentSessions.length, 'sessions');
-          
-          // Log actual session IDs to verify they're not mock IDs
-          if (liveRecentSessions.length > 0) {
-            console.log('✅ LIVE: Session IDs:', liveRecentSessions.map(s => ({ 
-              id: s.id, 
-              isMock: s.id.startsWith('mock-'),
-              name: s.scenarioName 
-            })));
-          }
-        } catch (error) {
-          console.error("❌ LIVE: Error fetching REAL profile data:", error);
-        }
+        console.log('✅ All REAL data loaded from Supabase');
+        console.log('✅ Profile data from store:', liveProfileData);
+        console.log('✅ Recent sessions from store:', liveRecentSessions.length, 'sessions');
+      } catch (error) {
+        console.error("❌ Error fetching profile data:", error);
       }
     };
     
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDemoMode, authUser?.id]);
+  }, [authUser?.id]);
 
   // Fetch WiFi credentials ONCE when user is authenticated
   useEffect(() => {
-    if (isDemoMode) {
-      console.log('🎭 DEMO: Using demo WiFi credentials');
-      // Set mock WiFi credentials for demo mode
-      setWifiCredentials({
-        ssid: 'DryFire-Demo-Network',
-        password: 'demo1234567890'
-      });
-      setWifiError(null);
-      setWifiFetched(true);
-      return;
-    }
     
     // Only fetch once per user authentication
     if (authUser?.id && !wifiFetched && !loadingWifi) {
@@ -284,7 +193,7 @@ const Profile: React.FC = () => {
       setWifiFetched(true); // Mark as fetched before calling
       fetchWifiCredentials();
     }
-  }, [isDemoMode, authUser?.id, wifiFetched, loadingWifi, fetchWifiCredentials]);
+  }, [authUser?.id, wifiFetched, loadingWifi, fetchWifiCredentials]);
 
   // Initialize form preferences when prefs are loaded
   useEffect(() => {
@@ -395,20 +304,6 @@ const Profile: React.FC = () => {
           <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <h2 className="text-h1 font-heading text-brand-dark mb-8">Profile</h2>
             
-            {/* Demo Mode Banner */}
-            {isDemoMode && (
-              <Card className="bg-yellow-50 border-yellow-200 mb-6">
-                <CardContent className="p-3 md:p-4">
-                  <div className="flex items-center gap-2">
-                    <div className="text-xl">🎭</div>
-                    <div>
-                      <div className="font-semibold text-yellow-800 text-sm">Demo Mode Active</div>
-                      <div className="text-xs text-yellow-700">Viewing demo user profile with mock statistics. Toggle to Live mode for your real data.</div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
             
             <Tabs defaultValue="overview" className="space-y-6">
               <TabsList className="grid w-full grid-cols-3 bg-brand-surface border border-brand-secondary/20">
@@ -597,7 +492,7 @@ const Profile: React.FC = () => {
                       <TargetPreferencesSkeleton />
                     ) : rooms.length === 0 ? (
                       <div className="text-center text-brand-dark/70 font-body">
-                        {isDemoMode ? 'Demo mode: 3 rooms with 6 targets available' : 'No rooms found'}
+                        No rooms found
                       </div>
                     ) : (
                       <>
@@ -606,9 +501,9 @@ const Profile: React.FC = () => {
                           <div className="flex items-center justify-between mb-4">
                             <h4 className="font-semibold text-brand-dark flex items-center gap-2">
                               <Wifi className="h-5 w-5" />
-                              House WiFi Settings {isDemoMode && <Badge className="bg-yellow-100 text-yellow-800">Demo</Badge>}
+                              House WiFi Settings {false && <Badge className="bg-yellow-100 text-yellow-800">Demo</Badge>}
                             </h4>
-                            {!isDemoMode && (
+                            {!false && (
                               <button
                                 onClick={fetchWifiCredentials}
                                 disabled={loadingWifi}
@@ -624,7 +519,7 @@ const Profile: React.FC = () => {
                               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-brand-primary mx-auto mb-2"></div>
                               <div className="text-brand-dark/70">Loading WiFi credentials...</div>
                             </div>
-                          ) : wifiError && !isDemoMode ? (
+                          ) : wifiError && !false ? (
                             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                               <div className="flex items-center gap-2 text-amber-700">
                                 <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
@@ -652,7 +547,7 @@ const Profile: React.FC = () => {
                         </div>
 
                               <div className="text-xs text-brand-secondary text-center">
-                                {isDemoMode 
+                                {false 
                                   ? '🎭 Demo WiFi credentials - for demonstration purposes only' 
                                   : 'WiFi credentials are managed by ThingsBoard and synced across all devices'
                                 }
@@ -663,10 +558,7 @@ const Profile: React.FC = () => {
                               <Wifi className="h-8 w-8 mx-auto mb-2 text-brand-secondary/50" />
                               <div className="text-sm">No WiFi credentials configured</div>
                               <div className="text-xs text-brand-secondary mt-1">
-                                {isDemoMode 
-                                  ? '🎭 Demo mode - WiFi not configured' 
-                                  : 'Credentials will appear here when devices are provisioned'
-                                }
+                                Credentials will appear here when devices are provisioned
                               </div>
                             </div>
                           )}
@@ -930,13 +822,10 @@ const Profile: React.FC = () => {
                     ) : recentSessions.length === 0 ? (
                       <div className="text-center py-8 text-brand-dark/70">
                         <div className="text-h3 font-heading text-brand-dark mb-2">
-                          {isDemoMode ? 'No Demo Sessions' : 'No Sessions Recorded'}
+                          {false ? 'No Demo Sessions' : 'No Sessions Recorded'}
                         </div>
                         <p className="text-brand-dark/70 font-body">
-                          {isDemoMode 
-                            ? 'Demo mode has no sessions configured. Try playing a game first!' 
-                            : 'No shooting sessions recorded yet. Play a game and it will show here!'
-                          }
+                          No shooting sessions recorded yet. Play a game and it will show here!
                         </p>
                       </div>
                     ) : (
@@ -944,11 +833,11 @@ const Profile: React.FC = () => {
                         {recentSessions.map((session, index) => {
                           // Debug: Log which session is being rendered
                           if (index === 0) {
-                            console.log(`🎯 Profile: Rendering session in ${isDemoMode ? 'DEMO' : 'LIVE'} mode:`, {
+                            console.log(`🎯 Profile: Rendering session in LIVE mode:`, {
                               id: session.id,
-                              name: session.gameName || session.scenarioName || session.game_name,
+                              name: session.scenarioName || session.scenarioName || session.scenarioName,
                               isDemoId: session.id.startsWith('mock-'),
-                              source: isDemoMode ? 'Demo Array' : 'Live Array'
+                              source: false ? 'Demo Array' : 'Live Array'
                             });
                           }
                           
@@ -964,7 +853,7 @@ const Profile: React.FC = () => {
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
                               <div className="font-medium text-brand-dark font-body">
-                                {session.gameName || session.scenarioName || 'Untitled Game'}
+                                {session.scenarioName || session.scenarioName || 'Untitled Game'}
                                   </div>
                                   {session.scenarioType && (
                                     <Badge variant="outline" className="text-xs border-brand-primary/40 text-brand-primary bg-brand-primary/5">

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Target as TargetIcon, Users, Calendar, Bell, Clock, Zap, Trophy, TrendingUp, Activity, BarChart3, Play, User, X, Gamepad2, BarChart, Award } from 'lucide-react';
 import { useStats } from '@/store/useStats';
@@ -14,8 +14,8 @@ import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useShootingActivityPolling } from '@/hooks/useShootingActivityPolling';
 import { useInitialSync } from '@/hooks/useInitialSync';
+import { useHistoricalActivity } from '@/hooks/useHistoricalActivity';
 import type { TargetShootingActivity } from '@/hooks/useShootingActivityPolling';
-import ShootingStatusBanner from '@/components/shared/ShootingStatusBanner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -70,7 +70,12 @@ const ActivityChart: React.FC<{
   targetActivity: TargetShootingActivity[];
   hitTrend: Array<{ date: string; hits: number }>;
   isLoading: boolean;
-}> = ({ targetActivity, hitTrend, isLoading }) => {
+  historicalData: Array<{ date: string; hits: number; timestamp: number }>;
+  timeRange: 'day' | 'week' | '3m' | '6m' | 'all';
+  onTimeRangeChange: (range: 'day' | 'week' | '3m' | '6m' | 'all') => void;
+  historicalLoading: boolean;
+}> = ({ targetActivity, hitTrend, isLoading, historicalData, timeRange, onTimeRangeChange, historicalLoading }) => {
+
   if (isLoading) {
     return (
       <div className="space-y-4">
@@ -96,16 +101,18 @@ const ActivityChart: React.FC<{
   const targetsWithHits = targetActivity.filter(t => t.totalShots > 0);
   const totalHits = targetsWithHits.reduce((sum, t) => sum + t.totalShots, 0);
   
-  // Use hit trend data for the chart
-  const chartData = hitTrend.length > 0 ? hitTrend : 
-    Array.from({ length: 7 }, (_, i) => {
-      const date = new Date();
-      date.setDate(date.getDate() - (6 - i));
-      return { 
-        date: date.toISOString().split('T')[0], 
-        hits: 0 
-      };
-    });
+  // Use historical data for the chart, fallback to hitTrend, then empty data
+  const chartData = historicalData.length > 0 ? historicalData : 
+    (hitTrend.length > 0 ? hitTrend : 
+      Array.from({ length: 7 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - i));
+        return { 
+          date: date.toISOString().split('T')[0], 
+          hits: 0 
+        };
+      })
+    );
 
   const maxHits = Math.max(...chartData.map(d => d.hits), 1);
   const todayHits = chartData[chartData.length - 1]?.hits || 0;
@@ -156,34 +163,86 @@ const ActivityChart: React.FC<{
         </div>
       </div>
 
-      {/* Hit Trend Chart */}
+      {/* Time Range Tabs */}
       <div className="pt-4 border-t border-gray-200">
-        <h4 className="text-sm font-medium text-brand-dark mb-3">7-Day Hit Trend</h4>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-medium text-brand-dark">
+            {timeRange === 'day' && '24-Hour Hit Activity'}
+            {timeRange === 'week' && '7-Day Hit Trend'}
+            {timeRange === '3m' && '3-Month Activity'}
+            {timeRange === '6m' && '6-Month Activity'}
+            {timeRange === 'all' && 'All-Time Activity'}
+          </h4>
+          <div className="flex space-x-1">
+            {(['day', 'week', '3m', '6m', 'all'] as const).map((range) => (
+              <Button
+                key={range}
+                variant={timeRange === range ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => onTimeRangeChange(range)}
+                className="text-xs px-2 py-1 h-7"
+                disabled={historicalLoading}
+              >
+                {range === 'day' && 'Day'}
+                {range === 'week' && 'Week'}
+                {range === '3m' && '3M'}
+                {range === '6m' && '6M'}
+                {range === 'all' && 'All'}
+              </Button>
+            ))}
+          </div>
+        </div>
         <div className="flex items-end justify-between gap-2 h-20">
-          {chartData.map((item, index) => {
-            const isToday = index === chartData.length - 1;
-            const dayName = dayjs(item.date).format('ddd');
-            
-            return (
-              <div key={index} className="flex flex-col items-center gap-2 flex-1">
-                <div className="flex-1 flex items-end w-full">
-                  <div
-                    className={`w-full rounded-t-lg transition-all duration-300 ${
-                      isToday 
-                        ? 'bg-brand-primary' 
-                        : 'bg-brand-secondary/30 hover:bg-brand-secondary/50'
-                    }`}
-                    style={{
-                      height: `${(item.hits / maxHits) * 100}%`,
-                      minHeight: '4px'
-                    }}
-                    title={`${dayName}: ${item.hits} hits`}
-                  />
+          {historicalLoading ? (
+            // Show loading skeleton
+            [...Array(7)].map((_, i) => (
+              <div key={i} className="flex-1 bg-gray-200 animate-pulse rounded-t-lg h-16"></div>
+            ))
+          ) : (
+            chartData.map((item, index) => {
+              const isLatest = index === chartData.length - 1;
+              let timeLabel: string;
+              
+              // Format time label based on selected range
+              switch (timeRange) {
+                case 'day':
+                  timeLabel = dayjs(item.date).format('HH:mm');
+                  break;
+                case 'week':
+                  timeLabel = dayjs(item.date).format('ddd');
+                  break;
+                case '3m':
+                case '6m':
+                  timeLabel = dayjs(item.date).format('MMM DD');
+                  break;
+                case 'all':
+                  timeLabel = dayjs(item.date).format('MMM YY');
+                  break;
+                default:
+                  timeLabel = dayjs(item.date).format('ddd');
+              }
+              
+              return (
+                <div key={index} className="flex flex-col items-center gap-2 flex-1">
+                  <div className="flex-1 flex items-end w-full">
+                    <div
+                      className={`w-full rounded-t-lg transition-all duration-300 ${
+                        isLatest 
+                          ? 'bg-brand-primary' 
+                          : 'bg-brand-secondary/30 hover:bg-brand-secondary/50'
+                      }`}
+                      style={{
+                        height: `${(item.hits / maxHits) * 100}%`,
+                        minHeight: '4px'
+                      }}
+                      title={`${timeLabel}: ${item.hits} hits`}
+                    />
+                  </div>
+                  <span className="text-xs text-brand-dark/50 font-body">{timeLabel}</span>
                 </div>
-                <span className="text-xs text-brand-dark/50 font-body">{dayName}</span>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </div>
     </div>
@@ -417,9 +476,12 @@ const Dashboard: React.FC = () => {
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [dismissedCards, setDismissedCards] = useState<string[]>([]);
-  const [targets, setTargets] = useState<Target[]>([]);
   const [targetsLoading, setTargetsLoading] = useState(false);
+  const [timeRange, setTimeRange] = useState<'day' | 'week' | '3m' | '6m' | 'all'>('week');
   const isFetchingRef = useRef(false);
+  const lastFetchTimeRef = useRef(0);
+  const telemetryFetchedRef = useRef(false);
+  const FETCH_DEBOUNCE_MS = 2000; // 2 seconds debounce
   
   // Real data from stores
   const { 
@@ -448,22 +510,61 @@ const Dashboard: React.FC = () => {
   // Get ThingsBoard token from localStorage
   const tbToken = localStorage.getItem('tb_access');
 
-  // Fetch merged targets with room assignments
+  // Fetch merged targets with room assignments and telemetry
   const fetchMergedTargets = useCallback(async () => {
     setTargetsLoading(true);
     try {
-      console.log('🔄 Dashboard: Fetching merged targets with assignments...');
-      const mergedTargets = await getAllTargetsWithAssignments();
-      setTargets(mergedTargets);
+      console.log('🔄 Dashboard: Fetching merged targets with assignments and telemetry...');
+      
+      // Get targets with telemetry for status display
+      const { thingsBoardService } = await import('@/services/thingsboard');
+      const devicesResponse = await thingsBoardService.getDevices(); // Default fetchTelemetry=true
+      const targetsWithTelemetry = devicesResponse.data || [];
+      
+      // Get assignments from Supabase
+      const assignments = await getAllTargetsWithAssignments(false); // Use existing data for assignments
+      
+      // Merge telemetry data with assignments
+      const mergedTargets = targetsWithTelemetry.map((target: any) => {
+        const assignment = assignments.find(a => a.id === (target.id?.id || target.id));
+        return {
+          id: target.id?.id || target.id,
+          name: target.name,
+          status: target.status || 'offline',
+          battery: target.battery || null,
+          wifiStrength: target.wifiStrength || null,
+          roomId: assignment?.roomId || null,
+          roomName: assignment?.roomName || null,
+          telemetry: target.telemetry || {},
+          lastEvent: target.lastEvent || null,
+          lastGameId: target.lastGameId || null,
+          lastGameName: target.lastGameName || null,
+          lastHits: target.lastHits || null,
+          lastActivity: target.lastActivity || null,
+          lastActivityTime: target.lastActivityTime || null,
+          deviceName: target.deviceName || target.name,
+          deviceType: target.deviceType || 'default',
+          createdTime: target.createdTime || null,
+          additionalInfo: target.additionalInfo || {},
+          type: target.type || 'default'
+        } as Target;
+      });
+      
+      // Update the Zustand store so useShootingActivityPolling gets the latest data
+      const { useTargets } = await import('@/store/useTargets');
+      useTargets.getState().setTargets(mergedTargets);
+      
       setTargetsLoading(false);
-      console.log('✅ Dashboard: Merged targets loaded:', mergedTargets.length);
+      console.log('✅ Dashboard: Merged targets with telemetry loaded:', mergedTargets.length);
     } catch (error) {
       console.error('❌ Dashboard: Error fetching merged targets:', error);
-      // Fallback to empty array if merged fetch fails
-      setTargets([]);
+      // Fallback to targets without telemetry - update Zustand store
+      const { useTargets } = await import('@/store/useTargets');
+      useTargets.getState().setTargets(rawTargets);
+      
       setTargetsLoading(false);
     }
-  }, [getAllTargetsWithAssignments]);
+  }, [getAllTargetsWithAssignments, rawTargets]);
 
   // Smart polling system with heartbeat detection - optimized for parallel execution
   const fetchAllData = useCallback(async () => {
@@ -472,6 +573,14 @@ const Dashboard: React.FC = () => {
       console.log('🔄 Dashboard: Fetch already in progress, skipping...');
       return;
     }
+
+    // Debounce rapid successive calls
+    const now = Date.now();
+    if (now - lastFetchTimeRef.current < FETCH_DEBOUNCE_MS) {
+      console.log('🔄 Dashboard: Debouncing fetch call (too soon after last fetch)');
+      return;
+    }
+    lastFetchTimeRef.current = now;
 
     isFetchingRef.current = true;
     try {
@@ -497,13 +606,8 @@ const Dashboard: React.FC = () => {
           fetchScenarios(tbToken)
         );
         
-        // Only refresh targets if we don't have any loaded yet
-        if (rawTargets.length === 0) {
-          console.log('🔄 Dashboard: No targets loaded, refreshing from ThingsBoard...');
-          lowPriorityPromises.push(refreshTargets());
-        } else {
-          console.log('🔄 Dashboard: Targets already loaded, skipping refresh:', rawTargets.length, 'targets');
-        }
+        // Use targets from useInitialSync - no additional fetch needed
+        console.log('🔄 Dashboard: Using targets from initial sync:', rawTargets.length, 'targets');
       }
 
       // Execute critical data first (blocking)
@@ -534,6 +638,22 @@ const Dashboard: React.FC = () => {
     }
   }, [tbToken, fetchStats, refreshTargets, fetchRooms, fetchScenarios, refreshDashboardStats, rawTargets.length, fetchMergedTargets]);
 
+  // Lightweight update function for shooting activity polling
+  // Only refreshes essential data, not full dashboard data
+  const updateShootingData = useCallback(async () => {
+    // Only refresh targets if we don't have any loaded
+    if (rawTargets.length === 0 && tbToken) {
+      console.log('🔄 [ShootingActivity] No targets loaded, refreshing from ThingsBoard...');
+      await refreshTargets();
+    }
+    
+    // Refresh merged targets with assignments
+    if (rawTargets.length === 0) {
+      console.log('🔄 [ShootingActivity] No merged targets, refreshing assignments...');
+      await fetchMergedTargets();
+    }
+  }, [rawTargets.length, tbToken, refreshTargets, fetchMergedTargets]);
+
   const { 
     currentInterval, 
     currentMode, 
@@ -544,7 +664,7 @@ const Dashboard: React.FC = () => {
     activeShotsCount,
     recentShotsCount,
     forceUpdate 
-  } = useShootingActivityPolling(fetchAllData, {
+  } = useShootingActivityPolling(updateShootingData, {
     activeInterval: 10000,     // 10 seconds during active shooting
     recentInterval: 30000,     // 30 seconds if shot within last 30s but not active
     standbyInterval: 60000,    // 60 seconds if no shots for 10+ minutes
@@ -552,141 +672,96 @@ const Dashboard: React.FC = () => {
     standbyThreshold: 600000   // 10 minutes - standby mode threshold
   });
 
-  // Initial data fetch - start immediately, don't wait for sync
-  useEffect(() => {
-    console.log('🔄 Dashboard: Starting initial data fetch...');
-    fetchAllData();
-  }, [fetchAllData]);
+  // Historical activity data for time range charts
+  const { 
+    historicalData, 
+    isLoading: historicalLoading, 
+    error: historicalError 
+  } = useHistoricalActivity(rawTargets, timeRange);
 
-  // Additional fetch after sync completes (if it does) - non-blocking
+  // Use Zustand store directly as single source of truth
+  const currentTargets = rawTargets;
+  
+  // Check if ThingsBoard data is available (moved up to avoid hoisting issues)
+  const hasThingsBoardData = currentTargets.length > 0 || rooms.length > 0;
+
+  // Fetch telemetry for status display when data is available
   useEffect(() => {
-    if (isReady && syncStatus.isComplete) {
-      console.log('🔄 Dashboard: Sync completed, refreshing data...');
-      // Don't await - let it run in background
-      fetchAllData().catch(error => {
-        console.warn('Dashboard: Background refresh failed:', error);
+    if (isReady && syncStatus.isComplete && !telemetryFetchedRef.current && rawTargets.length > 0) {
+      console.log('🔄 Dashboard: Fetching telemetry for status display...');
+      telemetryFetchedRef.current = true; // Mark as fetched BEFORE the call
+      
+      fetchMergedTargets().then(() => {
+        console.log('✅ Dashboard: Telemetry loaded for status display');
+      }).catch(error => {
+        console.error('❌ Dashboard: Telemetry fetch failed:', error);
+        telemetryFetchedRef.current = false; // Allow retry on error
       });
     }
-  }, [isReady, syncStatus.isComplete, fetchAllData]);
+  }, [isReady, syncStatus.isComplete, rawTargets.length, fetchMergedTargets]);
 
-  // Ensure targets are loaded on initial mount if not already available
+  // Fallback: if sync fails or no data, fetch manually
   useEffect(() => {
-    if (tbToken && rawTargets.length === 0) {
-      console.log('🔄 Dashboard: No targets loaded on mount, refreshing...');
-      refreshTargets();
+    if (isReady && syncStatus.error && !hasThingsBoardData) {
+      console.log('🔄 Dashboard: Sync failed, fetching data manually...');
+      fetchAllData();
     }
-  }, [tbToken, rawTargets.length, refreshTargets]);
-
-  // Use merged targets if available, otherwise fallback to raw targets
-  const currentTargets = targets.length > 0 ? targets : rawTargets;
+  }, [isReady, syncStatus.error, hasThingsBoardData, fetchAllData]);
   
   // Don't show loading if we have data
   const shouldShowTargetsLoading = targetsLoading && currentTargets.length === 0;
   
-  // Calculate real statistics
-  const onlineTargets = currentTargets.filter(target => target.status === 'online').length;
-  const totalRooms = rooms.length;
+  // Show skeleton loading based on loading flags only, not data presence
+  const shouldShowSkeleton = (targetsLoading || roomsLoading || sessionsLoading) && 
+                             !syncStatus.isComplete;
   
-  // Use Supabase sessions instead of ThingsBoard scenarios
-  const recentScenarios = sessions.slice(0, 3);
-  
-  // Calculate average score from recent sessions
-  const avgScore = recentScenarios.length > 0 
-    ? Math.round(recentScenarios.reduce((sum, s) => sum + (s.score || 0), 0) / recentScenarios.length)
-    : lastScenarioScore;
-
-  // Calculate room utilization based on assigned targets vs total targets
-  let assignedTargets = currentTargets.filter(target => target.roomId).length;
-  let totalTargets = currentTargets.length;
-  
-  // Fallback: If no ThingsBoard targets, calculate from Supabase room assignments
-  if (totalTargets === 0) {
-    // Calculate from rooms data (each room has targetCount from Supabase)
-    totalTargets = rooms.reduce((sum, room) => sum + (room.targetCount || 0), 0);
-    assignedTargets = totalTargets; // All targets in rooms are assigned
-    console.log('📊 Using Supabase fallback for targets:', { totalTargets, assignedTargets });
-  }
-  
-  const roomUtilization = totalTargets > 0 ? Math.round((assignedTargets / totalTargets) * 100) : 0;
-  
-  // Debug logging for room utilization
-  console.log('📊 Room Utilization Calculation:', {
-    dataSource: targets.length > 0 ? 'merged' : 'raw',
-    totalTargets,
-    assignedTargets,
-    unassignedTargets: totalTargets - assignedTargets,
-    roomUtilization: `${roomUtilization}%`,
-    roomDetails: rooms.map(room => ({ name: room.name, targetCount: room.targetCount })),
-    targetDetails: currentTargets.map(t => ({ name: t.name, roomId: t.roomId, hasRoomId: !!t.roomId }))
-  });
-
-  // Debug logging for andrew.tam ThingsBoard data
-  console.log('🔍 ANDREW.TAM DATA DEBUG:', {
-    user: user?.email,
-    rawTargetsFromThingsBoard: {
-      count: rawTargets.length,
-      devices: rawTargets.map(t => ({ 
-        name: t.name, 
-        id: t.id, 
-        status: t.status, 
-        type: t.type,
-        roomId: t.roomId,
-        hasRoomId: !!t.roomId 
-      }))
-    },
-    filteredTargetsForDisplay: {
-      count: targets.length,
-      devices: targets.map(t => ({ 
-        name: t.name, 
-        id: t.id, 
-        status: t.status, 
-        type: t.type,
-        roomId: t.roomId,
-        hasRoomId: !!t.roomId 
-      }))
-    },
-    loadingStates: {
-      targetsLoading,
-      shouldShowTargetsLoading,
-      roomsLoading,
-      scenariosLoading
+  // Calculate stats using useMemo to prevent flickering
+  const stats = useMemo(() => {
+    // Only show zeros when we truly have no data
+    if (currentTargets.length === 0) {
+      return {
+        onlineTargets: 0,
+        totalTargets: 0,
+        assignedTargets: 0,
+        roomUtilization: 0,
+        avgScore: 0,
+        totalRooms: 0
+      };
     }
-  });
+    
+    // Calculate from valid, stable data
+    const onlineTargets = currentTargets.filter(target => target.status === 'online').length;
+    const totalTargets = currentTargets.length;
+    const assignedTargets = currentTargets.filter(target => target.roomId).length;
+    const roomUtilization = totalTargets > 0 ? Math.round((assignedTargets / totalTargets) * 100) : 0;
+    const totalRooms = rooms.length;
+    
+    const recentScenarios = sessions.slice(0, 3);
+    const avgScore = recentScenarios.length > 0 
+      ? Math.round(recentScenarios.reduce((sum, s) => sum + (s.score || 0), 0) / recentScenarios.length)
+      : lastScenarioScore;
+    
+    return {
+      onlineTargets,
+      totalTargets,
+      assignedTargets,
+      roomUtilization,
+      avgScore,
+      totalRooms
+    };
+  }, [currentTargets, rooms.length, sessions, lastScenarioScore]);
+
+  // Destructure for use in JSX
+  const { onlineTargets, totalTargets, assignedTargets, roomUtilization, avgScore, totalRooms } = stats;
+  
+  // Calculate recentScenarios for use in JSX (moved from useMemo for easier access)
+  const recentScenarios = sessions.slice(0, 3);
+
 
   // Note: Authentication is handled at the route level in App.tsx
   // If we reach this component, the user is already authenticated
-
-  // Debug logging for sync status
-  console.log('🏠 DASHBOARD SYNC STATUS:', { 
-    isReady, 
-    syncStatus,
-    userEmail: user?.email,
-    hasThingsBoardToken: !!localStorage.getItem('tb_access')
-  });
   
-  // Check if ThingsBoard data is available
-  const hasThingsBoardData = targets.length > 0 || rooms.length > 0;
-  
-  // Show skeleton loading if we're still loading and have no data
-  const shouldShowSkeleton = (targetsLoading || roomsLoading || sessionsLoading) && !hasThingsBoardData;
-  
-  // Show ThingsBoard banner if user not found in ThingsBoard (401) or no data and not loading
-  const shouldShowThingsBoardBanner = syncStatus.syncedData?.userNotFound || 
-                                     (!hasThingsBoardData && !targetsLoading && !roomsLoading);
-  
-  // Debug logging for banner visibility and data availability
-  console.log('🔍 BANNER & DATA AVAILABILITY:', {
-    hasThingsBoardData,
-    shouldShowSkeleton,
-    targetsCount: targets.length,
-    roomsCount: rooms.length,
-    targetsLoading,
-    roomsLoading,
-    userNotFound: syncStatus.syncedData?.userNotFound,
-    shouldShowBanner: shouldShowThingsBoardBanner,
-    rawTargetsCount: rawTargets.length,
-    syncComplete: syncStatus.isComplete
-  });
+  // Banner removed - no longer showing ThingsBoard connection status
 
   return (
     <div className="min-h-screen flex flex-col bg-brand-light responsive-container">
@@ -701,16 +776,6 @@ const Dashboard: React.FC = () => {
         <main className="flex-1 overflow-y-auto responsive-container">
           <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
             
-            {/* Shooting Activity Status Indicator */}
-            <ShootingStatusBanner
-              hasActiveShooters={hasActiveShooters}
-              hasRecentActivity={hasRecentActivity}
-              currentMode={currentMode}
-              currentInterval={currentInterval}
-              activeShotsCount={activeShotsCount}
-              recentShotsCount={recentShotsCount}
-              onRefresh={forceUpdate}
-            />
             
             {/* Progressive Enhancement Indicators */}
             {!isReady && (
@@ -725,21 +790,6 @@ const Dashboard: React.FC = () => {
               </div>
             )}
             
-            {isReady && !hasThingsBoardData && !targetsLoading && !roomsLoading && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 text-yellow-600">
-                    <svg fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                  <span className="text-sm text-yellow-800 font-medium">Using cached data</span>
-                </div>
-                <p className="text-xs text-yellow-600 mt-1">
-                  Showing data from previous session. Real-time updates will appear when ThingsBoard connects.
-                </p>
-              </div>
-            )}
             
             {/* Stats Cards Grid - Using Real Data */}
             <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
@@ -789,24 +839,6 @@ const Dashboard: React.FC = () => {
               )}
             </div>
             
-            {/* ThingsBoard Data Not Available Message */}
-            {shouldShowThingsBoardBanner && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-5 h-5 text-yellow-600">
-                    <svg fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-medium text-yellow-800">ThingsBoard Not Connected</h3>
-                    <p className="text-sm text-yellow-700 mt-1">
-                      Your ThingsBoard account is not connected yet. Contact your administrator to set up ThingsBoard access for your account.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Main Content Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 md:gap-4 lg:gap-5">
@@ -817,7 +849,7 @@ const Dashboard: React.FC = () => {
                   <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">Target Activity</CardTitle>
                 </CardHeader>
                 <CardContent className="p-2 md:p-4">
-                  {shouldShowSkeleton ? (
+                  {(targetsLoading && currentTargets.length === 0) ? (
                     <div className="space-y-4 animate-pulse">
                       <div className="flex items-center justify-between">
                         <div className="h-6 w-32 bg-gray-200 rounded"></div>
@@ -840,7 +872,11 @@ const Dashboard: React.FC = () => {
                     <ActivityChart 
                       targetActivity={targetActivity} 
                       hitTrend={hitTrend} 
-                      isLoading={statsLoading} 
+                      isLoading={false}
+                      historicalData={historicalData}
+                      timeRange={timeRange}
+                      onTimeRangeChange={setTimeRange}
+                      historicalLoading={historicalLoading}
                     />
                   )}
                 </CardContent>

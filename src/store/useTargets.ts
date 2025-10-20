@@ -59,7 +59,7 @@ export const useTargets = create<TargetsState>((set) => ({
       const mappedTargets = devices.map((d: any) => ({
         id: d.id?.id || d.id,
         name: d.name,
-        status: d.status || 'online', // Default to online if not specified
+        status: d.status || 'offline', // Default to offline if not specified (conservative)
         battery: d.battery || 100, // Default battery level
         roomId: d.roomId || null,
         // Map telemetry data

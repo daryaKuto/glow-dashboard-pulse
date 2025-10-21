@@ -31,7 +31,7 @@ Deno.serve(async (req) => {
   const method = req.method.toUpperCase();
 
   if (method === "OPTIONS") {
-    return preflightResponse();
+    return preflightResponse(req);
   }
 
   if (method !== "POST") {

@@ -135,6 +135,63 @@ export async function setDeviceSharedAttributes(
   }
 }
 
+export async function getDeviceAttributes(
+  deviceId: string,
+  options: {
+    scope?: 'CLIENT_SCOPE' | 'SHARED_SCOPE' | 'SERVER_SCOPE';
+    keys?: string[];
+  } = {},
+): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams();
+
+  if (options.scope) {
+    params.set('scope', options.scope);
+  }
+
+  if (Array.isArray(options.keys) && options.keys.length > 0) {
+    params.set('keys', options.keys.map(String).join(','));
+  }
+
+  const query = params.toString();
+  const path = query
+    ? `/api/plugins/telemetry/DEVICE/${deviceId}/values/attributes?${query}`
+    : `/api/plugins/telemetry/DEVICE/${deviceId}/values/attributes`;
+
+  const res = await tbFetch(path, {
+    method: 'GET',
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch attributes for ${deviceId}: ${res.status} ${res.statusText}`);
+  }
+
+  const payload = await res.json();
+
+  if (Array.isArray(payload)) {
+    const attributes: Record<string, unknown> = {};
+    for (const entry of payload) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+
+      const key = 'key' in entry ? (entry as Record<string, unknown>).key : undefined;
+      if (typeof key !== 'string' || key.length === 0) {
+        continue;
+      }
+
+      const value = (entry as Record<string, unknown>).value ?? null;
+      attributes[key] = value;
+    }
+    return attributes;
+  }
+
+  if (payload && typeof payload === 'object') {
+    return payload as Record<string, unknown>;
+  }
+
+  return {};
+}
+
 export async function sendOneWayRpc(
   deviceId: string,
   method: string,
@@ -150,4 +207,36 @@ export async function sendOneWayRpc(
   }
 
   return res;
+}
+
+export async function sendDeviceTelemetry(
+  deviceId: string,
+  telemetry: Record<string, unknown>,
+  scope: 'DEVICE_SCOPE' | 'SERVER_SCOPE' = 'DEVICE_SCOPE',
+): Promise<void> {
+  const res = await tbFetch(`/api/plugins/telemetry/${deviceId}/timeseries/${scope}`, {
+    method: 'POST',
+    body: JSON.stringify(telemetry),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to send telemetry for ${deviceId}: ${res.status} ${res.statusText}`);
+  }
+}
+
+export async function loginWithCredentials(
+  username: string,
+  password: string,
+): Promise<TbAuthResponse> {
+  const res = await fetch(`${TB_BASE_URL}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`ThingsBoard login failed: ${res.status} ${res.statusText}`);
+  }
+
+  return res.json() as Promise<TbAuthResponse>;
 }

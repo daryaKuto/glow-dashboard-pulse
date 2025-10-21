@@ -1,4 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
+import { fetchTargetsWithTelemetry } from '@/lib/edge';
+import type { Target } from '@/store/useTargets';
 
 export interface UserRoom {
   id: string;
@@ -43,6 +45,7 @@ class SupabaseRoomsService {
   };
   
   private readonly CACHE_TTL = 30000; // 30 seconds
+  private onTargetsInvalidated: (() => void) | null = null;
 
   // Clear cache when mutations occur
   private clearTargetsCache(): void {
@@ -52,16 +55,7 @@ class SupabaseRoomsService {
       timestamp: 0,
       userId: null
     };
-    
-    // Also clear API layer caches to ensure fresh data
-    try {
-      const { clearCache } = require('@/lib/api');
-      clearCache('targets');
-      clearCache('getTargets');
-      console.log('🧹 [CACHE] Also cleared API layer caches');
-    } catch (error) {
-      console.warn('⚠️ [CACHE] Could not clear API caches:', error);
-    }
+    this.notifyTargetsInvalidated();
   }
 
   // Check if cache is valid for current user
@@ -72,27 +66,12 @@ class SupabaseRoomsService {
                    this.targetsWithAssignmentsCache.userId === userId &&
                    cacheAge < this.CACHE_TTL;
     
-    console.log('🔍 [CACHE] Cache validation:', {
-      hasData: this.targetsWithAssignmentsCache.data !== null,
-      userIdMatch: this.targetsWithAssignmentsCache.userId === userId,
-      cacheAgeMs: cacheAge,
-      ttlMs: this.CACHE_TTL,
-      isValid
-    });
-    
     return isValid;
   }
 
   // Get current user ID
   private async getCurrentUserId(): Promise<string> {
-    console.log('🔐 getCurrentUserId - Starting auth check...');
-    
     const { data: { user }, error } = await supabase.auth.getUser();
-    
-    console.log('🔐 getCurrentUserId - Supabase auth check:', {
-      user: user ? { id: user.id, email: user.email } : null,
-      error: error?.message
-    });
     
     if (error) {
       console.error('❌ Supabase auth error:', error);
@@ -103,9 +82,33 @@ class SupabaseRoomsService {
       console.error('❌ No user found in Supabase session');
       throw new Error('No authenticated user found');
     }
-    
-    console.log('✅ User authenticated:', user.email);
     return user.id;
+  }
+
+  setTargetsInvalidationHandler(handler: (() => void) | null): void {
+    this.onTargetsInvalidated = handler ?? null;
+  }
+
+  private notifyTargetsInvalidated(): void {
+    if (!this.onTargetsInvalidated) {
+      return;
+    }
+
+    try {
+      this.onTargetsInvalidated();
+    } catch (error) {
+      console.warn('⚠️ [CACHE] Failed to notify targets invalidation handler:', error);
+    }
+  }
+
+  private async fetchLatestTargets(force = false): Promise<Target[]> {
+    try {
+      const { targets } = await fetchTargetsWithTelemetry(force);
+      return targets;
+    } catch (error) {
+      console.warn('⚠️ [CACHE] Unable to fetch latest targets snapshot:', error);
+      return [];
+    }
   }
 
   // Get all user rooms with target counts
@@ -386,10 +389,9 @@ class SupabaseRoomsService {
       let finalTargetName = targetName;
       if (!finalTargetName) {
         try {
-          console.log('🔍 [TARGET-NAME] Fetching target name from ThingsBoard...');
-          const { API } = await import('@/lib/api');
-          const allTargets = await API.getTargets() as any[];
-          const target = allTargets.find(t => this.getTargetId(t) === targetId);
+          console.log('🔍 [TARGET-NAME] Fetching target name from latest targets snapshot...');
+          const allTargets = await this.fetchLatestTargets();
+          const target = allTargets.find((t) => this.getTargetId(t) === targetId);
           finalTargetName = target?.name || `Target ${targetId.substring(0, 8)}`;
           console.log(`🔍 [TARGET-NAME] Found target name: ${finalTargetName}`);
         } catch (error) {
@@ -450,9 +452,8 @@ class SupabaseRoomsService {
         return [];
       }
 
-      // Get all targets from ThingsBoard
-      const { API } = await import('@/lib/api');
-      const allTargets = await API.getTargets() as any[];
+      // Get all targets from cached snapshots
+      const allTargets = await this.fetchLatestTargets();
       
       // Filter to only include targets that are assigned to this room
       const assignedTargetIds = assignments.map(a => a.target_id);
@@ -477,7 +478,6 @@ class SupabaseRoomsService {
   // Store synced targets from ThingsBoard
   setSyncedTargets(targets: any[]): void {
     this.syncedTargets = targets;
-    console.log('📡 Stored synced targets:', targets.length);
   }
 
   // Get all synced targets (SUPABASE ONLY)
@@ -486,8 +486,6 @@ class SupabaseRoomsService {
     if (this.syncedTargets.length > 0) {
       return this.syncedTargets;
     }
-    
-    console.log('⚠️ No synced targets stored, returning empty array');
     return [];
   }
 
@@ -509,9 +507,8 @@ class SupabaseRoomsService {
 
       if (error) throw error;
 
-      // Get all targets from ThingsBoard
-      const { API } = await import('@/lib/api');
-      const allTargets = await API.getTargets() as any[];
+      // Get all targets from cached snapshots
+      const allTargets = await this.fetchLatestTargets();
       
       // Filter out assigned targets
       const assignedTargetIds = assignments?.map(a => a.target_id) || [];
@@ -550,8 +547,6 @@ class SupabaseRoomsService {
     try {
       const userId = await this.getCurrentUserId();
       
-      console.log('🔄 getRoomsWithTargetCounts: Fetching rooms with target counts...');
-      
       // Get rooms first
       const { data: rooms, error: roomsError } = await supabase
         .from('user_rooms')
@@ -588,7 +583,6 @@ class SupabaseRoomsService {
         target_count: roomTargetCounts.get(room.id) || 0
       })) || [];
 
-      console.log('✅ getRoomsWithTargetCounts: Fetched rooms with counts:', roomsWithCounts.length);
       return roomsWithCounts;
     } catch (error) {
       console.error('❌ Error getting rooms with target counts:', error);
@@ -599,10 +593,7 @@ class SupabaseRoomsService {
   // Get all targets with their room assignments
   async getAllTargetsWithAssignments(forceRefresh: boolean = false): Promise<any[]> {
     try {
-      console.log('🔄 [REFRESH] Starting getAllTargetsWithAssignments...');
-      
       // Step 1: Verify authentication status
-      console.log('🔐 [AUTH] Checking authentication status...');
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError) {
         console.error('❌ [AUTH-ERROR] Authentication check failed:', authError);
@@ -612,18 +603,12 @@ class SupabaseRoomsService {
         console.error('❌ [AUTH-ERROR] No authenticated user found');
         throw new Error('No authenticated user found');
       }
-      console.log(`✅ [AUTH] User authenticated: ${user.email} (ID: ${user.id})`);
       
       const userId = await this.getCurrentUserId();
-      console.log(`🔍 [ID-CHECK] User ID: ${userId}`);
-      
       // Check cache first (unless force refresh is requested)
       if (!forceRefresh && this.isCacheValid(userId)) {
-        console.log('✅ [CACHE] Returning cached targets with assignments');
         return this.targetsWithAssignmentsCache.data!;
       }
-      
-      console.log('🔄 [CACHE] Cache miss or force refresh - fetching fresh data');
       
       // Step 2: Verify user ID matches auth user
       if (userId !== user.id) {
@@ -632,7 +617,6 @@ class SupabaseRoomsService {
       }
       
       // Step 3: Get all target assignments from Supabase with detailed logging
-      console.log('📊 [DATA] Fetching assignments from user_room_targets table...');
       const { data: assignments, error } = await supabase
         .from('user_room_targets')
         .select('target_id, room_id, target_name, assigned_at, created_at')
@@ -648,13 +632,9 @@ class SupabaseRoomsService {
         });
         throw error;
       }
-
-      console.log('📊 [DATA] Raw assignments from DB:', assignments);
-      console.log(`📊 [DATA] Found ${assignments?.length || 0} assignment records`);
       
       // Step 4: If no assignments found, check if there are any in the table at all
       if (!assignments || assignments.length === 0) {
-        console.log('🔍 [DEBUG] No assignments found, checking if table has any data...');
         const { data: allAssignments, error: allError } = await supabase
           .from('user_room_targets')
           .select('*')
@@ -662,84 +642,47 @@ class SupabaseRoomsService {
         
         if (allError) {
           console.error('❌ [DEBUG-ERROR] Error checking all assignments:', allError);
-        } else {
-          console.log('🔍 [DEBUG] All assignments in table (first 5):', allAssignments);
         }
       }
 
       try {
-        // Try to get ThingsBoard data with 15 second timeout (increased from 5s)
-        console.log('📊 [DATA] Fetching targets from ThingsBoard API...');
-        const { API } = await import('@/lib/api');
+        // Try to get target snapshot with 15 second timeout (increased from 5s)
         const allTargets = await Promise.race([
-          API.getTargets(),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('ThingsBoard timeout')), 15000)
-          )
-        ]) as any[];
-      
-        console.log('📊 [DATA] Raw targets from ThingsBoard:', allTargets.length);
-        console.log('📊 [DATA] Sample target structure:', allTargets[0]);
-        console.log('🔍 [ID-CHECK] Sample target ID extraction:', allTargets.slice(0, 3).map(t => ({
-          rawId: t.id,
-          extractedId: this.getTargetId(t),
-          name: t.name
-        })));
+          this.fetchLatestTargets(true),
+          new Promise<Target[]>((_, reject) =>
+            setTimeout(() => reject(new Error('Targets snapshot timeout')), 15000)
+          ),
+        ]);
       
       // Create a map of target_id -> room_id
-      console.log('🔍 [ID-CHECK] Creating assignment map...');
       const assignmentMap = new Map<string, string>();
       if (assignments) {
         assignments.forEach(assignment => {
-          console.log(`🔍 [ID-CHECK] Mapping target ${assignment.target_id} to room ${assignment.room_id}`);
           assignmentMap.set(assignment.target_id, assignment.room_id);
         });
       }
       
-      console.log('🗺️ [DATA] Assignment map:', Array.from(assignmentMap.entries()));
-      
-      // Debug: Check for ID format mismatches
-      console.log('🔍 [ID-CHECK] ID Format Analysis:');
       const assignmentIds = Array.from(assignmentMap.keys());
       const targetIds = allTargets.map(t => this.getTargetId(t));
-      console.log('🔍 [ID-CHECK] Assignment IDs from DB:', assignmentIds.slice(0, 3));
-      console.log('🔍 [ID-CHECK] Extracted target IDs:', targetIds.slice(0, 3));
-      console.log('🔍 [ID-CHECK] Any matches found:', assignmentIds.some(id => targetIds.includes(id)));
-      
-      // Log detailed ID comparison
-      console.log('🔍 [ID-CHECK] Detailed ID comparison:');
-      assignmentIds.forEach(assignmentId => {
-        const hasMatch = targetIds.includes(assignmentId);
-        console.log(`  - Assignment ID "${assignmentId}" has match: ${hasMatch}`);
-      });
 
       // Clean up stale assignments for non-existent targets
       const staleAssignmentIds = assignmentIds.filter(id => !targetIds.includes(id));
       if (staleAssignmentIds.length > 0) {
-        console.log('🧹 Cleaning up stale assignments for non-existent targets:', staleAssignmentIds.length);
         try {
           await supabase
             .from('user_room_targets')
             .delete()
             .eq('user_id', userId)
             .in('target_id', staleAssignmentIds);
-          console.log('✅ Cleaned up stale assignments');
         } catch (error) {
           console.error('❌ Error cleaning up stale assignments:', error);
         }
       }
 
       // Merge target data with room assignments
-      console.log('🔄 [REFRESH] Merging target data with room assignments...');
       const targetsWithAssignments = allTargets.map(target => {
         const targetId = this.getTargetId(target);
         const roomId = assignmentMap.get(targetId);
-        
-        console.log(`🎯 [ASSIGNMENT] Matching target ${target.name}:`);
-        console.log(`   - Raw target.id:`, target.id);
-        console.log(`   - Extracted ID: ${targetId}`);
-        console.log(`   - Found in map: ${assignmentMap.has(targetId)}`);
-        console.log(`   - Assigned roomId: ${roomId}`);
         
         const result = {
           ...target,
@@ -750,12 +693,8 @@ class SupabaseRoomsService {
         if (roomId) {
           result.roomId = roomId;
         }
-        
-        console.log(`   - Final result roomId: ${result.roomId}`);
         return result;
       });
-      
-      console.log(`📊 [DATA] Merged ${targetsWithAssignments.length} targets with assignments`);
 
       // Check for duplicates in the merged data
       const mergedIds = targetsWithAssignments.map(t => this.getTargetId(t));
@@ -780,31 +719,19 @@ class SupabaseRoomsService {
             const existing = acc[existingIndex];
             if (target.roomId && !existing.roomId) {
               acc[existingIndex] = target; // Replace with the one that has roomId
-              console.log(`   → Service: Replaced with version that has roomId: ${target.roomId}`);
             } else if (Object.keys(target).length > Object.keys(existing).length) {
               acc[existingIndex] = target; // Replace with more complete data
-              console.log(`   → Service: Replaced with more complete version`);
             }
           }
           return acc;
         }, []);
 
-        console.log(`🔍 [ID-CHECK] Service deduplication: ${targetsWithAssignments.length} → ${uniqueTargets.length} targets`);
-        console.log('✅ [SUCCESS] Final merged targets:', uniqueTargets.map(t => ({ 
-          name: t.name, 
-          roomId: t.roomId,
-          roomIdType: typeof t.roomId
-        })));
-        
         // Store in cache
         this.targetsWithAssignmentsCache = {
           data: uniqueTargets,
           timestamp: Date.now(),
           userId: userId
         };
-        console.log('✅ [CACHE] Stored targets with assignments in cache');
-        
-        console.log(`📊 [DATA] Returning ${uniqueTargets.length} targets with assignments`);
         return uniqueTargets;
       } catch (error) {
         // Fallback: Use Supabase data only

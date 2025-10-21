@@ -85,11 +85,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       
       // Clear all application state using comprehensive logout utility
       performCompleteLogout();
-      
-      // Clear ThingsBoard tokens
-      localStorage.removeItem('tb_access');
-      localStorage.removeItem('tb_refresh');
-      
       // Clear local auth state
       setUser(null);
       setSession(null);

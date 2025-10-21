@@ -18,7 +18,6 @@ interface GameCountdownPopupProps {
   duration: number; // in minutes
   devices: DeviceStatus[];
   gameId: string;
-  thingsboardToken?: string | null;
   onStartGame: () => void;
   onStopGame: () => void;
   onEndGame: (gameSummary: GameSummary) => void;
@@ -91,7 +90,6 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
   duration,
   devices,
   gameId,
-  thingsboardToken,
   onStartGame,
   onStopGame,
   onEndGame
@@ -107,7 +105,6 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
   const gameTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const telemetry = useGameTelemetry({
-    token: thingsboardToken ?? null,
     gameId,
     isGameActive: gameStarted && !gameEnded,
     devices: devices.map((device) => ({

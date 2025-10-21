@@ -1,7 +1,4 @@
 import { supabase } from '@/integrations/supabase/client';
-import { login as tbLogin, logout as tbLogout } from '@/services/thingsboard';
-import thingsBoardService from '@/services/thingsboard';
-import { getThingsBoardCredentials } from '@/services/profile';
 import type { User, Session } from '@supabase/supabase-js';
 
 export interface DualAuthResult {
@@ -14,9 +11,8 @@ export interface DualAuthResult {
   };
   thingsboard?: {
     success: boolean;
-    token?: string;
-    refreshToken?: string;
-    error?: string;
+    lastSync?: string | null;
+    reason?: string;
   };
   message: string;
 }
@@ -44,11 +40,41 @@ class DualAuthService {
     this.authStatus = { ...this.authStatus, ...updates };
   }
 
+  private async invokeThingsBoardAuth(): Promise<{ success: boolean; lastSync?: string | null; reason?: string }> {
+    try {
+      const { data, error } = await supabase.functions.invoke('thingsboard-auth', {
+        body: {},
+      });
+
+      if (error) {
+        throw new Error(error.message ?? 'thingsboard-auth failed');
+      }
+
+      const payload = (data ?? {}) as { connected?: boolean; lastSync?: string | null; reason?: string };
+
+      return {
+        success: Boolean(payload.connected),
+        lastSync: payload.lastSync ?? null,
+        reason: payload.reason,
+      };
+    } catch (error) {
+      console.warn('[DualAuth] thingsboard-auth invocation failed', error);
+      return {
+        success: false,
+        reason: error instanceof Error ? error.message : 'thingsboard-auth invocation failed',
+      };
+    }
+  }
+
   // Check if user is authenticated with at least one service
-  isAuthenticated(): boolean {
-    const supabaseAuth = !!supabase.auth.getSession();
-    const thingsboardAuth = thingsBoardService.isAuthenticated();
-    return supabaseAuth || thingsboardAuth;
+  async isAuthenticated(): Promise<boolean> {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return Boolean(data.session);
+    } catch (error) {
+      console.warn('Failed to determine Supabase auth state:', error);
+      return false;
+    }
   }
 
   // Get current user from Supabase
@@ -115,41 +141,26 @@ class DualAuthService {
       this.setAuthStatus({ supabase: 'error' });
     }
 
-    // Attempt ThingsBoard authentication
-    try {
-      // Only attempt ThingsBoard auth if Supabase auth was successful
-      if (result.supabase?.success && result.supabase?.user) {
-        // Fetch ThingsBoard credentials from Supabase for this specific user
-        const credentials = await getThingsBoardCredentials(result.supabase.user.id);
-        
-        if (credentials) {
-          const tbAuth = await tbLogin(credentials.email, credentials.password);
-          result.thingsboard = {
-            success: true,
-            token: tbAuth.token,
-            refreshToken: tbAuth.refreshToken
-          };
-          this.setAuthStatus({ thingsboard: 'success' });
-        } else {
-          result.thingsboard = {
-            success: false,
-            error: 'ThingsBoard credentials not found in user profile'
-          };
-          this.setAuthStatus({ thingsboard: 'idle' });
-        }
-      } else {
-        result.thingsboard = {
-          success: false,
-          error: 'Supabase authentication required for ThingsBoard access'
-        };
-        this.setAuthStatus({ thingsboard: 'idle' });
-      }
-    } catch (error: any) {
+    if (result.supabase?.success && result.supabase?.user) {
+      const tbStatus = await this.invokeThingsBoardAuth();
+      result.thingsboard = {
+        success: tbStatus.success,
+        lastSync: tbStatus.lastSync,
+        reason: tbStatus.reason,
+      };
+
+      const status = tbStatus.success
+        ? 'success'
+        : tbStatus.reason === 'missing_credentials'
+          ? 'idle'
+          : 'error';
+      this.setAuthStatus({ thingsboard: status });
+    } else {
       result.thingsboard = {
         success: false,
-        error: error.message || 'ThingsBoard authentication failed'
+        reason: 'supabase_auth_failed',
       };
-      this.setAuthStatus({ thingsboard: 'error' });
+      this.setAuthStatus({ thingsboard: 'idle' });
     }
 
     // Determine overall success
@@ -221,7 +232,7 @@ class DualAuthService {
     // ThingsBoard doesn't support user registration
     result.thingsboard = {
       success: false,
-      error: 'ThingsBoard does not support user registration'
+      reason: 'thingsboard_signup_not_supported',
     };
     this.setAuthStatus({ thingsboard: 'idle' });
 
@@ -258,16 +269,7 @@ class DualAuthService {
       this.setAuthStatus(prev => ({ ...prev, supabase: 'error' }));
     }
 
-    // Sign out from ThingsBoard
-    try {
-      await tbLogout();
-      this.setAuthStatus(prev => ({ ...prev, thingsboard: 'success' }));
-    } catch (error) {
-      console.error('ThingsBoard signout failed:', error);
-      this.setAuthStatus(prev => ({ ...prev, thingsboard: 'error' }));
-    }
-
-    this.setAuthStatus({ message: 'Successfully signed out' });
+    this.setAuthStatus({ thingsboard: 'idle', message: 'Successfully signed out' });
   }
 
   // Reset password
@@ -325,11 +327,10 @@ class DualAuthService {
   // Check authentication status
   async checkAuthStatus(): Promise<DualAuthStatus> {
     const supabaseSession = await this.getCurrentSession();
-    const thingsboardAuth = thingsBoardService.isAuthenticated();
 
     this.setAuthStatus({
       supabase: supabaseSession ? 'success' : 'idle',
-      thingsboard: thingsboardAuth ? 'success' : 'idle',
+      thingsboard: 'idle',
       message: ''
     });
 

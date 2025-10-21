@@ -47,9 +47,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
   fetchSessions: async (userId: string, limit = 10) => {
     set({ isLoading: true, error: null });
     try {
-      console.log('🔄 useSessions: Fetching sessions from Supabase...', { userId, limit });
       const sessions = await fetchRecentSessions(userId, limit);
-      console.log('✅ useSessions: Fetched sessions:', sessions.length);
       set({ sessions, isLoading: false });
     } catch (error) {
       console.error('❌ useSessions: Error fetching sessions:', error);

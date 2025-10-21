@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { tbSupabaseSync } from '@/services/thingsboard-supabase-sync';
 import { useAuth } from '@/providers/AuthProvider';
-import { toast } from '@/components/ui/sonner';
+import { fetchRoomsData, fetchTargetsWithTelemetry } from '@/lib/edge';
+import { fetchRecentSessions } from '@/services/profile';
+import { useTargets } from '@/store/useTargets';
+import { useRooms } from '@/store/useRooms';
+import { useSessions } from '@/store/useSessions';
 
 export interface InitialSyncStatus {
   isComplete: boolean;
@@ -44,12 +47,6 @@ export const useInitialSync = () => {
       return;
     }
     
-    // Check if we already have fresh data from a recent sync
-    const tbToken = localStorage.getItem('tb_access');
-    if (tbToken && syncStatus.syncedData && syncStatus.syncedData.targetCount > 0) {
-      return;
-    }
-    
     setSyncStatus({
       isComplete: false,
       isLoading: true,
@@ -59,52 +56,37 @@ export const useInitialSync = () => {
     });
 
     try {
-      // Actually sync with ThingsBoard to get real target count
-      const { unifiedDataService } = await import('@/services/unified-data');
-      const thingsBoardData = await unifiedDataService.getThingsBoardData(user.id, user.email);
-      
-      // Store the synced targets in the rooms service
-      const { supabaseRoomsService } = await import('@/services/supabase-rooms');
-      supabaseRoomsService.setSyncedTargets(thingsBoardData?.targets || []);
-      
-      // NEW: Populate Zustand stores after sync completes
-      const { useTargets } = await import('@/store/useTargets');
-      const { useRooms } = await import('@/store/useRooms');
-      const { useSessions } = await import('@/store/useSessions');
-      const { fetchRecentSessions } = await import('@/services/profile');
-      
-      // Store targets in Zustand WITH room assignments from Supabase
-      const targetsWithAssignments = await supabaseRoomsService.getAllTargetsWithAssignments(true);
-      useTargets.getState().setTargets(targetsWithAssignments);
-      
-      // Fetch and store rooms
-      const rooms = await supabaseRoomsService.getRoomsWithTargetCounts();
-      const transformedRooms = rooms.map(room => ({
+      const [targetsResult, roomsResult, sessions] = await Promise.all([
+        fetchTargetsWithTelemetry(true),
+        fetchRoomsData(true),
+        fetchRecentSessions(user.id, 10),
+      ]);
+
+      useTargets.getState().setTargets(targetsResult.targets);
+
+      const mappedRooms = roomsResult.rooms.map((room) => ({
         id: room.id,
         name: room.name,
-        order: room.order_index,
-        targetCount: room.target_count || 0,
-        icon: room.icon,
-        room_type: room.room_type
+        order: room.order,
+        targetCount: room.targetCount,
+        icon: room.icon ?? undefined,
+        room_type: room.room_type ?? undefined,
       }));
-      useRooms.getState().setRooms(transformedRooms);
-      
-      // Fetch and store sessions
-      const sessions = await fetchRecentSessions(user.id, 10);
+      useRooms.getState().setRooms(mappedRooms, roomsResult.unassignedTargets ?? []);
+
       useSessions.getState().setSessions(sessions);
-      
+
       setSyncStatus({
         isComplete: true,
         isLoading: false,
         error: null,
         syncedData: {
-          targetCount: thingsBoardData?.targets.length || 0, // Real target count from ThingsBoard
-          roomCount: transformedRooms.length, // Real room count from Supabase
-          sessionCount: sessions.length, // Real session count from Supabase
-          userNotFound: thingsBoardData?.userNotFound // Flag for 401 error
-        }
-      });
-      
+        targetCount: targetsResult.targets.length,
+        roomCount: mappedRooms.length,
+        sessionCount: sessions.length,
+        userNotFound: undefined,
+      },
+    });
     } catch (error) {
       console.error('❌ Initial sync failed:', error);
       
@@ -119,47 +101,27 @@ export const useInitialSync = () => {
 
   // Perform ONE-TIME sync when user is available - NON-BLOCKING
   useEffect(() => {
-    // Check if ThingsBoard is already authenticated
-    const tbToken = localStorage.getItem('tb_access');
-    if (tbToken) {
-      // Verify token is still valid by testing it asynchronously
-      const verifyToken = async () => {
-        try {
-          const { thingsBoardService } = await import('@/services/thingsboard');
-          await thingsBoardService.getDevices(1, 0); // Test call
-          
-          // Token is valid, but we still need to perform the full sync to populate stores
-          console.log('✅ Existing token is valid, performing full sync...');
-          await performInitialSync();
-        } catch (error) {
-          // Token is invalid, will trigger re-authentication below
-          console.log('🔄 Token invalid, will re-authenticate');
-          await performInitialSync();
-        }
-      };
-      
-      verifyToken();
+    if (!user || loading || syncStatus.isComplete || syncStatus.isLoading) {
       return;
     }
-    
-    // Only start sync when user is available and not already syncing
-    if (user && !syncStatus.isComplete && !syncStatus.isLoading && !loading && !syncStartedRef.current) {
-      // Check if we've synced recently to avoid redundant calls
-      const now = Date.now();
-      const timeSinceLastSync = now - lastSyncTimeRef.current;
-      
-      if (timeSinceLastSync < SYNC_COOLDOWN_MS) {
-        return;
-      }
-      
-      syncStartedRef.current = true;
-      lastSyncTimeRef.current = now;
-      // Don't await - let sync run in background
-      performInitialSync().catch(error => {
-        console.warn('Background sync failed:', error);
-      });
+
+    if (syncStartedRef.current) {
+      return;
     }
-  }, [user, loading]); // Removed syncStatus dependencies to prevent infinite loop
+
+    const now = Date.now();
+    const timeSinceLastSync = now - lastSyncTimeRef.current;
+    if (timeSinceLastSync < SYNC_COOLDOWN_MS) {
+      return;
+    }
+
+    syncStartedRef.current = true;
+    lastSyncTimeRef.current = now;
+
+    performInitialSync().catch((error) => {
+      console.warn('Background sync failed:', error);
+    });
+  }, [user, loading, syncStatus.isComplete, syncStatus.isLoading]);
 
   // Manual retry for failed syncs
   const retrySync = async () => {
@@ -167,9 +129,11 @@ export const useInitialSync = () => {
     await performInitialSync();
   };
 
-  // Ready immediately if ThingsBoard token exists, otherwise after sync completes or fails
-  const tbToken = localStorage.getItem('tb_access');
-  const isReady = !!tbToken || syncStatus.isComplete || !!syncStatus.error || (syncStatus.isLoading && syncStatus.startTime && Date.now() - syncStatus.startTime > 5000);
+  // Ready after sync completes or fails
+  const isReady =
+    syncStatus.isComplete ||
+    !!syncStatus.error ||
+    (syncStatus.isLoading && syncStatus.startTime && Date.now() - syncStatus.startTime > 5000);
 
   return {
     syncStatus,

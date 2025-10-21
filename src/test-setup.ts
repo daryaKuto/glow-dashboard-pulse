@@ -4,9 +4,6 @@ import { vi } from 'vitest';
 // Mock environment variables for testing
 vi.stubEnv('VITE_SUPABASE_URL', 'https://test.supabase.co');
 vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'test-anon-key');
-vi.stubEnv('VITE_TB_BASE_URL', 'https://test.thingsboard.cloud');
-vi.stubEnv('VITE_TB_WS_URL', 'wss://test.thingsboard.cloud');
-vi.stubEnv('VITE_TB_CONTROLLER_ID', 'test-controller-id');
 
 // Mock localStorage
 const localStorageMock = {

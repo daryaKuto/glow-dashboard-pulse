@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { clearTargetsCache } from '@/lib/api';
 import { fetchTargetDetails, type TargetDetail, type TargetDetailsOptions } from '@/lib/edge';
 
-const FETCH_DEBUG_DEFAULT = import.meta.env.DEV;
+const FETCH_DEBUG_DEFAULT = false;
 
 const isFetchDebugEnabled = () => {
   if (typeof window === 'undefined') {

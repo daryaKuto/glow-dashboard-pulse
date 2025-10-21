@@ -26,7 +26,7 @@ const CACHE_TTL_MS = 30_000;
 Deno.serve(async (req) => {
   const method = req.method.toUpperCase();
   if (method === "OPTIONS") {
-    return preflightResponse();
+    return preflightResponse(req);
   }
   if (method !== "GET" && method !== "POST") {
     return errorResponse("Only GET or POST is supported", 405);

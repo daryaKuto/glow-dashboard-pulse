@@ -32,7 +32,6 @@ export interface TransitionRecord {
 }
 
 interface UseGameTelemetryOptions {
-  token: string | null;
   gameId: string | null;
   isGameActive: boolean;
   devices: DeviceMeta[];
@@ -88,7 +87,6 @@ const buildDeviceKey = (devices: DeviceMeta[]): string =>
     .join(',');
 
 export const useGameTelemetry = ({
-  token,
   gameId,
   isGameActive,
   devices,
@@ -142,7 +140,7 @@ export const useGameTelemetry = ({
   }, [isGameActive, resetState]);
 
   useEffect(() => {
-    if (!token || !isGameActive || !gameId || devices.length === 0) {
+    if (!isGameActive || !gameId || devices.length === 0) {
       return undefined;
     }
 
@@ -152,7 +150,7 @@ export const useGameTelemetry = ({
 
     const deviceIds = devices.map((device) => device.deviceId);
 
-    const unsubscribe = subscribeToGameTelemetry(token, deviceIds, (message) => {
+    const unsubscribe = subscribeToGameTelemetry(deviceIds, (message) => {
       if (!message.data) {
         return;
       }
@@ -254,10 +252,10 @@ export const useGameTelemetry = ({
           timestamp: currentTimestamp,
         };
       });
-    });
+    }, { realtime: true });
 
     return unsubscribe;
-  }, [token, isGameActive, gameId, devices, deviceKey]);
+  }, [isGameActive, gameId, devices, deviceKey]);
 
   return useMemo(
     () => ({

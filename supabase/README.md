@@ -37,6 +37,123 @@ supabase secrets set \
 3. Serve the functions locally: `supabase functions serve targets-with-telemetry --env-file supabase/.env.functions`.
 4. Invoke: `curl "http://127.0.0.1:54321/functions/v1/targets-with-telemetry" -H "Authorization: Bearer <anon-jwt>"`.
 
+## Data Snapshots & Metrics Cache
+
+Two support tables power the new edge APIs:
+
+- `public.device_snapshots` keeps the latest ThingsBoard device state per user (room assignment, telemetry highlights, fetched timestamp).
+- `public.dashboard_metrics_cache` stores precomputed dashboard metrics (hero counts, trend overview) with an expiration window.
+
+They are populated by the `refresh-device-snapshots` function (see below) and read by the `dashboard-metrics` endpoint. Snapshots can be forced to refresh when necessary (admin tooling or scheduled cron).
+
+## refresh-device-snapshots Endpoint
+
+- **Method:** `POST` (no public JWT required; protect with a shared secret)
+- **Headers:**
+  - `x-refresh-secret: <value>` — must match `REFRESH_DEVICE_SNAPSHOT_SECRET` (if the env var is set).
+- **Query Parameters:**
+  - `user_id=<uuid>` (optional) limits the refresh to a single user; otherwise all active users are processed.
+- **Response:**
+
+```json
+{
+  "refreshedAt": "2024-06-20T18:30:00.000Z",
+  "deviceCount": 12,
+  "userCount": 3,
+  "results": [
+    { "userId": "…", "refreshed": true, "targetCount": 12 },
+    { "userId": "…", "refreshed": false, "error": "ThingsBoard login failed" }
+  ]
+}
+```
+
+The function fetches all tenant devices/telemetry from ThingsBoard, merges Supabase room assignments for each active user, upserts `device_snapshots`, and recomputes `dashboard_metrics_cache`. Schedule it via Supabase cron (e.g., every 2 minutes) by deploying the function and configuring the secret.
+
+### Additional Secrets
+
+- `METRICS_CACHE_TTL_MS` (optional): override the default 5-minute metrics cache TTL.
+- `SNAPSHOT_FRESHNESS_MS` (optional): controls how long a snapshot is considered "fresh" before the `dashboard-metrics` endpoint forces a ThingsBoard refresh (default 120 s).
+
+## dashboard-metrics Endpoint
+
+- **Method:** `GET` (or `POST`)
+- **Query Parameters:**
+  - `force=true` triggers a live refresh, ignoring cached metrics and stale snapshots.
+- **Response:**
+
+```json
+{
+  "metrics": {
+    "summary": {
+      "totalTargets": 12,
+      "onlineTargets": 8,
+      "offlineTargets": 4,
+      "assignedTargets": 10,
+      "unassignedTargets": 2,
+      "totalRooms": 4,
+      "lastUpdated": 1718800123456
+    },
+    "totals": {
+      "totalSessions": 28,
+      "bestScore": 950,
+      "avgScore": 820.5
+    },
+    "recentSessions": [
+      {
+        "id": "…",
+        "started_at": "2024-06-19T21:15:00Z",
+        "score": 895,
+        "hit_count": 42,
+        "duration_ms": 180000,
+        "accuracy_percentage": 92.3
+      }
+    ],
+    "generatedAt": 1718800130000
+  },
+  "cached": false,
+  "source": "thingsboard"
+}
+```
+
+Without `force`, the endpoint attempts to (1) return the cached metrics if still valid, then (2) recompute from stored snapshots if they are fresh, otherwise (3) fetch live data via ThingsBoard and refresh the cache. It requires a valid Supabase JWT (`requireUser`).
+
+## device-telemetry Endpoint
+
+- **Method:** `GET` (WebSocket upgrade)
+- **Query Parameters:**
+  - `deviceIds` (comma-separated ThingsBoard device IDs) – required.
+  - `access_token` – Supabase JWT used for user verification (add `apikey` if calling from the browser).
+- **Messages:**
+
+```json
+// initial acknowledgement
+{ "type": "connected", "timestamp": 1718800200000, "payload": { "deviceIds": ["device-a"] } }
+
+// periodic heartbeat (every 15s)
+{ "type": "heartbeat", "timestamp": 1718800215000 }
+
+// telemetry payload sampled roughly every second
+{
+  "type": "telemetry",
+  "timestamp": 1718800215123,
+  "payload": [
+    {
+      "deviceId": "device-a",
+      "telemetry": {
+        "hits": [{ "ts": 1718800214000, "value": 17 }],
+        "event": [{ "ts": 1718800214100, "value": "hit" }],
+        "gameStatus": [{ "ts": 1718800214100, "value": "start" }]
+      }
+    }
+  ]
+}
+
+// degraded mode (ThingsBoard fetch failed; backoff applied)
+{ "type": "error", "timestamp": 1718800216000, "message": "telemetry_fetch_failed", "backoffMs": 3200 }
+```
+
+If ThingsBoard sampling fails, the server emits an `error` envelope with the suggested backoff and retries automatically using an exponential strategy. The client should keep the socket open and optionally fall back to REST polling if the socket closes.
+
 ## targets-with-telemetry Endpoint
 
 - **Method:** `GET` (or `POST` with `{ "force": true }` payload)
@@ -112,6 +229,7 @@ The function validates the Supabase JWT, fetches ThingsBoard devices + telemetry
 ```
 
 This function aggregates rooms, Supabase assignments, and ThingsBoard telemetry so the client can render room dashboards without multiple network calls or exposing service-role credentials.
+Existing clients can continue to use it while new dashboards transition to the snapshot-backed endpoints above.
 
 ## telemetry-history Endpoint
 

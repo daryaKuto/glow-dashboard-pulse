@@ -69,9 +69,6 @@ const Scenarios: React.FC = () => {
 
   const availableDevices = convertTargetsToDevices(availableTargets);
 
-  // Get token from localStorage
-  const token = localStorage.getItem('tb_access');
-
   // Debug logging
   console.log('🔍 Scenarios page state:', {
     roomsCount: rooms.length,

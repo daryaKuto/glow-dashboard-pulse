@@ -44,15 +44,21 @@ export const ThingsBoardSetup: React.FC<ThingsBoardSetupProps> = ({
     setError(null);
 
     try {
-      // Test the credentials first by attempting a ThingsBoard login
-      const { thingsBoardService } = await import('@/services/thingsboard');
-      
-      // Try to authenticate with ThingsBoard to verify credentials
-      await thingsBoardService.login(formData.thingsboardEmail, formData.thingsboardPassword);
-      
-      // If login succeeds, save credentials to Supabase
+      const { data, error: authError } = await supabase.functions.invoke('thingsboard-auth', {
+        body: {
+          credentials: {
+            email: formData.thingsboardEmail,
+            password: formData.thingsboardPassword,
+          },
+        },
+      });
+
+      if (authError || !data?.connected) {
+        throw new Error('Invalid ThingsBoard email or password. Please check your credentials.');
+      }
+
       const encryptedPassword = encryptPassword(formData.thingsboardPassword);
-      
+
       const { error: updateError } = await supabase
         .from('user_profiles')
         .update({
@@ -72,13 +78,7 @@ export const ThingsBoardSetup: React.FC<ThingsBoardSetupProps> = ({
       
     } catch (error: any) {
       console.error('Error saving ThingsBoard credentials:', error);
-      
-      // Check if it's an authentication error
-      if (error?.response?.status === 401 || error?.message?.includes('401')) {
-        setError('Invalid ThingsBoard email or password. Please check your credentials.');
-      } else {
-        setError(error?.message || 'Failed to save ThingsBoard credentials. Please try again.');
-      }
+      setError(error?.message || 'Failed to save ThingsBoard credentials. Please try again.');
     } finally {
       setIsLoading(false);
     }

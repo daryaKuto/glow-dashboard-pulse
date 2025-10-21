@@ -370,6 +370,11 @@ entrypoint = "./functions/rooms/index.ts"
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/rooms/*.html" ]
 
+[functions.dashboard-metrics]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/dashboard-metrics/index.ts"
+
 [functions.telemetry-history]
 enabled = true
 verify_jwt = true

@@ -6,7 +6,7 @@ import { apiWrapper } from '@/services/api-wrapper';
 import { useRooms } from '@/store/useRooms';
 import { useUserPrefs } from '@/store/useUserPrefs';
 import { useProfile } from '@/store/useProfile';
-import { updateSharedAttributes } from '@/services/thingsboard';
+import { supabase } from '@/integrations/supabase/client';
 import { useIsMobile } from '@/hooks/use-mobile';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
@@ -228,18 +228,31 @@ const Profile: React.FC = () => {
       
       
       // Push to ThingsBoard for each target (only IP addresses)
-      for (const [targetId, cfg] of Object.entries(formPrefs)) {
+      const attributeUpdates: Array<{ targetId: string; ipAddress: string }> = [];
+      Object.entries(formPrefs).forEach(([targetId, cfg]) => {
         if (cfg && typeof cfg === 'object' && 'ipAddress' in cfg) {
           const targetPrefs = cfg as TargetPreferences;
           if (targetPrefs.ipAddress) {
-            try {
-              await updateSharedAttributes(targetId, {
-                ipAddress: targetPrefs.ipAddress,
-              });
-            } catch (error) {
-              console.error(`Failed to update ThingsBoard attributes for target ${targetId}:`, error);
-            }
+            attributeUpdates.push({ targetId, ipAddress: targetPrefs.ipAddress });
           }
+        }
+      });
+
+      for (const update of attributeUpdates) {
+        const { error: commandError } = await supabase.functions.invoke('device-command', {
+          body: {
+            action: 'set-attributes',
+            setAttributes: {
+              deviceIds: [update.targetId],
+              attributes: {
+                ipAddress: update.ipAddress,
+              },
+            },
+          },
+        });
+
+        if (commandError) {
+          throw new Error(commandError.message ?? `Failed to update device ${update.targetId}`);
         }
       }
     } catch (error) {

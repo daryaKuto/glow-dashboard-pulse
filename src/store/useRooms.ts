@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import { supabaseRoomsService, type UserRoom, type CreateRoomData } from '@/services/supabase-rooms';
 import { fetchRoomsData } from '@/lib/edge';
-import type { Target } from '@/store/useTargets';
+import { useTargets, type Target } from '@/store/useTargets';
 import { toast } from "@/components/ui/sonner";
 
 export type Room = {
@@ -106,6 +106,12 @@ export const useRooms = create<RoomsState>((set, get) => ({
           room.id === id ? { ...room, ...updates } : room
         )
       }));
+
+      const targetsStore = useTargets.getState();
+      targetsStore.clearCache();
+      targetsStore.refresh().catch((error) => {
+        console.warn('⚠️ useRooms: Failed to refresh targets after room update', error);
+      });
       
       toast.success('Room updated successfully');
     } catch (error) {
@@ -122,6 +128,12 @@ export const useRooms = create<RoomsState>((set, get) => ({
       set(state => ({
         rooms: state.rooms.filter(room => room.id !== id)
       }));
+
+      const targetsStore = useTargets.getState();
+      targetsStore.clearCache();
+      targetsStore.refresh().catch((error) => {
+        console.warn('⚠️ useRooms: Failed to refresh targets after room deletion', error);
+      });
       
       toast.success('Room deleted successfully');
     } catch (error) {
@@ -164,6 +176,11 @@ export const useRooms = create<RoomsState>((set, get) => ({
       }
       
       await get().fetchRooms();
+      const targetsStore = useTargets.getState();
+      targetsStore.clearCache();
+      targetsStore.refresh().catch((error) => {
+        console.warn('⚠️ useRooms: Failed to refresh targets after assignment', error);
+      });
       
       toast.success(`Target ${roomId === null ? 'unassigned' : 'assigned'} successfully`);
     } catch (error) {
@@ -186,6 +203,11 @@ export const useRooms = create<RoomsState>((set, get) => ({
       
       // Single refresh operation for all assignments
       await get().fetchRooms();
+      const targetsStore = useTargets.getState();
+      targetsStore.clearCache();
+      targetsStore.refresh().catch((error) => {
+        console.warn('⚠️ useRooms: Failed to refresh targets after batch assignment', error);
+      });
       
       toast.success(`${targetIds.length} target${targetIds.length > 1 ? 's' : ''} ${roomId === null ? 'unassigned' : 'assigned'} successfully`);
     } catch (error) {

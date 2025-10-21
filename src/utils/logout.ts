@@ -8,7 +8,6 @@ import { useStats } from '@/store/useStats';
 import { useProfile } from '@/store/useProfile';
 import { useRooms } from '@/store/useRooms';
 import { useTargets } from '@/store/useTargets';
-import { useDashboardStats } from '@/store/useDashboardStats';
 
 /**
  * Clear all application state and data
@@ -63,7 +62,6 @@ export const resetAllStores = () => {
       useProfile,
       useRooms,
       useTargets,
-      useDashboardStats
     ];
     
     stores.forEach(store => {

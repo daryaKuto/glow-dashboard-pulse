@@ -52,7 +52,6 @@ export const useDashboardStats = create<DashState>((set) => ({
       // Load slices progressively
       for (const sliceKey of loadOrder) {
         try {
-          console.log(`🔄 [DashboardStats] Loading ${sliceKey} data...`);
           const [from, to] = ranges[sliceKey];
           const events = await fetchHitEvents(from, to);
           const stats = summariseHits(events);
@@ -65,8 +64,6 @@ export const useDashboardStats = create<DashState>((set) => ({
               [sliceKey]: { loading: false, data: stats, series }
             }
           }));
-          
-          console.log(`✅ [DashboardStats] ${sliceKey} data loaded`);
           
           // Small delay between loads to show progressive loading
           if (sliceKey !== 'all') {

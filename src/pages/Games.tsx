@@ -20,14 +20,15 @@ import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from '@/components/ui/sonner';
-import { thingsBoardService } from '@/services/thingsboard';
 import { subscribeToGameTelemetry, type TelemetryEnvelope } from '@/services/gameTelemetry';
 import type { DeviceStatus, GameHistory } from '@/services/device-game-flow';
 import {
   fetchGameControlDevices,
+  fetchTargetDetails,
   invokeGameControl,
   type GameControlDevice,
 } from '@/lib/edge';
+import type { Target } from '@/store/useTargets';
 
 type GameStage = 'main-dashboard' | 'game-control';
 
@@ -48,7 +49,6 @@ const Games: React.FC = () => {
   const [loadingDevices, setLoadingDevices] = useState(false);
   const [totalShotsFromThingsBoard, setTotalShotsFromThingsBoard] = useState<number>(0);
   const [loadingTotalShots, setLoadingTotalShots] = useState(false);
-  const [thingsboardToken, setThingsboardToken] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isGameRunning, setIsGameRunning] = useState(false);
   const [currentGameId, setCurrentGameId] = useState<string | null>(null);
@@ -62,12 +62,6 @@ const Games: React.FC = () => {
   const telemetryUnsubscribeRef = useRef<(() => void) | null>(null);
   const currentGameDevicesRef = useRef<string[]>([]);
   const availableDevicesRef = useRef<DeviceStatus[]>([]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setThingsboardToken(localStorage.getItem('tb_access'));
-    }
-  }, []);
 
   const mapEdgeDeviceToStatus = useCallback((device: GameControlDevice): DeviceStatus => {
     const isOnline = Boolean(device.isOnline);
@@ -211,23 +205,28 @@ const Games: React.FC = () => {
       const targets = useTargets.getState().targets as Target[];
       let totalShots = 0;
 
-      for (const target of targets) {
-        const deviceId =
-          typeof target.id === 'string'
-            ? target.id
-            : (target.id as { id: string })?.id || String(target.id);
+      const deviceIds = targets.map((target) =>
+        typeof target.id === 'string'
+          ? target.id
+          : (target.id as { id: string })?.id || String(target.id),
+      );
 
-        try {
-          const telemetry = await thingsBoardService.getLatestTelemetry(deviceId, ['hits']);
-          if (telemetry?.hits?.[0]?.value) {
-            const hits = parseInt(telemetry.hits[0].value);
-            if (!Number.isNaN(hits)) {
-              totalShots += hits;
-            }
+      if (deviceIds.length > 0) {
+        const { details } = await fetchTargetDetails(deviceIds, {
+          includeHistory: false,
+          telemetryKeys: ['hits'],
+        });
+
+        totalShots = details.reduce((sum, detail) => {
+          const hitsArray = Array.isArray(detail.telemetry?.hits) ? detail.telemetry.hits : [];
+          if (hitsArray.length === 0) {
+            return sum;
           }
-        } catch (error) {
-          console.error(`Failed to fetch hits for device ${deviceId}:`, error);
-        }
+
+          const latest = hitsArray[0]?.value ?? hitsArray[0];
+          const numeric = Number(latest);
+          return Number.isFinite(numeric) ? sum + numeric : sum;
+        }, 0);
       }
 
       setTotalShotsFromThingsBoard(totalShots);
@@ -321,12 +320,6 @@ const Games: React.FC = () => {
       return;
     }
 
-    if (!thingsboardToken) {
-      setErrorMessage('ThingsBoard authentication token is missing. Please re-authenticate.');
-      toast.error('Unable to start game: missing ThingsBoard token.');
-      return;
-    }
-
     await loadLiveDevices({ silent: true });
     const onlineDevices = getOnlineDevices();
     if (onlineDevices.length === 0) {
@@ -371,9 +364,9 @@ const Games: React.FC = () => {
       setHitHistory([]);
 
       telemetryUnsubscribeRef.current = subscribeToGameTelemetry(
-        thingsboardToken,
         successfulIds,
         handleTelemetryMessage,
+        { realtime: true },
       );
 
       await loadLiveDevices({ silent: true });
@@ -398,7 +391,6 @@ const Games: React.FC = () => {
     isGameRunning,
     isStartingGame,
     loadLiveDevices,
-    thingsboardToken,
   ]);
 
   const handleStopGame = useCallback(async () => {

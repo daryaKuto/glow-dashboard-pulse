@@ -2,10 +2,9 @@ import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useLocation } from 'react-router-dom';
 import { Target as TargetIcon, Users, Calendar, Bell, Clock, Zap, Trophy, TrendingUp, Activity, BarChart3, Play, User, X, Gamepad2, BarChart, Award } from 'lucide-react';
 import { useStats } from '@/store/useStats';
-import { useDashboardStats } from '@/store/useDashboardStats';
 import { useTargets } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
-import { useScenarios, type ScenarioHistory } from '@/scenarios - old do not use/useScenarios';
+import { useScenarios, type ScenarioHistory } from '@/store/useScenarios';
 import { useSessions, type Session } from '@/store/useSessions';
 import { useAuth } from '@/providers/AuthProvider';
 import Header from '@/components/shared/Header';
@@ -16,7 +15,7 @@ import { useShootingActivityPolling } from '@/hooks/useShootingActivityPolling';
 import { useInitialSync } from '@/hooks/useInitialSync';
 import { useHistoricalActivity } from '@/hooks/useHistoricalActivity';
 import type { TargetShootingActivity } from '@/hooks/useShootingActivityPolling';
-import { fetchTargetsSummary, type TargetsSummary } from '@/lib/edge';
+import type { TargetsSummary } from '@/lib/edge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -489,13 +488,11 @@ const Dashboard: React.FC = () => {
   const lastFetchTimeRef = useRef(0);
   const telemetryFetchedRef = useRef(false);
   const telemetryInitializedRef = useRef(false);
-  const [summary, setSummary] = useState<TargetsSummary | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
   const FETCH_DEBOUNCE_MS = 2000; // 2 seconds debounce
   
   // Real data from stores
   const { 
+    metrics,
     activeTargets, 
     roomsCreated, 
     lastScenarioScore, 
@@ -507,7 +504,6 @@ const Dashboard: React.FC = () => {
     setWsConnected 
   } = useStats();
   
-  const { slices, refresh: refreshDashboardStats } = useDashboardStats();
   const { targets: rawTargets, fetchTargetsFromEdge } = useTargets();
   const { rooms } = useRooms();
   const { scenarioHistory, isLoading: scenariosLoading, fetchScenarios } = useScenarios();
@@ -517,9 +513,6 @@ const Dashboard: React.FC = () => {
 
   // Initial sync with ThingsBoard (only on dashboard)
   const { syncStatus, isReady } = useInitialSync();
-
-  // Get ThingsBoard token from localStorage
-  const tbToken = localStorage.getItem('tb_access');
 
   useEffect(() => {
     if (!user?.id) {
@@ -534,7 +527,6 @@ const Dashboard: React.FC = () => {
     setTargetsLoading(true);
     try {
       await fetchTargetsFromEdge(true);
-      console.log('[Dashboard] Edge targets refreshed via store');
     } catch (error) {
       console.error('[Dashboard] Error fetching edge targets', error);
     } finally {
@@ -542,49 +534,29 @@ const Dashboard: React.FC = () => {
     }
   }, [fetchTargetsFromEdge]);
 
-  const loadSummary = useCallback(async (force = false) => {
-    setSummaryLoading(true);
-    setSummaryError(null);
-    try {
-      const { summary: summaryPayload } = await fetchTargetsSummary(force);
-      if (summaryPayload) {
-        setSummary(summaryPayload);
-        console.log('[Dashboard] Summary data from edge', summaryPayload);
-      }
-    } catch (error) {
-      console.error('[Dashboard] Failed to load summary from edge function', error);
-      setSummaryError(error instanceof Error ? error.message : 'Failed to load dashboard summary');
-    } finally {
-      setSummaryLoading(false);
-    }
-  }, []);
-
+  const summary: TargetsSummary | null = metrics?.summary ?? null;
+  const summaryLoading = statsLoading && !summary;
   const summaryReady = useMemo(() => {
     if (summaryLoading) {
       return false;
     }
-
     if (summary) {
       return true;
     }
-
     return rawTargets.length > 0;
   }, [summary, summaryLoading, rawTargets.length]);
 
   const telemetryEnabled = summaryReady;
 
   useEffect(() => {
-    if (authLoading) {
+    if (authLoading || !user?.id) {
       return;
     }
 
-    if (!user || !session?.access_token) {
-      setSummary(null);
-      return;
-    }
-
-    loadSummary();
-  }, [authLoading, session?.access_token, user, loadSummary]);
+    fetchStats().catch((error) => {
+      console.error('[Dashboard] Failed to fetch dashboard metrics', error);
+    });
+  }, [authLoading, user?.id, fetchStats]);
 
   // Smart polling system with heartbeat detection - optimized for parallel execution
   const fetchAllData = useCallback(async () => {
@@ -606,17 +578,16 @@ const Dashboard: React.FC = () => {
 
     isFetchingRef.current = true;
     try {
-      await Promise.allSettled([refreshDashboardStats()]);
+      const metricsPromise = fetchStats({ force: true });
       Promise.allSettled([fetchMergedTargets()]);
-      if (tbToken) {
-        Promise.allSettled([fetchStats(tbToken), fetchScenarios(tbToken)]);
-      }
+      Promise.allSettled([fetchScenarios()]);
+      await metricsPromise;
     } catch (error) {
       console.error('[Dashboard] Error fetching data', error);
     } finally {
       isFetchingRef.current = false;
     }
-  }, [telemetryEnabled, tbToken, fetchStats, fetchScenarios, refreshDashboardStats, fetchMergedTargets]);
+  }, [telemetryEnabled, fetchStats, fetchScenarios, fetchMergedTargets]);
 
   // Lightweight update function for shooting activity polling
   // Only refreshes essential data, not full dashboard data
@@ -758,21 +729,29 @@ const Dashboard: React.FC = () => {
       .filter((score): score is number => typeof score === 'number' && !Number.isNaN(score))
   ), [sessions]);
 
-  const averageScoreMetric = sessionScores.length > 0
-    ? Math.round(sessionScores.reduce((sum, score) => sum + score, 0) / sessionScores.length)
-    : null;
+  const totals = metrics?.totals ?? null;
 
-  const bestScore = sessionScores.length > 0
+  const averageScoreMetric = totals?.avgScore !== null && totals?.avgScore !== undefined
+    ? Math.round(totals.avgScore ?? 0)
+    : (sessionScores.length > 0
+      ? Math.round(sessionScores.reduce((sum, score) => sum + score, 0) / sessionScores.length)
+      : null);
+
+  const bestScore = totals?.bestScore ?? (sessionScores.length > 0
     ? Math.max(...sessionScores)
-    : null;
+    : null);
 
   const latestSession = sessions[0];
   const lastShotsFired = latestSession
     ? (() => {
         const value = latestSession.totalShots ?? latestSession.hitCount;
-        return typeof value === 'number' && !Number.isNaN(value) ? value : null;
+        if (typeof value === 'number' && !Number.isNaN(value)) {
+          return value;
+        }
+        const metricsValue = metrics?.recentSessions?.[0]?.hit_count;
+        return typeof metricsValue === 'number' && !Number.isNaN(metricsValue) ? metricsValue : null;
       })()
-    : null;
+    : (metrics?.recentSessions?.[0]?.hit_count ?? null);
 
 
   // Note: Authentication is handled at the route level in App.tsx

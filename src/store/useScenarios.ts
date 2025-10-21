@@ -27,10 +27,10 @@ interface ScenariosState {
   isLoading: boolean;
   isActive: boolean;
   error: string | null;
-  fetchScenarios: (token: string) => Promise<void>;
-  selectScenario: (scenarioId: number, includedRoomIds: number[], token: string) => Promise<ScenarioHistory | null>;
-  endScenario: (id: number, token: string) => Promise<void>;
-  createInvite: (scenarioId: number, token: string) => Promise<string | null>;
+  fetchScenarios: () => Promise<void>;
+  selectScenario: (scenarioId: number, includedRoomIds: number[]) => Promise<ScenarioHistory | null>;
+  endScenario: (id: number) => Promise<void>;
+  createInvite: (scenarioId: number) => Promise<string | null>;
   updatePlayerScore: (userId: string, hits: number, accuracy: number) => void;
   setPlayers: (players: Player[]) => void;
   clearScenario: () => void;
@@ -46,9 +46,8 @@ export const useScenarios = create<ScenariosState>((set, get) => ({
   isActive: false,
   error: null,
 
-  fetchScenarios: async (token: string) => {
+  fetchScenarios: async () => {
     try {
-      console.log('Fetching scenarios with token:', token);
       const scenarios = await API.listScenarios();
       console.log('Scenarios received:', scenarios);
       set({ 
@@ -64,16 +63,16 @@ export const useScenarios = create<ScenariosState>((set, get) => ({
     }
   },
 
-  selectScenario: async (scenarioId: number, includedRoomIds: number[], token: string) => {
+  selectScenario: async (scenarioId: number, includedRoomIds: number[]) => {
     // TODO: Implement scenario selection logic
     return null;
   },
 
-  endScenario: async (id: number, token: string) => {
+  endScenario: async (id: number) => {
     // TODO: Implement scenario end logic
   },
 
-  createInvite: async (scenarioId: number, token: string) => {
+  createInvite: async (scenarioId: number) => {
     // TODO: Implement invite creation for scenarios
     return null;
   },

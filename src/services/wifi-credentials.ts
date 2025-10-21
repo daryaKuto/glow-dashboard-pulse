@@ -4,7 +4,7 @@
  */
 
 import { supabase } from '@/integrations/supabase/client';
-import { listDevices, getDeviceWifiCredentials } from './thingsboard';
+import { fetchTargetsWithTelemetry, fetchDeviceAttributes } from '@/lib/edge';
 import { encryptPassword, decryptPassword } from './credentials';
 
 export interface WifiCredentials {
@@ -19,39 +19,47 @@ export interface WifiCredentials {
 export const fetchWifiFromThingsBoard = async (userId: string): Promise<WifiCredentials | null> => {
   try {
     console.log('[WiFi Service] Fetching WiFi credentials from ThingsBoard for user:', userId);
-    
-    // Get all devices for the user
-    const devices = await listDevices();
-    
-    if (!devices || devices.length === 0) {
-      console.log('[WiFi Service] No devices found for user');
+
+    const { targets } = await fetchTargetsWithTelemetry(false);
+
+    if (!targets || targets.length === 0) {
+      console.log('[WiFi Service] No targets/devices returned from Supabase edge');
       return null;
     }
-    
-    console.log(`[WiFi Service] Found ${devices.length} devices, checking first device for WiFi credentials`);
-    
-    // Get WiFi credentials from the first device (all devices share same WiFi)
-    const firstDevice = devices[0];
-    const deviceId = typeof firstDevice.id === 'string' ? firstDevice.id : firstDevice.id?.id;
-    
+
+    const primaryTarget = targets.find((target) => target.status === 'online') ?? targets[0];
+    const rawDeviceId = primaryTarget?.id;
+    const deviceId = typeof rawDeviceId === 'string'
+      ? rawDeviceId
+      : rawDeviceId && typeof rawDeviceId === 'object' && 'id' in rawDeviceId
+        ? String((rawDeviceId as { id?: string }).id ?? '')
+        : '';
+
     if (!deviceId) {
-      console.log('[WiFi Service] No valid device ID found');
+      console.log('[WiFi Service] Unable to resolve a device ID from targets payload');
       return null;
     }
-    
-    const wifiCredentials = await getDeviceWifiCredentials(deviceId);
-    
-    if (!wifiCredentials || (!wifiCredentials.ssid && !wifiCredentials.password)) {
-      console.log('[WiFi Service] No WiFi credentials found on device');
-      return null;
-    }
-    
-    console.log('[WiFi Service] WiFi credentials found:', { 
-      ssid: wifiCredentials.ssid, 
-      hasPassword: !!wifiCredentials.password 
+
+    const attributes = await fetchDeviceAttributes(deviceId, {
+      scope: 'SHARED_SCOPE',
+      keys: ['wifi_ssid', 'wifi_password', 'ssid', 'password'],
     });
-    
-    return wifiCredentials;
+
+    const ssid = String(attributes.wifi_ssid ?? attributes.ssid ?? '') || '';
+    const password = String(attributes.wifi_password ?? attributes.password ?? '') || '';
+
+    if (!ssid && !password) {
+      console.log('[WiFi Service] No WiFi credentials found on device attributes');
+      return null;
+    }
+
+    console.log('[WiFi Service] WiFi credentials found via edge function', {
+      ssid,
+      hasPassword: Boolean(password),
+      deviceId,
+    });
+
+    return { ssid, password };
   } catch (error) {
     console.error('[WiFi Service] Error fetching WiFi from ThingsBoard:', error);
     return null;

@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { 
   Dialog,
@@ -29,14 +28,11 @@ const CreateScenarioDialog: React.FC<CreateScenarioDialogProps> = ({
   const [selectedRooms, setSelectedRooms] = React.useState<number[]>([]);
   const { scenarios, fetchScenarios } = useScenarios();
   const { rooms, fetchRooms } = useRooms();
-  const location = useLocation();
-  // TODO: Get proper token from auth context
-  const token = ''; // We need to implement proper token handling
   
   useEffect(() => {
-    fetchScenarios(token);
-    fetchRooms(token);
-  }, [token, fetchScenarios, fetchRooms]);
+    fetchScenarios();
+    fetchRooms();
+  }, [fetchScenarios, fetchRooms]);
   
   const toggleRoomSelection = (roomId: number) => {
     setSelectedRooms(prev => 

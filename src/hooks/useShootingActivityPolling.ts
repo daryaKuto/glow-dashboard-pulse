@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useTargets } from '@/store/useTargets';
-import thingsBoardService, { openTelemetryWS } from '@/services/thingsboard';
 import { fetchShootingActivity } from '@/lib/edge';
+import { TELEMETRY_POLLING_DEFAULTS, resolveIntervalWithBackoff } from '@/config/telemetry';
 
 interface ShootingPollingConfig {
   activeInterval: number;    // 10 seconds during active shooting
@@ -103,79 +103,86 @@ function determinePollingMode(hasActiveShooters: boolean, hasRecentActivity: boo
 
 export const useShootingActivityPolling = (
   onUpdate: () => Promise<void>,
-  config: ShootingPollingConfig = DEFAULT_POLLING_CONFIG,
-  enabled = true
+  overrides: ShootingPollingConfig = DEFAULT_POLLING_CONFIG,
+  enabled = true,
 ) => {
+  const config = useMemo(() => ({ ...DEFAULT_POLLING_CONFIG, ...overrides }), [overrides]);
   const { targets } = useTargets();
 
-  const {
-    activeInterval,
-    recentInterval,
-    standbyInterval,
-    activeThreshold,
-    standbyThreshold,
-  } = config;
-
   const [currentMode, setCurrentMode] = useState<PollingMode>('standby');
-  const [currentInterval, setCurrentInterval] = useState(standbyInterval);
+  const [currentInterval, setCurrentInterval] = useState(config.standbyInterval);
   const [targetActivity, setTargetActivity] = useState<Map<string, TargetShootingActivity>>(new Map());
   const [isPageVisible, setIsPageVisible] = useState(!document.hidden);
 
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const modeRef = useRef<PollingMode>('standby');
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const intervalStateRef = useRef<{ mode: PollingMode; interval: number }>({
     mode: 'standby',
-    interval: standbyInterval,
+    interval: config.standbyInterval,
   });
+  const runRef = useRef<() => Promise<void>>();
+  const consecutiveErrorRef = useRef(0);
 
-  const clearPollingInterval = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
+  const clearScheduled = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
     }
   }, []);
 
-  const getIntervalForMode = useCallback(
-    (mode: PollingMode): number => {
-      switch (mode) {
-        case 'active':
-          return activeInterval;
-        case 'recent':
-          return recentInterval;
-        case 'standby':
-        default:
-          return standbyInterval;
-      }
-    },
-    [activeInterval, recentInterval, standbyInterval]
-  );
+  const intervalForMode = useCallback((mode: PollingMode) => {
+    switch (mode) {
+      case 'active':
+        return config.activeInterval;
+      case 'recent':
+        return config.recentInterval;
+      case 'standby':
+      default:
+        return config.standbyInterval;
+    }
+  }, [config.activeInterval, config.recentInterval, config.standbyInterval]);
+
+  const scheduleNext = useCallback((mode: PollingMode, overrideInterval?: number) => {
+    const baseInterval = overrideInterval ?? intervalForMode(mode);
+    const interval = resolveIntervalWithBackoff(baseInterval, consecutiveErrorRef.current);
+    const bounded = Math.min(
+      Math.max(interval, TELEMETRY_POLLING_DEFAULTS.minIntervalMs),
+      TELEMETRY_POLLING_DEFAULTS.maxIntervalMs,
+    );
+
+    clearScheduled();
+    timeoutRef.current = setTimeout(() => {
+      runRef.current?.().catch((error) => {
+        console.error('[ShootingActivity] polling cycle failed', error);
+      });
+    }, bounded);
+
+    intervalStateRef.current = { mode, interval: bounded };
+    setCurrentMode(mode);
+    setCurrentInterval(bounded);
+  }, [clearScheduled, intervalForMode]);
 
   const checkShootingActivity = useCallback(async (): Promise<PollingMode> => {
     if (!enabled) {
+      setTargetActivity(new Map());
       return 'standby';
     }
 
+    if (targets.length === 0) {
+      setTargetActivity(new Map());
+      return 'standby';
+    }
+
+    const onlineTargets = targets.filter((target) => target.status === 'online' || target.status === 'standby');
+    if (onlineTargets.length === 0) {
+      setTargetActivity(new Map());
+      return 'standby';
+    }
+
+    const currentTime = Date.now();
+    const newActivityMap = new Map<string, TargetShootingActivity>();
+    const activityFlags: ActivityFlags = { hasActiveShooters: false, hasRecentActivity: false };
+
     try {
-      if (!thingsBoardService.isAuthenticated()) {
-        return 'standby';
-      }
-
-      if (targets.length === 0) {
-        setTargetActivity(new Map());
-        return 'standby';
-      }
-
-      const onlineTargets = targets.filter((target) => target.status === 'online' || target.status === 'standby');
-      if (onlineTargets.length === 0) {
-        setTargetActivity(new Map());
-        return 'standby';
-      }
-
-      const currentTime = Date.now();
-      const newActivityMap = new Map<string, TargetShootingActivity>();
-      const activityFlags: ActivityFlags = { hasActiveShooters: false, hasRecentActivity: false };
-
       const deviceIds = onlineTargets.map((target) => target.id?.id || target.id);
       const { activity } = await fetchShootingActivity(deviceIds, TELEMETRY_KEYS);
 
@@ -184,9 +191,8 @@ export const useShootingActivityPolling = (
         if (!target) {
           continue;
         }
-
         if (record.error) {
-          console.error(`❌ [ShootingActivity] Edge error for ${record.deviceId}:`, record.error);
+          console.warn(`⚠️ [ShootingActivity] edge function error for ${record.deviceId}:`, record.error);
           continue;
         }
 
@@ -195,8 +201,8 @@ export const useShootingActivityPolling = (
           record.telemetry,
           newActivityMap,
           currentTime,
-          { activeThreshold, standbyThreshold },
-          activityFlags
+          { activeThreshold: config.activeThreshold, standbyThreshold: config.standbyThreshold },
+          activityFlags,
         );
       }
 
@@ -217,257 +223,108 @@ export const useShootingActivityPolling = (
       setTargetActivity(newActivityMap);
       return determinePollingMode(activityFlags.hasActiveShooters, activityFlags.hasRecentActivity);
     } catch (error) {
-      console.error('❌ [ShootingActivity] Error checking shooting activity:', error);
-      return 'standby';
+      console.error('❌ [ShootingActivity] Unable to fetch telemetry activity', error);
+      setTargetActivity(new Map());
+      throw error;
     }
-  }, [activeThreshold, enabled, standbyThreshold, targets]);
+  }, [config.activeThreshold, config.standbyThreshold, enabled, targets]);
 
-  const updatePollingMode = useCallback(
-    (mode: PollingMode) => {
-      if (!enabled) {
-        clearPollingInterval();
-        modeRef.current = 'standby';
-        intervalStateRef.current = { mode: 'standby', interval: standbyInterval };
-        setCurrentMode('standby');
-        setCurrentInterval(standbyInterval);
-        setTargetActivity(new Map());
-        return;
-      }
-
-      const nextInterval = getIntervalForMode(mode);
-      const { mode: prevMode, interval: prevInterval } = intervalStateRef.current;
-      const shouldReschedule = !intervalRef.current || prevMode !== mode || prevInterval !== nextInterval;
-
-      modeRef.current = mode;
-      intervalStateRef.current = { mode, interval: nextInterval };
-      setCurrentMode(mode);
-      setCurrentInterval(nextInterval);
-
-      if (!shouldReschedule) {
-        return;
-      }
-
-      clearPollingInterval();
-
-      intervalRef.current = setInterval(async () => {
-        if (!enabled) {
-          return;
-        }
-
-        if (modeRef.current !== 'standby') {
-          try {
-            await onUpdate();
-          } catch (error) {
-            console.warn('⚠️ [ShootingActivity] onUpdate failed during polling interval:', error);
-          }
-        }
-
-        const recalculatedMode = await checkShootingActivity();
-        if (recalculatedMode !== modeRef.current) {
-          updatePollingMode(recalculatedMode);
-        }
-      }, nextInterval);
-    },
-    [
-      clearPollingInterval,
-      enabled,
-      getIntervalForMode,
-      onUpdate,
-      checkShootingActivity,
-      standbyInterval,
-    ]
-  );
-
-  useEffect(() => {
-    if (!enabled) {
-      setIsPageVisible(true);
+  const runCycle = useCallback(async () => {
+    if (!enabled || !isPageVisible) {
+      clearScheduled();
       return;
     }
 
-    const handleVisibilityChange = () => {
-      const isVisible = !document.hidden;
-      setIsPageVisible(isVisible);
+    const start = performance.now();
 
-      if (isVisible) {
-        (async () => {
-          try {
-            await onUpdate();
-            const mode = await checkShootingActivity();
-            updatePollingMode(mode);
-          } catch (error) {
-            console.error('❌ [ShootingActivity] Visibility resume failed:', error);
-          }
-        })();
+    if (intervalStateRef.current.mode !== 'standby') {
+      try {
+        await onUpdate();
+      } catch (error) {
+        consecutiveErrorRef.current += 1;
+        console.warn('⚠️ [ShootingActivity] onUpdate failed', error);
+      }
+    }
+
+    let nextMode: PollingMode = 'standby';
+    try {
+      nextMode = await checkShootingActivity();
+      consecutiveErrorRef.current = 0;
+    } catch (error) {
+      consecutiveErrorRef.current = Math.min(
+        TELEMETRY_POLLING_DEFAULTS.maxRetry,
+        consecutiveErrorRef.current + 1,
+      );
+      nextMode = 'standby';
+    }
+
+    const duration = performance.now() - start;
+    if (duration > TELEMETRY_POLLING_DEFAULTS.slowResponseWarningMs) {
+      console.warn('[ShootingActivity] polling cycle exceeded SLA', {
+        durationMs: Math.round(duration),
+        slowdownThresholdMs: TELEMETRY_POLLING_DEFAULTS.slowResponseWarningMs,
+      });
+    }
+
+    scheduleNext(nextMode);
+  }, [checkShootingActivity, clearScheduled, enabled, isPageVisible, onUpdate, scheduleNext]);
+
+  useEffect(() => {
+    runRef.current = runCycle;
+  }, [runCycle]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const visible = !document.hidden;
+      setIsPageVisible(visible);
+
+      if (!visible) {
+        clearScheduled();
       } else {
-        clearPollingInterval();
+        runCycle().catch((error) => {
+          console.error('❌ [ShootingActivity] resume cycle failed', error);
+        });
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [
-    checkShootingActivity,
-    clearPollingInterval,
-    enabled,
-    onUpdate,
-    updatePollingMode,
-  ]);
+  }, [clearScheduled, runCycle]);
 
   useEffect(() => {
     if (!enabled) {
-      clearPollingInterval();
-      setCurrentMode('standby');
-      setCurrentInterval(standbyInterval);
+      clearScheduled();
       setTargetActivity(new Map());
+      setCurrentMode('standby');
+      setCurrentInterval(config.standbyInterval);
       return;
     }
 
     if (!targets.length || !isPageVisible) {
+      clearScheduled();
+      setTargetActivity(new Map());
       return;
     }
 
-    let cancelled = false;
+    runCycle().catch((error) => {
+      console.error('❌ [ShootingActivity] initial cycle failed', error);
+    });
+  }, [clearScheduled, config.standbyInterval, enabled, isPageVisible, runCycle, targets.length]);
 
-    const bootstrap = async () => {
-      try {
-        await onUpdate();
-        if (cancelled) {
-          return;
-        }
-
-        const initialMode = await checkShootingActivity();
-        if (cancelled) {
-          return;
-        }
-
-        updatePollingMode(initialMode);
-      } catch (error) {
-        console.error('❌ [ShootingActivity] Failed to start polling:', error);
-        updatePollingMode('standby');
-      }
-    };
-
-    bootstrap();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    checkShootingActivity,
-    clearPollingInterval,
-    enabled,
-    isPageVisible,
-    onUpdate,
-    standbyInterval,
-    targets.length,
-    updatePollingMode,
-  ]);
-
-  useEffect(
-    () => () => {
-      clearPollingInterval();
-    },
-    [clearPollingInterval]
-  );
-
-  const checkShootingActivityRef = useRef(checkShootingActivity);
-  const onUpdateRef = useRef(onUpdate);
-  const updatePollingModeRef = useRef(updatePollingMode);
-
-  useEffect(() => {
-    checkShootingActivityRef.current = checkShootingActivity;
-  }, [checkShootingActivity]);
-
-  useEffect(() => {
-    onUpdateRef.current = onUpdate;
-  }, [onUpdate]);
-
-  useEffect(() => {
-    updatePollingModeRef.current = updatePollingMode;
-  }, [updatePollingMode]);
-
-  useEffect(() => {
-    if (!enabled) {
-      if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
-        wsRef.current.close();
-      }
-      wsRef.current = null;
-      return;
-    }
-
-    const token = localStorage.getItem('tb_access');
-    if (!token) {
-      return;
-    }
-
-    if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
-      wsRef.current.close();
-    }
-
-    try {
-      const ws = openTelemetryWS(token);
-      wsRef.current = ws;
-
-      if (!ws) {
-        return;
-      }
-
-      ws.onmessage = (event) => {
-        const handleShotUpdate = async () => {
-          try {
-            await onUpdateRef.current().catch((error) => {
-              console.warn('⚠️ [ShootingActivity] onUpdate failed after WS message:', error);
-            });
-            const mode = await checkShootingActivityRef.current();
-            const nextMode = mode === 'standby' ? 'active' : mode;
-            updatePollingModeRef.current(nextMode);
-          } catch (error) {
-            console.warn('⚠️ [ShootingActivity] WebSocket handling failed:', error);
-          }
-        };
-
-        try {
-          const data = JSON.parse(event.data);
-          if (
-            data?.data &&
-            (data.data.hits ||
-              data.data.hit_ts ||
-              data.data.beep_ts ||
-              (data.data.event && typeof data.data.event === 'string' && data.data.event.includes('hit')))
-          ) {
-            void handleShotUpdate();
-          }
-        } catch (error) {
-          console.warn('⚠️ [ShootingActivity] WebSocket message parse error:', error);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.warn('WebSocket error in shooting activity polling, falling back to polling only', error);
-      };
-
-      ws.onclose = () => {
-        // Continue with interval-based polling when socket closes
-      };
-
-      return () => {
-        if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
-          wsRef.current.close();
-        }
-        wsRef.current = null;
-      };
-    } catch (error) {
-      console.warn('WebSocket setup failed in shooting activity polling, using polling only:', error);
-    }
-  }, [enabled]);
+  useEffect(() => () => {
+    clearScheduled();
+  }, [clearScheduled]);
 
   useEffect(() => {
     if (!enabled) {
       return;
     }
+    scheduleNext(intervalStateRef.current.mode, intervalForMode(intervalStateRef.current.mode));
+  }, [enabled, config.activeInterval, config.recentInterval, config.standbyInterval, intervalForMode, scheduleNext]);
 
-    updatePollingMode(modeRef.current);
-  }, [activeInterval, recentInterval, standbyInterval, enabled, updatePollingMode]);
+  const forceUpdate = useCallback(async () => {
+    await runCycle();
+  }, [runCycle]);
 
   return {
     currentInterval: currentInterval / 1000,
@@ -478,10 +335,6 @@ export const useShootingActivityPolling = (
     targetActivity: Array.from(targetActivity.values()),
     activeShotsCount: Array.from(targetActivity.values()).filter((t) => t.isActivelyShooting).length,
     recentShotsCount: Array.from(targetActivity.values()).filter((t) => t.isRecentlyActive).length,
-    forceUpdate: async () => {
-      await onUpdate();
-      const mode = await checkShootingActivity();
-      updatePollingMode(mode);
-    },
+    forceUpdate,
   };
 };

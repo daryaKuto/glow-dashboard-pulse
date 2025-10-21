@@ -1,12 +1,14 @@
-const DEFAULT_CORS_HEADERS = {
+const DEFAULT_ALLOWED_HEADERS = 'authorization, x-client-info, apikey, content-type';
+
+const BASE_CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  'Access-Control-Allow-Headers': DEFAULT_ALLOWED_HEADERS,
   'Access-Control-Max-Age': '86400',
 } as const;
 
 function buildHeaders(current?: HeadersInit): Headers {
-  const headers = new Headers(DEFAULT_CORS_HEADERS);
+  const headers = new Headers(BASE_CORS_HEADERS);
   if (current) {
     const custom = new Headers(current);
     custom.forEach((value, key) => {
@@ -31,9 +33,43 @@ export function errorResponse(message: string, status = 500, detail?: unknown): 
   return jsonResponse({ error: message, detail }, { status });
 }
 
-export function preflightResponse(): Response {
+export function preflightResponse(req?: Request): Response {
+  const headers = buildHeaders();
+
+  const origin = req?.headers.get('origin');
+  if (origin) {
+    headers.set('Access-Control-Allow-Origin', origin);
+  }
+
+  headers.delete('Access-Control-Allow-Credentials');
+
+  const requestHeaders = req?.headers.get('access-control-request-headers');
+  if (requestHeaders && requestHeaders.length > 0) {
+    headers.set('Access-Control-Allow-Headers', requestHeaders);
+  } else {
+    headers.set('Access-Control-Allow-Headers', DEFAULT_ALLOWED_HEADERS);
+  }
+
+  const requestMethod = req?.headers.get('access-control-request-method');
+  if (requestMethod && requestMethod.length > 0) {
+    const allowedMethods = new Set<string>(['OPTIONS']);
+    requestMethod.split(',').forEach((method) => {
+      const normalized = method.trim().toUpperCase();
+      if (normalized) {
+        allowedMethods.add(normalized);
+      }
+    });
+    headers.set('Access-Control-Allow-Methods', Array.from(allowedMethods).join(','));
+  } else {
+    headers.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  }
+
+  headers.set('Vary', 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers');
+  headers.set('Content-Length', '0');
+  headers.delete('Content-Type');
+
   return new Response(null, {
     status: 204,
-    headers: buildHeaders({ 'Content-Length': '0' }),
+    headers,
   });
 }

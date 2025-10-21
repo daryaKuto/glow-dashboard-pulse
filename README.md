@@ -2,6 +2,12 @@
 
 A modern React dashboard application for managing shooting range scenarios, targets, and rooms with real-time telemetry integration via ThingsBoard IoT platform.
 
+## 🔄 Telemetry Strategy
+
+- **Dashboards & rooms** refresh from Supabase edge caches on a ≤10 s SLA using adaptive polling with exponential backoff.
+- **Live game sessions** target a ≤1 s SLA: the client upgrades to a dedicated Supabase `device-telemetry` edge WebSocket bridge during active play and falls back to polling otherwise.
+- Heartbeat and slow-cycle logging provide early warnings if either SLA is breached.
+
 ## 🚀 Features
 
 ### Core Functionality

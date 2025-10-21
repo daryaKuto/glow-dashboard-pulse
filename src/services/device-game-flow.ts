@@ -1,5 +1,5 @@
-import api from '@/lib/tbClient';
-import { openTelemetryWS, updateSharedAttributes } from '@/services/thingsboard';
+import { fetchGameControlDevices, invokeGameControl, type GameControlDevice } from '@/lib/edge';
+import { subscribeToGameTelemetry, type TelemetryEnvelope } from '@/services/gameTelemetry';
 
 // Device Game Flow Types based on DeviceManagement.md
 export interface DeviceGameEvent {
@@ -12,16 +12,6 @@ export interface DeviceGameEvent {
     wifiStrength?: number;
     ambientLight?: 'good' | 'average' | 'poor';
     hitCount?: number;
-  };
-}
-
-export interface DeviceGameCommand {
-  ts: number;
-  values: {
-    deviceId: string;
-    event: 'configure' | 'start' | 'stop' | 'info';
-    gameId?: string;
-    gameDuration?: number;
   };
 }
 
@@ -81,7 +71,7 @@ export interface GameHistory {
 class DeviceGameFlowService {
   private activeSessions: Map<string, GameSession> = new Map();
   private deviceStatuses: Map<string, DeviceStatus> = new Map();
-  private telemetrySubscriptions: Map<string, WebSocket> = new Map();
+  private telemetrySubscriptions: Map<string, () => void> = new Map();
   private eventCallbacks: Map<string, (event: DeviceGameEvent) => void> = new Map();
 
   seedDeviceStatuses(deviceStatuses: DeviceStatus[]): void {
@@ -102,59 +92,39 @@ class DeviceGameFlowService {
     gameId: string, 
     gameDuration: number
   ): Promise<{ success: string[], failed: string[] }> {
+    console.log(`🎮 Preparing ${deviceIds.length} devices for game ${gameId} (${gameDuration} min)`);
     const results = { success: [] as string[], failed: [] as string[] };
-    const timestamp = Math.floor(Date.now() / 1000);
 
-    console.log(`🎮 Configuring ${deviceIds.length} devices for game ${gameId} (${gameDuration} min)`);
+    try {
+      const { devices } = await fetchGameControlDevices();
+      const deviceMap = new Map<string, GameControlDevice>(devices.map((device) => [device.deviceId, device]));
+      const now = Date.now();
 
-    for (const deviceId of deviceIds) {
-      try {
-        const command = {
-          method: 'configure',
-          params: {
-            ts: timestamp,
-            values: {
-              deviceId,
-              event: 'configure',
-              gameId,
-              gameDuration
-            }
-          }
-        };
-
-        try {
-          await updateSharedAttributes(deviceId, {
-            gameId,
-            status: 'busy',
-          });
-        } catch (attrError) {
-          console.warn(`⚠️ Failed to update shared attributes for device ${deviceId}`, attrError);
+      deviceIds.forEach((deviceId) => {
+        const device = deviceMap.get(deviceId);
+        if (!device || !device.isOnline) {
+          results.failed.push(deviceId);
+          return;
         }
 
-        // Send RPC command to device according to documentation
-        const response = await api.post(`/rpc/twoway/${deviceId}`, command);
-
-        console.log(`✅ Configure command sent to device ${deviceId}:`, response.data);
-        results.success.push(deviceId);
-
-        // Store expected device response for validation
         const existingStatus = this.deviceStatuses.get(deviceId);
         this.deviceStatuses.set(deviceId, {
           deviceId,
-          name: existingStatus?.name ?? `Device ${deviceId}`,
+          name: device.name ?? existingStatus?.name ?? `Device ${deviceId}`,
           gameStatus: 'idle',
-          wifiStrength: existingStatus?.wifiStrength ?? 0,
-          ambientLight: existingStatus?.ambientLight ?? 'good',
-          hitCount: 0,
-          lastSeen: Date.now(),
+          wifiStrength: device.wifiStrength ?? existingStatus?.wifiStrength ?? 0,
+          ambientLight: (device.ambientLight as DeviceStatus['ambientLight']) ?? existingStatus?.ambientLight ?? 'good',
+          hitCount: device.hitCount ?? existingStatus?.hitCount ?? 0,
+          lastSeen: device.lastSeen ?? now,
           isOnline: true,
           hitTimes: existingStatus?.hitTimes ? [...existingStatus.hitTimes] : [],
         });
 
-      } catch (error) {
-        console.error(`❌ Failed to configure device ${deviceId}:`, error);
-        results.failed.push(deviceId);
-      }
+        results.success.push(deviceId);
+      });
+    } catch (error) {
+      console.error('❌ Failed to load device statuses from edge function:', error);
+      results.failed.push(...deviceIds);
     }
 
     console.log(`🎮 Configuration results: ${results.success.length} success, ${results.failed.length} failed`);
@@ -169,47 +139,52 @@ class DeviceGameFlowService {
     deviceIds: string[], 
     gameId: string
   ): Promise<{ success: string[], failed: string[] }> {
-    const results = { success: [] as string[], failed: [] as string[] };
-    const timestamp = Math.floor(Date.now() / 1000);
-
     console.log(`🚀 Starting game ${gameId} on ${deviceIds.length} devices`);
+    const results = { success: [] as string[], failed: [] as string[] };
+    const now = Date.now();
 
-    for (const deviceId of deviceIds) {
-      try {
-        const command = {
-          method: 'start',
-          params: {
-            ts: timestamp,
-            values: {
-              deviceId,
-              event: 'start',
-              gameId
+    try {
+      const response = await invokeGameControl('start', { deviceIds, gameId });
+      const commandResults = response.results ?? [];
+
+      if (commandResults.length > 0) {
+        commandResults.forEach((commandResult) => {
+          if (commandResult.success) {
+            results.success.push(commandResult.deviceId);
+            const deviceStatus = this.deviceStatuses.get(commandResult.deviceId);
+            if (deviceStatus) {
+              this.deviceStatuses.set(commandResult.deviceId, {
+                ...deviceStatus,
+                gameStatus: 'start',
+                hitCount: 0,
+                lastSeen: now,
+                hitTimes: [],
+              });
             }
+          } else {
+            results.failed.push(commandResult.deviceId);
           }
-        };
-
-        // Send RPC command to device according to documentation
-        const response = await api.post(`/rpc/twoway/${deviceId}`, command);
-
-        console.log(`✅ Start command sent to device ${deviceId}:`, response.data);
-        results.success.push(deviceId);
-
-        // Update device status to starting
-        const deviceStatus = this.deviceStatuses.get(deviceId);
-        if (deviceStatus) {
-          this.deviceStatuses.set(deviceId, {
-            ...deviceStatus,
-            gameStatus: 'start',
-            hitCount: 0,
-            lastSeen: Date.now(),
-            hitTimes: [],
-          });
-        }
-
-      } catch (error) {
-        console.error(`❌ Failed to start game on device ${deviceId}:`, error);
-        results.failed.push(deviceId);
+        });
+      } else if ((response.failureCount ?? 0) > 0) {
+        results.failed.push(...deviceIds);
+      } else {
+        results.success.push(...deviceIds);
+        deviceIds.forEach((deviceId) => {
+          const deviceStatus = this.deviceStatuses.get(deviceId);
+          if (deviceStatus) {
+            this.deviceStatuses.set(deviceId, {
+              ...deviceStatus,
+              gameStatus: 'start',
+              hitCount: 0,
+              lastSeen: now,
+              hitTimes: [],
+            });
+          }
+        });
       }
+    } catch (error) {
+      console.error('❌ Failed to start game via edge function:', error);
+      results.failed.push(...deviceIds);
     }
 
     console.log(`🚀 Start results: ${results.success.length} success, ${results.failed.length} failed`);
@@ -224,39 +199,46 @@ class DeviceGameFlowService {
     gameId: string
   ): Promise<{ success: string[], failed: string[] }> {
     const results = { success: [] as string[], failed: [] as string[] };
-    const timestamp = Math.floor(Date.now() / 1000);
+    const now = Date.now();
 
-    for (const deviceId of deviceIds) {
-      try {
-        const command: DeviceGameCommand = {
-          ts: timestamp,
-          values: {
-            deviceId,
-            event: 'stop',
-            gameId
+    try {
+      const response = await invokeGameControl('stop', { deviceIds, gameId });
+      const commandResults = response.results ?? [];
+
+      if (commandResults.length > 0) {
+        commandResults.forEach((commandResult) => {
+          if (commandResult.success) {
+            results.success.push(commandResult.deviceId);
+            const deviceStatus = this.deviceStatuses.get(commandResult.deviceId);
+            if (deviceStatus) {
+              this.deviceStatuses.set(commandResult.deviceId, {
+                ...deviceStatus,
+                gameStatus: 'stop',
+                lastSeen: now,
+              });
+            }
+          } else {
+            results.failed.push(commandResult.deviceId);
           }
-        };
-
-        // Send RPC command to device
-        await api.post(`/api/rpc/twoway/${deviceId}`, {
-          method: 'stop',
-          params: command
         });
-
-        console.log(`Stop command sent to device ${deviceId}`);
-        results.success.push(deviceId);
-
-        try {
-          await updateSharedAttributes(deviceId, {
-            status: 'free',
-          });
-        } catch (attrError) {
-          console.warn(`⚠️ Failed to clear shared attributes for device ${deviceId}`, attrError);
-        }
-      } catch (error) {
-        console.error(`Failed to stop game on device ${deviceId}:`, error);
-        results.failed.push(deviceId);
+      } else if ((response.failureCount ?? 0) > 0) {
+        results.failed.push(...deviceIds);
+      } else {
+        results.success.push(...deviceIds);
+        deviceIds.forEach((deviceId) => {
+          const deviceStatus = this.deviceStatuses.get(deviceId);
+          if (deviceStatus) {
+            this.deviceStatuses.set(deviceId, {
+              ...deviceStatus,
+              gameStatus: 'stop',
+              lastSeen: now,
+            });
+          }
+        });
       }
+    } catch (error) {
+      console.error('❌ Failed to stop game via edge function:', error);
+      results.failed.push(...deviceIds);
     }
 
     return results;
@@ -267,29 +249,34 @@ class DeviceGameFlowService {
    * According to DeviceManagement.md: Periodic Info Request (While Game is Active)
    */
   async requestDeviceInfo(deviceIds: string[], gameId?: string): Promise<void> {
-    const timestamp = Math.floor(Date.now() / 1000);
+    try {
+      const { devices } = await fetchGameControlDevices();
+      const deviceMap = new Map<string, GameControlDevice>(devices.map((device) => [device.deviceId, device]));
+      const now = Date.now();
 
-    for (const deviceId of deviceIds) {
-      try {
-        const command = {
-          method: 'info',
-          params: {
-            ts: timestamp,
-            values: {
-              deviceId,
-              event: 'info',
-              gameId
-            }
-          }
-        };
+      deviceIds.forEach((deviceId) => {
+        const snapshot = deviceMap.get(deviceId);
+        if (!snapshot) {
+          return;
+        }
 
-        // Send RPC command to device according to documentation
-        const response = await api.post(`/rpc/twoway/${deviceId}`, command);
+        const status = this.deviceStatuses.get(deviceId);
+        if (!status) {
+          return;
+        }
 
-        console.log(`📡 Info request sent to device ${deviceId}:`, response.data);
-      } catch (error) {
-        console.error(`❌ Failed to request info from device ${deviceId}:`, error);
-      }
+        this.deviceStatuses.set(deviceId, {
+          ...status,
+          wifiStrength: snapshot.wifiStrength ?? status.wifiStrength,
+          ambientLight: (snapshot.ambientLight as DeviceStatus['ambientLight']) ?? status.ambientLight,
+          hitCount: snapshot.hitCount ?? status.hitCount,
+          gameStatus: (snapshot.gameStatus as DeviceStatus['gameStatus']) ?? status.gameStatus,
+          lastSeen: snapshot.lastSeen ?? now,
+          isOnline: snapshot.isOnline,
+        });
+      });
+    } catch (error) {
+      console.error('❌ Failed to refresh device info from edge function:', error);
     }
   }
 
@@ -385,90 +372,46 @@ class DeviceGameFlowService {
     deviceId: string, 
     callback: (event: DeviceGameEvent) => void
   ): void {
-    const token = localStorage.getItem('tb_access');
-    if (!token) {
-      console.error('No access token available for telemetry subscription');
+    this.eventCallbacks.set(deviceId, callback);
+
+    if (this.telemetrySubscriptions.has(deviceId)) {
       return;
     }
 
-    // Store callback for this device
-    this.eventCallbacks.set(deviceId, callback);
+    const unsubscribe = subscribeToGameTelemetry([deviceId], (envelope: TelemetryEnvelope) => {
+      if (!envelope?.data) {
+        return;
+      }
 
-    // Create WebSocket connection if not exists
-    if (!this.telemetrySubscriptions.has(deviceId)) {
-      const ws = openTelemetryWS(token);
-      
-      ws.onopen = () => {
-        console.log(`WebSocket connected for device ${deviceId}`);
-        
-        // Subscribe to telemetry updates
-        const subscribeCmd = {
-          cmdId: Date.now(),
-          entityType: 'DEVICE',
-          entityId: deviceId,
-          scope: 'LATEST_TELEMETRY',
-          keys: 'ts,deviceId,event,gameId,gameStatus,wifiStrength,ambientLight,hitCount'
-        };
-        
-        ws.send(JSON.stringify(subscribeCmd));
+      const data = envelope.data as Record<string, unknown>;
+      const event: DeviceGameEvent = {
+        ts: Date.now(),
+        values: {
+          deviceId,
+          event: (data.event as DeviceGameEvent['values']['event']) ?? 'info',
+          gameId: typeof data.gameId === 'string' ? data.gameId : undefined,
+          gameStatus: typeof data.gameStatus === 'string' ? (data.gameStatus as DeviceGameEvent['values']['gameStatus']) : undefined,
+          wifiStrength: typeof data.wifiStrength === 'number' ? data.wifiStrength : undefined,
+          ambientLight: typeof data.ambientLight === 'string' ? (data.ambientLight as DeviceGameEvent['values']['ambientLight']) : undefined,
+          hitCount: typeof data.hits === 'number' ? data.hits : undefined,
+        },
       };
 
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log(`📨 WebSocket message received for ${deviceId}:`, data);
-          
-          if (data && data.data) {
-            // Parse telemetry data into DeviceGameEvent format according to DeviceManagement.md
-            const deviceEvent: DeviceGameEvent = {
-              ts: data.data.ts || Math.floor(Date.now() / 1000),
-              values: {
-                deviceId: data.data.deviceId || deviceId,
-                event: data.data.event || 'info',
-                gameId: data.data.gameId,
-                gameStatus: data.data.gameStatus,
-                wifiStrength: data.data.wifiStrength,
-                ambientLight: data.data.ambientLight,
-                hitCount: data.data.hitCount
-              }
-            };
-            
-            console.log(`🎯 Parsed device event:`, deviceEvent);
-            
-            // Process the event internally
-            this.processDeviceEvent(deviceEvent);
-            
-            // Call the registered callback
-            const callback = this.eventCallbacks.get(deviceId);
-            if (callback) {
-              callback(deviceEvent);
-            }
-          }
-        } catch (error) {
-          console.error('Failed to parse WebSocket message:', error);
-        }
-      };
+      this.processDeviceEvent(event);
+      const registered = this.eventCallbacks.get(deviceId);
+      registered?.(event);
+    }, { realtime: true });
 
-      ws.onerror = (error) => {
-        console.error(`WebSocket error for device ${deviceId}:`, error);
-      };
-
-      ws.onclose = () => {
-        console.log(`WebSocket connection closed for device ${deviceId}`);
-        this.telemetrySubscriptions.delete(deviceId);
-      };
-
-      this.telemetrySubscriptions.set(deviceId, ws);
-    }
+    this.telemetrySubscriptions.set(deviceId, unsubscribe);
   }
 
   /**
    * Unsubscribe from device events
    */
   unsubscribeFromDeviceEvents(deviceId: string): void {
-    const ws = this.telemetrySubscriptions.get(deviceId);
-    if (ws) {
-      ws.close();
+    const unsubscribe = this.telemetrySubscriptions.get(deviceId);
+    if (unsubscribe) {
+      unsubscribe();
       this.telemetrySubscriptions.delete(deviceId);
     }
     this.eventCallbacks.delete(deviceId);

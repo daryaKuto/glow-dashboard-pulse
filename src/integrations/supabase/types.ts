@@ -74,6 +74,59 @@ export type Database = {
           updated_at?: string
         }
       }
+      games: {
+        Row: {
+          id: string
+          slug: string
+          name: string
+          description: string | null
+          category: string | null
+          target_count: number
+          shots_per_target: number
+          time_limit_ms: number
+          difficulty: string | null
+          is_active: boolean
+          is_public: boolean
+          created_at: string | null
+          updated_at: string | null
+          thingsboard_config: Json | null
+          rules: Json | null
+        }
+        Insert: {
+          id?: string
+          slug: string
+          name: string
+          description?: string | null
+          category?: string | null
+          target_count?: number
+          shots_per_target?: number
+          time_limit_ms?: number
+          difficulty?: string | null
+          is_active?: boolean
+          is_public?: boolean
+          created_at?: string | null
+          updated_at?: string | null
+          thingsboard_config?: Json | null
+          rules?: Json | null
+        }
+        Update: {
+          id?: string
+          slug?: string
+          name?: string
+          description?: string | null
+          category?: string | null
+          target_count?: number
+          shots_per_target?: number
+          time_limit_ms?: number
+          difficulty?: string | null
+          is_active?: boolean
+          is_public?: boolean
+          created_at?: string | null
+          updated_at?: string | null
+          thingsboard_config?: Json | null
+          rules?: Json | null
+        }
+      }
       user_settings: {
         Row: {
           id: string

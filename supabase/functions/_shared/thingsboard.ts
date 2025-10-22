@@ -7,10 +7,10 @@ const TB_BASE_URL = Deno.env.get('THINGSBOARD_URL') ?? 'https://thingsboard.clou
 const TB_USERNAME = Deno.env.get('THINGSBOARD_USERNAME');
 const TB_PASSWORD = Deno.env.get('THINGSBOARD_PASSWORD');
 
-let cachedToken: { value: string; expiresAt: number } | undefined;
+let cachedToken: { value: string; expiresAt: number; issuedAt: number } | undefined;
 
-async function ensureToken(): Promise<string> {
-  if (cachedToken && Date.now() < cachedToken.expiresAt) {
+async function ensureToken(force = false): Promise<string> {
+  if (!force && cachedToken && Date.now() < cachedToken.expiresAt) {
     return cachedToken.value;
   }
 
@@ -29,9 +29,11 @@ async function ensureToken(): Promise<string> {
   }
 
   const data = (await res.json()) as TbAuthResponse;
+  const issuedAt = Date.now();
   cachedToken = {
     value: data.token,
-    expiresAt: Date.now() + 50 * 60 * 1000 // 50 minutes
+    issuedAt,
+    expiresAt: issuedAt + 50 * 60 * 1000 // 50 minutes
   };
   return data.token;
 }
@@ -78,24 +80,39 @@ export async function getBatchTelemetry(
     return [];
   }
 
-  const res = await tbFetch('/api/plugins/telemetry/DEVICE/values/timeseries', {
-    method: 'POST',
-    body: JSON.stringify({ deviceIds, keys, limit }),
-  });
+  const chunkSize = 10;
+  const aggregated: Array<{ deviceId: string; telemetry: Record<string, any> }> = [];
+  const errors: Array<{ deviceId: string; error: unknown }> = [];
 
-  if (!res.ok) {
-    throw new Error(`Failed to fetch batch telemetry: ${res.status}`);
+  for (let index = 0; index < deviceIds.length; index += chunkSize) {
+    const chunk = deviceIds.slice(index, index + chunkSize);
+    const results = await Promise.all(
+      chunk.map(async (deviceId) => {
+        try {
+          const telemetry = await getDeviceTelemetry(deviceId, keys, limit);
+          return { deviceId, telemetry };
+        } catch (error) {
+          errors.push({ deviceId, error });
+          return null;
+        }
+      }),
+    );
+
+    for (const result of results) {
+      if (result) {
+        aggregated.push(result);
+      }
+    }
   }
 
-  const data = await res.json();
-  if (!Array.isArray(data)) {
-    return [];
+  if (errors.length === deviceIds.length) {
+    const sample = errors[0];
+    const message =
+      sample?.error instanceof Error ? sample.error.message : JSON.stringify(sample?.error);
+    throw new Error(`Failed to fetch batch telemetry: ${message}`);
   }
 
-  return data.map((item) => ({
-    deviceId: String(item.deviceId ?? item.id ?? ''),
-    telemetry: item.telemetry ?? {},
-  }));
+  return aggregated;
 }
 
 export async function getHistoricalTelemetry(
@@ -209,6 +226,34 @@ export async function sendOneWayRpc(
   return res;
 }
 
+// Issues a ThingsBoard two-way RPC and returns the parsed response payload so callers can consume device info packets.
+export async function sendTwoWayRpc<T = unknown>(
+  deviceId: string,
+  method: string,
+  params: Record<string, unknown>,
+): Promise<T> {
+  const res = await tbFetch(`/api/rpc/twoway/${deviceId}`, {
+    method: 'POST',
+    body: JSON.stringify({ method, params }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Failed to send two-way RPC ${method} to ${deviceId}: ${res.status} ${res.statusText} ${detail}`);
+  }
+
+  const text = await res.text();
+  if (!text) {
+    return undefined as T;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch (_error) {
+    return text as unknown as T;
+  }
+}
+
 export async function sendDeviceTelemetry(
   deviceId: string,
   telemetry: Record<string, unknown>,
@@ -239,4 +284,26 @@ export async function loginWithCredentials(
   }
 
   return res.json() as Promise<TbAuthResponse>;
+}
+
+export async function getTokenWithExpiry(options: { force?: boolean } = {}): Promise<{
+  token: string;
+  expiresAt: number;
+  issuedAt: number;
+  expiresIn: number;
+}> {
+  const token = await ensureToken(options.force ?? false);
+  const issuedAt = cachedToken?.issuedAt ?? Date.now();
+  const expiresAt = cachedToken?.expiresAt ?? (issuedAt + 50 * 60 * 1000);
+  const expiresIn = Math.max(0, expiresAt - Date.now());
+  return {
+    token,
+    issuedAt,
+    expiresAt,
+    expiresIn,
+  };
+}
+
+export function invalidateTokenCache(): void {
+  cachedToken = undefined;
 }

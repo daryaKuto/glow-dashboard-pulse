@@ -124,7 +124,7 @@ export const useHistoricalActivity = (
 
     try {
       // Get online targets only
-      const onlineTargets = targets.filter(target => target.status === 'online');
+      const onlineTargets = targets.filter(target => target.status === 'online' || target.status === 'standby');
       
       if (onlineTargets.length === 0) {
         setHistoricalData([]);

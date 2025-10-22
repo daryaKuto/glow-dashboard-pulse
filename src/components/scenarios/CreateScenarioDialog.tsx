@@ -16,7 +16,7 @@ import { useRooms } from '@/store/useRooms';
 interface CreateScenarioDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreateScenario: (scenarioData: { scenarioId: number; roomIds: number[] }) => void;
+  onCreateScenario: (scenarioData: { scenarioId: string; roomIds: string[] }) => void;
 }
 
 const CreateScenarioDialog: React.FC<CreateScenarioDialogProps> = ({ 
@@ -24,17 +24,17 @@ const CreateScenarioDialog: React.FC<CreateScenarioDialogProps> = ({
   onOpenChange, 
   onCreateScenario 
 }) => {
-  const [selectedScenario, setSelectedScenario] = React.useState<number | null>(null);
-  const [selectedRooms, setSelectedRooms] = React.useState<number[]>([]);
+  const [selectedScenario, setSelectedScenario] = React.useState<string | null>(null);
+  const [selectedRooms, setSelectedRooms] = React.useState<string[]>([]);
   const { scenarios, fetchScenarios } = useScenarios();
   const { rooms, fetchRooms } = useRooms();
   
   useEffect(() => {
-    fetchScenarios();
-    fetchRooms();
+    void fetchScenarios();
+    void fetchRooms();
   }, [fetchScenarios, fetchRooms]);
   
-  const toggleRoomSelection = (roomId: number) => {
+  const toggleRoomSelection = (roomId: string) => {
     setSelectedRooms(prev => 
       prev.includes(roomId) 
         ? prev.filter(id => id !== roomId)

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { ensureThingsboardSession, invalidateThingsboardSessionCache } from '@/lib/edge';
 import supabaseAuthService from '@/services/supabase-auth';
 import { saveThingsBoardCredentials } from '@/services/profile';
 import { performCompleteLogout } from '@/utils/logout';
@@ -42,22 +43,28 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.error('[AuthProvider] Session error:', error);
         setUser(null);
         setSession(null);
+        invalidateThingsboardSessionCache();
         setLoading(false);
         return;
       }
-      
+
       if (session?.user) {
         setUser(session.user);
         setSession(session);
         console.log('[Auth] Authenticated as', session.user.email);
+        void ensureThingsboardSession().catch((tbError) => {
+          console.warn('[AuthProvider] Prefetch ThingsBoard session failed (non-blocking):', tbError);
+        });
       } else {
         setUser(null);
         setSession(null);
+        invalidateThingsboardSessionCache();
       }
     } catch (error) {
       console.error('[AuthProvider] Session check error:', error);
       setUser(null);
       setSession(null);
+      invalidateThingsboardSessionCache();
     } finally {
       setLoading(false);
     }
@@ -85,6 +92,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       
       // Clear all application state using comprehensive logout utility
       performCompleteLogout();
+      invalidateThingsboardSessionCache();
       // Clear local auth state
       setUser(null);
       setSession(null);
@@ -97,6 +105,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.error('[AuthProvider] Sign out error:', error);
       // Even if there's an error, clear everything
       performCompleteLogout();
+      invalidateThingsboardSessionCache();
       setUser(null);
       setSession(null);
       window.location.href = '/login';
@@ -132,6 +141,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           console.warn('[AuthProvider] ThingsBoard authentication failed (non-blocking):', tbError);
           // Don't block login if ThingsBoard fails
         }
+
+        void ensureThingsboardSession().catch((tbError) => {
+          console.warn('[AuthProvider] Unable to obtain ThingsBoard session token after login (non-blocking):', tbError);
+        });
       }
       const emailForLog = result.user?.email ?? email;
       if (emailForLog) {

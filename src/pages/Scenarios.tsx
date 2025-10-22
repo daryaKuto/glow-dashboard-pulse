@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,26 +10,31 @@ import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { GAMES, type GameTemplate } from '@/data/games';
+import type { GameTemplate } from '@/types/game';
 import { useScenarioRun } from '@/store/useScenarioRun';
+import { useScenarios } from '@/store/useScenarios';
 import { useRooms } from '@/store/useRooms';
 import { useGameFlow } from '@/store/useGameFlow';
 import { toast } from '@/components/ui/sonner';
-import API from '@/lib/api';
 import { useScenarioLiveData } from '@/hooks/useScenarioLiveData';
 import GameFlowDashboard from '@/components/game-flow/GameFlowDashboard';
 import GameHistory from '@/components/game-flow/GameHistory';
 // Removed mock data import - using real data only
 import type { Target } from '@/store/useTargets';
-import { DeviceStatus } from '@/services/device-game-flow';
+import { useTargets } from '@/store/useTargets';
+import { useGameDevices } from '@/hooks/useGameDevices';
 
 const Scenarios: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-  const { rooms: storeRooms, fetchRooms, getRoomTargets } = useRooms();
+  const { rooms: storeRooms, fetchRooms } = useRooms();
   const { active, current, error, start, stop, progress, timeRemaining, currentSession } = useScenarioRun();
-  const { devices: gameFlowDevices, initializeDevices } = useGameFlow();
+  const { devices: gameFlowDevices, initializeDevices, selectDevices: setGameFlowSelectedDevices } = useGameFlow();
+  const scenarios = useScenarios((state) => state.scenarios);
+  const fetchScenarios = useScenarios((state) => state.fetchScenarios);
+  const scenariosLoading = useScenarios((state) => state.isLoading);
+  const scenariosError = useScenarios((state) => state.error);
   
   // Demo mode removed - using live data only
   const [activeTab, setActiveTab] = useState<'scenarios' | 'game-flow' | 'history'>('scenarios');
@@ -37,10 +42,8 @@ const Scenarios: React.FC = () => {
 
   // Use live data only
   const rooms = storeRooms;
-  const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
-  const [availableTargets, setAvailableTargets] = useState<Target[]>([]);
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
-  const [loadingTargets, setLoadingTargets] = useState(false);
   const [showCountdown, setShowCountdown] = useState(false);
   const [pendingGame, setPendingGame] = useState<GameTemplate | null>(null);
   const [countdownState, setCountdownState] = useState<{
@@ -53,21 +56,104 @@ const Scenarios: React.FC = () => {
     message: 'Get Ready'
   });
 
-  // Convert targets to device statuses for game flow
-  const convertTargetsToDevices = (targets: Target[]): DeviceStatus[] => {
-    return targets.map(target => ({
-      deviceId: typeof target.id === 'string' ? target.id : (target.id as { id: string })?.id || String(target.id),
-      name: target.name,
-      gameStatus: 'idle' as const,
-      wifiStrength: target.status === 'online' ? 85 : 0,
-      ambientLight: 'good' as const,
-      hitCount: 0,
-      lastSeen: target.status === 'online' ? Date.now() : 0,
-      isOnline: target.status === 'online'
-    }));
-  };
+  const { devices: liveDevices, isLoading: isLoadingGameDevices } = useGameDevices();
+  const targetsStore = useTargets((state) => state.targets);
+  const targetsLoading = useTargets((state) => state.isLoading);
+  const refreshTargets = useTargets((state) => state.refresh);
+  const activeScenarios = useMemo(() => {
+    return [...scenarios]
+      .filter((scenario) => scenario.isActive && scenario.isPublic)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [scenarios]);
 
-  const availableDevices = convertTargetsToDevices(availableTargets);
+  useEffect(() => {
+    if (targetsStore.length === 0) {
+      void refreshTargets().catch((err) => {
+        console.warn('Failed to refresh ThingsBoard targets via store', err);
+      });
+    }
+  }, [targetsStore, refreshTargets]);
+
+  useEffect(() => {
+    if (liveDevices.length === 0) {
+      return;
+    }
+    void initializeDevices(liveDevices);
+  }, [initializeDevices, liveDevices]);
+
+  useEffect(() => {
+    void fetchScenarios();
+  }, [fetchScenarios]);
+
+  const targetMetaById = useMemo(() => {
+    const map = new Map<string, Target>();
+    targetsStore.forEach((target) => {
+      const key = typeof target.id === 'string'
+        ? target.id
+        : String((target.id as { id?: string })?.id ?? target.id);
+      map.set(key, target);
+    });
+    return map;
+  }, [targetsStore]);
+
+  const normalizedTargets = useMemo(() => {
+    if (liveDevices.length === 0) {
+      return targetsStore;
+    }
+
+    return liveDevices.map((device) => {
+      const meta = targetMetaById.get(device.deviceId);
+      const status: Target['status'] = device.isOnline
+        ? (device.gameStatus === 'start' ? 'online' : 'standby')
+        : 'offline';
+
+      return {
+        id: device.deviceId,
+        name: meta?.name ?? device.name ?? `Target ${device.deviceId}`,
+        status,
+        wifiStrength: device.wifiStrength,
+        roomId: meta?.roomId ?? null,
+        telemetry: meta?.telemetry ?? {},
+        telemetryHistory: meta?.telemetryHistory ?? {},
+        lastEvent: meta?.lastEvent ?? device.raw.lastEvent ?? null,
+        lastGameId: meta?.lastGameId ?? device.gameId ?? null,
+        lastGameName: meta?.lastGameName ?? null,
+        lastHits: meta?.lastHits ?? null,
+        lastActivity: meta?.lastActivity ?? null,
+        lastActivityTime: meta?.lastActivityTime ?? null,
+        deviceName: meta?.deviceName ?? device.name ?? `Target ${device.deviceId}`,
+        deviceType: meta?.deviceType ?? device.raw?.deviceType ?? undefined,
+        gameStatus: device.gameStatus,
+        additionalInfo: meta?.additionalInfo ?? {},
+      } as Target;
+    });
+  }, [liveDevices, targetMetaById, targetsStore]);
+
+  const availableTargets = useMemo(() => {
+    if (selectedRoomId === null) {
+      return normalizedTargets;
+    }
+    return normalizedTargets.filter((target) => {
+      if (target.roomId === null || target.roomId === undefined) {
+        return false;
+      }
+      return String(target.roomId) === String(selectedRoomId);
+    });
+  }, [normalizedTargets, selectedRoomId]);
+
+  const availableDevices = liveDevices;
+  const loadingTargets = targetsLoading || isLoadingGameDevices;
+
+  useEffect(() => {
+    const availableIds = new Set(availableTargets.map((target) => target.id));
+    setSelectedTargets((prev) => {
+      const filtered = prev.filter((id) => availableIds.has(id));
+      if (filtered.length !== prev.length) {
+        setGameFlowSelectedDevices(filtered);
+      }
+      return filtered;
+    });
+  }, [availableTargets, setGameFlowSelectedDevices]);
 
   // Debug logging
   console.log('🔍 Scenarios page state:', {
@@ -166,70 +252,6 @@ const Scenarios: React.FC = () => {
     fetchRooms();
   }, [fetchRooms]);
 
-  // Load targets - using live data only
-  useEffect(() => {
-    const loadTargets = async () => {
-      setLoadingTargets(true);
-      try {
-        // Live mode - use real ThingsBoard data
-        console.log('🔄 Live mode: Loading all targets from ThingsBoard...');
-        const targets = await API.getTargets() as Target[];
-        setAvailableTargets(targets);
-        console.log(`✅ Live mode: Loaded ${targets.length} real targets from ThingsBoard`);
-      } catch (error) {
-        console.error('❌ Failed to load targets:', error);
-        setAvailableTargets([]);
-      } finally {
-        setLoadingTargets(false);
-      }
-    };
-
-    loadTargets();
-  }, []);
-
-  // Don't auto-select room - let user choose or see all targets
-  // React.useEffect(() => {
-  //   if (rooms.length > 0 && selectedRoomId === null) {
-  //     setSelectedRoomId(Number(rooms[0].id));
-  //   }
-  // }, [rooms, selectedRoomId]);
-
-  // Load targets when room is selected
-  useEffect(() => {
-    const loadRoomTargets = async () => {
-      if (selectedRoomId === null) {
-        // No room selected - show all targets
-        try {
-          const targets = await API.getTargets() as Target[];
-          setAvailableTargets(targets);
-        } catch (error) {
-          console.error('Failed to load all targets:', error);
-          setAvailableTargets([]);
-        }
-        return;
-      }
-      
-      setLoadingTargets(true);
-      try {
-        // Live mode - get targets from Supabase
-        console.log(`🔄 Live mode: Loading targets for room ${selectedRoomId} from Supabase...`);
-        const roomTargets = await getRoomTargets(selectedRoomId.toString());
-        setAvailableTargets(roomTargets);
-        console.log(`✅ Live mode: Loaded ${roomTargets.length} targets for room ${selectedRoomId}`);
-        
-        setSelectedTargets([]); // Clear selection when targets change
-      } catch (error) {
-        console.error('❌ Failed to load room targets:', error);
-        toast.error('Failed to load room targets');
-        setAvailableTargets([]);
-      } finally {
-        setLoadingTargets(false);
-      }
-    };
-
-    loadRoomTargets();
-  }, [selectedRoomId, getRoomTargets]);
-
   const handleTargetSelection = (targetId: string, checked: boolean) => {
     if (checked) {
       setSelectedTargets(prev => {
@@ -240,12 +262,14 @@ const Scenarios: React.FC = () => {
         }
         const newSelection = [...prev, targetId];
         console.log('Target selected:', targetId, 'Total selected:', newSelection.length, 'IDs:', newSelection);
+        setGameFlowSelectedDevices(newSelection);
         return newSelection;
       });
     } else {
       setSelectedTargets(prev => {
         const newSelection = prev.filter(id => id !== targetId);
         console.log('Target deselected:', targetId, 'Total selected:', newSelection.length, 'IDs:', newSelection);
+        setGameFlowSelectedDevices(newSelection);
         return newSelection;
       });
     }
@@ -265,11 +289,11 @@ const Scenarios: React.FC = () => {
     }
 
     const onlineSelectedTargets = availableTargets.filter(
-      t => selectedTargets.includes(t.id) && t.status === 'online'
+      t => selectedTargets.includes(t.id) && (t.status === 'online' || t.status === 'standby')
     );
 
     if (onlineSelectedTargets.length < gameTemplate.targetCount) {
-      toast.error(`${gameTemplate.targetCount} online targets required. Only ${onlineSelectedTargets.length} selected targets are online.`);
+      toast.error(`${gameTemplate.targetCount} online targets required. Only ${onlineSelectedTargets.length} selected targets are connected.`);
       return;
     }
 
@@ -312,11 +336,29 @@ const Scenarios: React.FC = () => {
       console.log('⚙️ Step 2: Configuring devices');
       toast.info('Configuring devices...');
       
-      const configSuccess = await configureDevices();
-      if (!configSuccess) {
-        toast.error('Failed to configure devices');
+      const configResult = await configureDevices();
+
+      if (configResult.warnings.length > 0) {
+        configResult.warnings.forEach(({ deviceId, warning }) => {
+          const target = availableTargets.find((t) => t.id === deviceId);
+          toast.warning(`Configure warning for ${target?.name ?? deviceId}`, {
+            description: warning,
+          });
+        });
+      }
+
+      if (!configResult.ok) {
+        if (configResult.failed.length > 0) {
+          configResult.failed.forEach((deviceId) => {
+            const target = availableTargets.find((t) => t.id === deviceId);
+            toast.error(`Failed to configure ${target?.name ?? deviceId}`);
+          });
+        } else {
+          toast.error('Failed to configure devices');
+        }
         return;
       }
+      toast.success(`Configured ${configResult.success.length} device${configResult.success.length === 1 ? '' : 's'}`);
       
       // Step 3: Wait for device responses and start countdown
       console.log('⏳ Step 3: Starting countdown');
@@ -390,7 +432,7 @@ const Scenarios: React.FC = () => {
 
     try {
       // Now actually start the game after countdown
-      await start(pendingGame, roomIdToUse!.toString(), selectedTargets);
+      await start(pendingGame, roomIdToUse!, selectedTargets);
       toast.success(`${pendingGame.name} game started!`);
     } catch (err) {
       toast.error('Failed to start scenario');
@@ -500,14 +542,14 @@ const Scenarios: React.FC = () => {
                   <div className="w-px h-8 sm:h-10 lg:h-12 bg-gray-200"></div>
                   <div className="text-center">
                     <div className="text-lg sm:text-xl lg:text-2xl font-heading font-bold text-brand-primary mb-1">
-                      {availableTargets.filter(t => t.status === 'online').length}
+                      {availableTargets.filter(t => t.status === 'online' || t.status === 'standby').length}
                     </div>
                     <div className="text-xs sm:text-sm text-brand-text/60 font-body">Online Targets</div>
                   </div>
                   <div className="w-px h-8 sm:h-10 lg:h-12 bg-gray-200"></div>
                   <div className="text-center">
                     <div className="text-lg sm:text-xl lg:text-2xl font-heading font-bold text-brand-primary mb-1">
-                      {GAMES.length}
+                      {activeScenarios.length}
                     </div>
                     <div className="text-xs sm:text-sm text-brand-text/60 font-body">Available Games</div>
                   </div>
@@ -560,8 +602,8 @@ const Scenarios: React.FC = () => {
                     <div className="space-y-2">
                       <div className="relative">
                         <select
-                          value={selectedRoomId || ''}
-                          onChange={(e) => setSelectedRoomId(e.target.value ? parseInt(e.target.value) : null)}
+                          value={selectedRoomId ?? ''}
+                          onChange={(e) => setSelectedRoomId(e.target.value || null)}
                           disabled={false}
                           className="w-full px-3 py-2 pr-8 rounded-lg font-body text-sm appearance-none transition-all duration-200 bg-brand-background border border-brand-secondary/20 text-brand-text cursor-pointer hover:border-brand-secondary focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary"
                         >
@@ -634,7 +676,7 @@ const Scenarios: React.FC = () => {
                       <>
                         <div className="space-y-2 max-h-48 overflow-y-auto">
                           {availableTargets.map(target => {
-                            const isOnline = target.status === 'online';
+                            const isOnline = target.status === 'online' || target.status === 'standby';
                             const isSelected = selectedTargets.includes(target.id);
                             
                             return (
@@ -679,7 +721,7 @@ const Scenarios: React.FC = () => {
                         </div>
                         
                         <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between text-xs text-brand-text/60 font-body">
-                          <span>{availableTargets.filter(t => t.status === 'online').length} online</span>
+                          <span>{availableTargets.filter(t => t.status === 'online' || t.status === 'standby').length} online</span>
                           <span>{selectedTargets.length} selected</span>
                         </div>
                       </>
@@ -695,7 +737,25 @@ const Scenarios: React.FC = () => {
                     Choose your room and targets, then click "Start Game" to begin.
                   </p>
                 </div>
-                {GAMES.map((template, index) => (
+                {scenariosError && (
+                  <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
+                    <AlertCircle className="h-4 w-4 text-red-600 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-700">Unable to load games</p>
+                      <p className="text-xs text-red-700/80 font-body">{scenariosError}</p>
+                    </div>
+                  </div>
+                )}
+                {scenariosLoading ? (
+                  <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-brand-text/70 font-body">
+                    Loading live games…
+                  </div>
+                ) : activeScenarios.length === 0 ? (
+                  <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-brand-text/70 font-body">
+                    No game templates available yet. Check back after new games are published in Supabase.
+                  </div>
+                ) : (
+                activeScenarios.map((template, index) => (
                   <div key={template.id} className={`bg-brand-surface rounded-xl p-4 lg:p-6 shadow-subtle border border-gray-100 hover:shadow-lg transition-all duration-300 ${index > 0 ? 'mt-4' : ''}`}>
                     
                     {/* Header - Compact */}

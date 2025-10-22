@@ -26,11 +26,11 @@ class ApiWrapper {
       deviceId: typeof target.id === 'string' ? target.id : (target.id as { id: string })?.id || String(target.id),
       name: target.name,
       gameStatus: 'idle',
-      wifiStrength: target.status === 'online' ? 85 : 0,
+      wifiStrength: (target.status === 'online' || target.status === 'standby') ? 85 : 0,
       ambientLight: 'good',
       hitCount: 0,
-      lastSeen: target.status === 'online' ? Date.now() : 0,
-      isOnline: target.status === 'online',
+      lastSeen: (target.status === 'online' || target.status === 'standby') ? Date.now() : 0,
+      isOnline: target.status === 'online' || target.status === 'standby',
       hitTimes: []
     }));
   }

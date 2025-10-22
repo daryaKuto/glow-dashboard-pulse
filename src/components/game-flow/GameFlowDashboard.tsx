@@ -89,10 +89,30 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
 
   // Handle device configuration
   const handleConfigureDevices = async () => {
-    const success = await configureDevices();
-    if (success) {
-      toast.success('Devices configured successfully');
+    const result = await configureDevices();
+
+    if (result.warnings.length > 0) {
+      result.warnings.forEach(({ deviceId, warning }) => {
+        const deviceName = devices.find(device => device.deviceId === deviceId)?.name ?? deviceId;
+        toast.warning(`Configure warning for ${deviceName}`, {
+          description: warning,
+        });
+      });
     }
+
+    if (!result.ok) {
+      if (result.failed.length > 0) {
+        result.failed.forEach((deviceId) => {
+          const deviceName = devices.find(device => device.deviceId === deviceId)?.name ?? deviceId;
+          toast.error(`Failed to configure ${deviceName}`);
+        });
+      } else {
+        toast.error('Failed to configure devices');
+      }
+      return;
+    }
+
+    toast.success(`Configured ${result.success.length} device${result.success.length === 1 ? '' : 's'} successfully`);
   };
 
   // Handle game start

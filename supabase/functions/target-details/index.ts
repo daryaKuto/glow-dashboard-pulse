@@ -269,10 +269,11 @@ Deno.serve(async (req) => {
     }
 
     let status: "online" | "standby" | "offline" = "standby";
-    if (timeSinceLastShot === null) {
-      status = "offline";
-    } else if (activityStatus === "active" || activityStatus === "recent") {
+    if (activityStatus === "active" || activityStatus === "recent") {
       status = "online";
+    } else if (timeSinceLastShot === null) {
+      const hasTelemetryValues = Object.keys(telemetry ?? {}).length > 0;
+      status = hasTelemetryValues ? "standby" : "offline";
     }
 
     const recentShotsCount = includeHistory

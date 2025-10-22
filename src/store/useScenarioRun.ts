@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { GameTemplate } from '@/data/games';
+import type { GameTemplate } from '@/types/game';
 import API from '@/lib/api';
 import { useRooms } from '@/store/useRooms';
 import { scenarioApiService } from '@/services/scenario-api';
@@ -40,7 +40,7 @@ export const useScenarioRun = create<RunState>((set, get) => ({
 
       if (selectedTargetIds && selectedTargetIds.length > 0) {
         // Use user-selected targets
-        selectedTargets = targets.filter(t => selectedTargetIds.includes(t.id) && t.status === 'online');
+        selectedTargets = targets.filter(t => selectedTargetIds.includes(t.id) && (t.status === 'online' || t.status === 'standby'));
         
         if (selectedTargets.length < tpl.targetCount) {
           return set({ 
@@ -49,7 +49,7 @@ export const useScenarioRun = create<RunState>((set, get) => ({
         }
       } else {
         // Fallback to auto-selection from room
-        const roomTgts = targets.filter(t => t.roomId === roomId && t.status === 'online');
+        const roomTgts = targets.filter(t => t.roomId === roomId && (t.status === 'online' || t.status === 'standby'));
         
         if (roomTgts.length < tpl.targetCount) {
           return set({ 
@@ -65,10 +65,11 @@ export const useScenarioRun = create<RunState>((set, get) => ({
       const startTime = Date.now();
 
       // Create session payload
+      const scenarioIdentifier = tpl.slug ?? tpl.id;
       const startPayload = {
         sessionId,
         scenarioConfig: {
-          id: tpl.id,
+          id: scenarioIdentifier,
           targetCount: tpl.targetCount,
           shotsPerTarget: tpl.shotsPerTarget,
           timeLimitMs: tpl.timeLimitMs
@@ -94,7 +95,7 @@ export const useScenarioRun = create<RunState>((set, get) => ({
       });
 
       // Execute scenario-specific logic (only for real API, mock handles this internally)
-      if (tpl.id === 'double-tap' && !get().useMockData) {
+      if (tpl.slug === 'double-tap' && !get().useMockData) {
         // Start the Double Tap sequence in the background
         scenarioApiService.executeDoubleTapScenario(
           sessionId, 

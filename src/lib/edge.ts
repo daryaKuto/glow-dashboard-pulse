@@ -49,6 +49,44 @@ export interface DashboardMetricsData {
   generatedAt: number;
 }
 
+export interface ThingsboardSession {
+  token: string;
+  issuedAt: number;
+  expiresAt: number;
+  expiresIn: number;
+}
+
+type ThingsboardSessionOptions = {
+  force?: boolean;
+  invalidate?: boolean;
+};
+
+const MIN_SESSION_BUFFER_MS = 60_000;
+
+let cachedThingsboardSession:
+  | {
+      session: ThingsboardSession;
+    }
+  | null = null;
+
+const getSupabaseAuthHeaders = async (): Promise<Record<string, string>> => {
+  const headers: Record<string, string> = {};
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+  } catch (sessionError) {
+    console.warn('[Edge] Unable to retrieve Supabase session before edge function call', sessionError);
+  }
+  return headers;
+};
+
+const isSessionFresh = (session: ThingsboardSession): boolean => {
+  return session.expiresAt - Date.now() > MIN_SESSION_BUFFER_MS;
+};
+
 const mapSummary = (summary?: TargetsSummaryPayload | null): TargetsSummary | null => {
   if (!summary) {
     return null;
@@ -71,8 +109,10 @@ interface RoomsFunctionResponse {
   cached?: boolean;
 }
 
-const sanitizeStatus = (status: unknown): 'online' | 'offline' => {
+const sanitizeStatus = (status: unknown): 'online' | 'standby' | 'offline' => {
   if (status === 'online') return 'online';
+  if (status === 'standby') return 'standby';
+  if (status === 'active') return 'online';
   return 'offline';
 };
 
@@ -160,16 +200,7 @@ export async function fetchTargetsSummary(force = false): Promise<{ summary: Tar
     payload.force = true;
   }
 
-  const headers: Record<string, string> = {};
-  try {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-  } catch (sessionError) {
-    console.warn('[Edge] Unable to retrieve Supabase session before summary fetch', sessionError);
-  }
+  const headers = await getSupabaseAuthHeaders();
 
   const { data, error } = await supabase.functions.invoke<TargetsFunctionResponse>('targets-with-telemetry', {
     method: 'POST',
@@ -198,6 +229,51 @@ export async function fetchTargetsSummary(force = false): Promise<{ summary: Tar
     summary,
     cached,
   };
+}
+
+export async function fetchThingsboardSession(options: ThingsboardSessionOptions = {}): Promise<ThingsboardSession> {
+  const headers = await getSupabaseAuthHeaders();
+  const method = options.invalidate || options.force ? 'POST' : 'GET';
+
+  const body =
+    method === 'POST'
+      ? {
+          force: Boolean(options.force),
+          invalidate: Boolean(options.invalidate),
+        }
+      : undefined;
+
+  const { data, error } = await supabase.functions.invoke<ThingsboardSession>('thingsboard-session', {
+    method,
+    body,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data || typeof data.token !== 'string') {
+    throw new Error('thingsboard-session did not return a token');
+  }
+
+  cachedThingsboardSession = {
+    session: data,
+  };
+
+  return data;
+}
+
+export async function ensureThingsboardSession(options: { force?: boolean } = {}): Promise<ThingsboardSession> {
+  if (!options.force && cachedThingsboardSession?.session && isSessionFresh(cachedThingsboardSession.session)) {
+    return cachedThingsboardSession.session;
+  }
+
+  return fetchThingsboardSession({ force: options.force });
+}
+
+export function invalidateThingsboardSessionCache(): void {
+  cachedThingsboardSession = null;
 }
 
 export interface EdgeRoom {
@@ -622,6 +698,7 @@ export interface GameControlDevice {
   lastEvent: string | null;
   lastSeen: number | null;
   gameStatus: string | null;
+  gameId: string | null;
 }
 
 interface GameControlStatusResponse {
@@ -634,17 +711,22 @@ export interface GameControlCommandResult {
   success: boolean;
   warning?: string;
   error?: string;
+  data?: Record<string, unknown> | null;
 }
 
 export interface GameControlCommandResponse {
-  action: 'start' | 'stop';
+  action: 'configure' | 'start' | 'stop' | 'info';
   gameId?: string | null;
+  gameDuration?: number | null;
+  configuredAt?: number;
   startedAt?: number;
   stoppedAt?: number;
+  infoAt?: number;
   deviceIds?: string[];
   successCount?: number;
   failureCount?: number;
   results?: GameControlCommandResult[];
+  warnings?: Array<{ deviceId: string; warning: string }>;
 }
 
 export async function fetchGameControlDevices(): Promise<{ devices: GameControlDevice[]; fetchedAt: number }> {
@@ -683,16 +765,22 @@ export async function fetchGameControlDevices(): Promise<{ devices: GameControlD
 }
 
 export async function invokeGameControl(
-  action: 'start' | 'stop',
-  payload: { deviceIds: string[]; gameId?: string | null },
+  action: 'configure' | 'start' | 'stop' | 'info',
+  payload: { deviceIds?: string[]; gameId?: string | null; gameDuration?: number | null },
 ): Promise<GameControlCommandResponse> {
   const body: Record<string, unknown> = {
     action,
-    deviceIds: payload.deviceIds,
   };
+
+  if (Array.isArray(payload.deviceIds)) {
+    body.deviceIds = payload.deviceIds;
+  }
 
   if (payload.gameId) {
     body.gameId = payload.gameId;
+  }
+  if (typeof payload.gameDuration === 'number') {
+    body.gameDuration = payload.gameDuration;
   }
 
   const headers: Record<string, string> = {};
@@ -728,4 +816,11 @@ export async function invokeGameControl(
   });
 
   return data;
+}
+
+// Invokes the ThingsBoard info RPC through game-control so the UI can refresh ambient telemetry without a full status fetch.
+export async function fetchGameControlInfo(
+  deviceIds: string[],
+): Promise<GameControlCommandResponse> {
+  return invokeGameControl('info', { deviceIds });
 }

@@ -1,4 +1,4 @@
-import { fetchGameControlDevices, invokeGameControl, type GameControlDevice } from '@/lib/edge';
+import { fetchGameControlDevices, fetchGameControlInfo, invokeGameControl, type GameControlDevice } from '@/lib/edge';
 import { subscribeToGameTelemetry, type TelemetryEnvelope } from '@/services/gameTelemetry';
 
 // Device Game Flow Types based on DeviceManagement.md
@@ -43,6 +43,11 @@ export interface GameHistory {
   duration: number;
   startTime: number;
   endTime: number;
+  score?: number | null;
+  accuracy?: number | null;
+  scenarioName?: string | null;
+  scenarioType?: string | null;
+  roomName?: string | null;
   deviceResults: Array<{
     deviceId: string;
     deviceName: string;
@@ -51,7 +56,7 @@ export interface GameHistory {
   // Detailed statistics
   totalHits: number;
   actualDuration: number; // Actual game duration in seconds
-  averageHitInterval: number;
+  averageHitInterval: number | null;
   targetStats: Array<{
     deviceId: string;
     deviceName: string;
@@ -65,8 +70,19 @@ export interface GameHistory {
     totalSwitches: number;
     averageSwitchTime: number;
     switchTimes: number[];
-  };
+  } | null;
 }
+
+export type GameCommandWarning = { deviceId: string; warning: string };
+
+type GameCommandSummary = {
+  success: string[];
+  failed: string[];
+  warnings: GameCommandWarning[];
+  startedAt?: number;
+  stoppedAt?: number;
+  gameId: string;
+};
 
 class DeviceGameFlowService {
   private activeSessions: Map<string, GameSession> = new Map();
@@ -91,9 +107,10 @@ class DeviceGameFlowService {
     deviceIds: string[], 
     gameId: string, 
     gameDuration: number
-  ): Promise<{ success: string[], failed: string[] }> {
+  ): Promise<{ success: string[], failed: string[]; warnings: GameCommandWarning[] }> {
     console.log(`🎮 Preparing ${deviceIds.length} devices for game ${gameId} (${gameDuration} min)`);
     const results = { success: [] as string[], failed: [] as string[] };
+    const warnings: GameCommandWarning[] = [];
 
     try {
       const { devices } = await fetchGameControlDevices();
@@ -127,8 +144,41 @@ class DeviceGameFlowService {
       results.failed.push(...deviceIds);
     }
 
-    console.log(`🎮 Configuration results: ${results.success.length} success, ${results.failed.length} failed`);
-    return results;
+    if (results.success.length > 0) {
+      try {
+        const response = await invokeGameControl('configure', {
+          deviceIds: results.success,
+          gameId,
+          gameDuration,
+        });
+
+        if (Array.isArray(response.results) && response.results.length > 0) {
+          response.results.forEach((commandResult) => {
+            if (!commandResult.success) {
+              if (!results.failed.includes(commandResult.deviceId)) {
+                results.failed.push(commandResult.deviceId);
+              }
+              results.success = results.success.filter((id) => id !== commandResult.deviceId);
+            }
+            if (commandResult.warning) {
+              const warningEntry: GameCommandWarning = { deviceId: commandResult.deviceId, warning: commandResult.warning };
+              warnings.push(warningEntry);
+              console.warn(`⚠️ configure RPC warning for ${commandResult.deviceId}: ${commandResult.warning}`);
+            }
+          });
+        } else if ((response.failureCount ?? 0) > 0) {
+          results.failed.push(...results.success);
+          results.success = [];
+        }
+      } catch (error) {
+        console.error('❌ Failed to configure devices via edge function:', error);
+        results.failed.push(...results.success);
+        results.success = [];
+      }
+    }
+
+    console.log(`🎮 Configuration results: ${results.success.length} success, ${results.failed.length} failed, ${warnings.length} warnings`);
+    return { ...results, warnings };
   }
 
   /**
@@ -138,10 +188,16 @@ class DeviceGameFlowService {
   async startGame(
     deviceIds: string[], 
     gameId: string
-  ): Promise<{ success: string[], failed: string[] }> {
+  ): Promise<GameCommandSummary> {
     console.log(`🚀 Starting game ${gameId} on ${deviceIds.length} devices`);
-    const results = { success: [] as string[], failed: [] as string[] };
     const now = Date.now();
+    const summary: GameCommandSummary = {
+      success: [],
+      failed: [],
+      warnings: [],
+      gameId,
+      startedAt: now,
+    };
 
     try {
       const response = await invokeGameControl('start', { deviceIds, gameId });
@@ -150,7 +206,7 @@ class DeviceGameFlowService {
       if (commandResults.length > 0) {
         commandResults.forEach((commandResult) => {
           if (commandResult.success) {
-            results.success.push(commandResult.deviceId);
+            summary.success.push(commandResult.deviceId);
             const deviceStatus = this.deviceStatuses.get(commandResult.deviceId);
             if (deviceStatus) {
               this.deviceStatuses.set(commandResult.deviceId, {
@@ -161,14 +217,17 @@ class DeviceGameFlowService {
                 hitTimes: [],
               });
             }
+            if (commandResult.warning) {
+              summary.warnings.push({ deviceId: commandResult.deviceId, warning: commandResult.warning });
+            }
           } else {
-            results.failed.push(commandResult.deviceId);
+            summary.failed.push(commandResult.deviceId);
           }
         });
       } else if ((response.failureCount ?? 0) > 0) {
-        results.failed.push(...deviceIds);
+        summary.failed.push(...deviceIds);
       } else {
-        results.success.push(...deviceIds);
+        summary.success.push(...deviceIds);
         deviceIds.forEach((deviceId) => {
           const deviceStatus = this.deviceStatuses.get(deviceId);
           if (deviceStatus) {
@@ -182,13 +241,24 @@ class DeviceGameFlowService {
           }
         });
       }
+
+      if (Array.isArray(response.warnings)) {
+        response.warnings.forEach((entry) => {
+          if (entry?.deviceId && entry.warning) {
+            summary.warnings.push({ deviceId: entry.deviceId, warning: entry.warning });
+          }
+        });
+      }
+
+      summary.startedAt = response.startedAt ?? now;
+      summary.gameId = response.gameId ?? gameId;
     } catch (error) {
       console.error('❌ Failed to start game via edge function:', error);
-      results.failed.push(...deviceIds);
+      summary.failed.push(...deviceIds);
     }
 
-    console.log(`🚀 Start results: ${results.success.length} success, ${results.failed.length} failed`);
-    return results;
+    console.log(`🚀 Start results: ${summary.success.length} success, ${summary.failed.length} failed`);
+    return summary;
   }
 
   /**
@@ -197,9 +267,15 @@ class DeviceGameFlowService {
   async stopGame(
     deviceIds: string[], 
     gameId: string
-  ): Promise<{ success: string[], failed: string[] }> {
-    const results = { success: [] as string[], failed: [] as string[] };
+  ): Promise<GameCommandSummary> {
     const now = Date.now();
+    const summary: GameCommandSummary = {
+      success: [],
+      failed: [],
+      warnings: [],
+      gameId,
+      stoppedAt: now,
+    };
 
     try {
       const response = await invokeGameControl('stop', { deviceIds, gameId });
@@ -208,7 +284,7 @@ class DeviceGameFlowService {
       if (commandResults.length > 0) {
         commandResults.forEach((commandResult) => {
           if (commandResult.success) {
-            results.success.push(commandResult.deviceId);
+            summary.success.push(commandResult.deviceId);
             const deviceStatus = this.deviceStatuses.get(commandResult.deviceId);
             if (deviceStatus) {
               this.deviceStatuses.set(commandResult.deviceId, {
@@ -217,14 +293,17 @@ class DeviceGameFlowService {
                 lastSeen: now,
               });
             }
+            if (commandResult.warning) {
+              summary.warnings.push({ deviceId: commandResult.deviceId, warning: commandResult.warning });
+            }
           } else {
-            results.failed.push(commandResult.deviceId);
+            summary.failed.push(commandResult.deviceId);
           }
         });
       } else if ((response.failureCount ?? 0) > 0) {
-        results.failed.push(...deviceIds);
+        summary.failed.push(...deviceIds);
       } else {
-        results.success.push(...deviceIds);
+        summary.success.push(...deviceIds);
         deviceIds.forEach((deviceId) => {
           const deviceStatus = this.deviceStatuses.get(deviceId);
           if (deviceStatus) {
@@ -236,12 +315,23 @@ class DeviceGameFlowService {
           }
         });
       }
+
+      if (Array.isArray(response.warnings)) {
+        response.warnings.forEach((entry) => {
+          if (entry?.deviceId && entry.warning) {
+            summary.warnings.push({ deviceId: entry.deviceId, warning: entry.warning });
+          }
+        });
+      }
+
+      summary.stoppedAt = response.stoppedAt ?? now;
+      summary.gameId = response.gameId ?? gameId;
     } catch (error) {
       console.error('❌ Failed to stop game via edge function:', error);
-      results.failed.push(...deviceIds);
+      summary.failed.push(...deviceIds);
     }
 
-    return results;
+    return summary;
   }
 
   /**
@@ -250,29 +340,86 @@ class DeviceGameFlowService {
    */
   async requestDeviceInfo(deviceIds: string[], gameId?: string): Promise<void> {
     try {
-      const { devices } = await fetchGameControlDevices();
-      const deviceMap = new Map<string, GameControlDevice>(devices.map((device) => [device.deviceId, device]));
-      const now = Date.now();
+      if (deviceIds.length === 0) {
+        return;
+      }
+      const response = await fetchGameControlInfo(deviceIds);
+      const infoAt = response.infoAt ?? Date.now();
+      const infoById = new Map<string, Record<string, unknown>>();
+
+      for (const result of response.results ?? []) {
+        if (result?.success) {
+          infoById.set(result.deviceId, (result.data ?? {}) as Record<string, unknown>);
+        }
+      }
+
+      if (infoById.size === 0) {
+        return;
+      }
 
       deviceIds.forEach((deviceId) => {
-        const snapshot = deviceMap.get(deviceId);
-        if (!snapshot) {
-          return;
-        }
-
         const status = this.deviceStatuses.get(deviceId);
         if (!status) {
           return;
         }
 
+        const info = infoById.get(deviceId);
+        if (!info) {
+          return;
+        }
+
+        let wifiStrength = status.wifiStrength;
+        if (typeof info.wifiStrength === 'number') {
+          wifiStrength = Math.max(0, Math.round(info.wifiStrength));
+        } else if (typeof info.wifiStrength === 'string') {
+          const numeric = Number(info.wifiStrength);
+          if (Number.isFinite(numeric)) {
+            wifiStrength = Math.max(0, Math.round(numeric));
+          }
+        }
+
+        let ambientLight = status.ambientLight;
+        if (typeof info.ambientLight === 'string') {
+          const light = info.ambientLight.toLowerCase();
+          if (light === 'good' || light === 'average' || light === 'poor') {
+            ambientLight = light as DeviceStatus['ambientLight'];
+          }
+        }
+
+        let gameStatus = status.gameStatus;
+        const statusSource = typeof info.gameStatus === 'string'
+          ? info.gameStatus
+          : typeof info.status === 'string'
+            ? info.status
+            : null;
+
+        if (statusSource) {
+          const lowered = statusSource.toLowerCase();
+          if (lowered === 'start' || lowered === 'busy') {
+            gameStatus = 'start';
+          } else if (lowered === 'stop') {
+            gameStatus = 'stop';
+          } else if (lowered === 'idle') {
+            gameStatus = 'idle';
+          }
+        }
+
+        const isOnline = typeof info.isOnline === 'boolean' ? info.isOnline : status.isOnline;
+        const lastSeen = typeof info.lastSeen === 'number' ? info.lastSeen : infoAt;
+        const hitCount = typeof info.hitCount === 'number'
+          ? info.hitCount
+          : typeof info.hits === 'number'
+            ? info.hits
+            : status.hitCount;
+
         this.deviceStatuses.set(deviceId, {
           ...status,
-          wifiStrength: snapshot.wifiStrength ?? status.wifiStrength,
-          ambientLight: (snapshot.ambientLight as DeviceStatus['ambientLight']) ?? status.ambientLight,
-          hitCount: snapshot.hitCount ?? status.hitCount,
-          gameStatus: (snapshot.gameStatus as DeviceStatus['gameStatus']) ?? status.gameStatus,
-          lastSeen: snapshot.lastSeen ?? now,
-          isOnline: snapshot.isOnline,
+          wifiStrength,
+          ambientLight,
+          hitCount: Number.isFinite(hitCount) ? hitCount : status.hitCount,
+          gameStatus,
+          lastSeen,
+          isOnline,
         });
       });
     } catch (error) {

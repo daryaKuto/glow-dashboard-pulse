@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -20,15 +20,21 @@ import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from '@/components/ui/sonner';
-import { subscribeToGameTelemetry, type TelemetryEnvelope } from '@/services/gameTelemetry';
 import type { DeviceStatus, GameHistory } from '@/services/device-game-flow';
+import { useGameDevices, type NormalizedGameDevice, DEVICE_ONLINE_STALE_THRESHOLD_MS } from '@/hooks/useGameDevices';
+import { fetchTargetDetails } from '@/lib/edge';
+import { useTargets, type Target } from '@/store/useTargets';
+import { useGameSession } from '@/hooks/useGameSession';
+import { useGameTelemetry } from '@/hooks/useGameTelemetry';
+import { useThingsboardToken } from '@/hooks/useThingsboardToken';
 import {
-  fetchGameControlDevices,
-  fetchTargetDetails,
-  invokeGameControl,
-  type GameControlDevice,
-} from '@/lib/edge';
-import type { Target } from '@/store/useTargets';
+  fetchGameHistory as fetchPersistedGameHistory,
+  saveGameHistory,
+  mapSummaryToGameHistory,
+  type GameHistorySummaryPayload,
+} from '@/services/game-history';
+import { useAuth } from '@/providers/AuthProvider';
+import { fetchRecentSessions, type RecentSession } from '@/services/profile';
 
 type GameStage = 'main-dashboard' | 'game-control';
 
@@ -41,81 +47,284 @@ type HitRecord = {
 
 const Games: React.FC = () => {
   const isMobile = useIsMobile();
+  const { user } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [currentStage, setCurrentStage] = useState<GameStage>('main-dashboard');
 
   const [gameHistory, setGameHistory] = useState<GameHistory[]>([]);
-  const [availableDevices, setAvailableDevices] = useState<DeviceStatus[]>([]);
-  const [loadingDevices, setLoadingDevices] = useState(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(true);
+  const { isLoading: loadingDevices, refresh: refreshGameDevices, pollInfo: pollGameControlInfo } =
+    useGameDevices({ immediate: false });
+  const targetsSnapshot = useTargets((state) => state.targets);
+  const targetsStoreLoading = useTargets((state) => state.isLoading);
+  const refreshTargets = useTargets((state) => state.refresh);
+  const [availableDevices, setAvailableDevices] = useState<NormalizedGameDevice[]>([]);
   const [totalShotsFromThingsBoard, setTotalShotsFromThingsBoard] = useState<number>(0);
   const [loadingTotalShots, setLoadingTotalShots] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isGameRunning, setIsGameRunning] = useState(false);
-  const [currentGameId, setCurrentGameId] = useState<string | null>(null);
-  const [isStartingGame, setIsStartingGame] = useState(false);
-  const [isStoppingGame, setIsStoppingGame] = useState(false);
   const [gameStartTime, setGameStartTime] = useState<number | null>(null);
   const [gameStopTime, setGameStopTime] = useState<number | null>(null);
   const [hitCounts, setHitCounts] = useState<Record<string, number>>({});
   const [hitHistory, setHitHistory] = useState<HitRecord[]>([]);
+  const [activeDeviceIds, setActiveDeviceIds] = useState<string[]>([]);
 
-  const telemetryUnsubscribeRef = useRef<(() => void) | null>(null);
   const currentGameDevicesRef = useRef<string[]>([]);
-  const availableDevicesRef = useRef<DeviceStatus[]>([]);
+  const availableDevicesRef = useRef<NormalizedGameDevice[]>([]);
+  // Centralised token manager so the Games page always has a fresh ThingsBoard JWT for sockets/RPCs.
+  const { session: tbSession, refresh: refreshThingsboardSession } = useThingsboardToken();
 
-  const mapEdgeDeviceToStatus = useCallback((device: GameControlDevice): DeviceStatus => {
-    const isOnline = Boolean(device.isOnline);
-    const rawGameStatus = (device.gameStatus ?? device.status ?? '').toString().toLowerCase();
+  const convertSessionToHistory = useCallback(
+    (session: RecentSession): GameHistory => {
+      const ensureNumber = (value: unknown): number | null => {
+        if (value === null || value === undefined) {
+          return null;
+        }
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : null;
+      };
 
-    let gameStatus: DeviceStatus['gameStatus'] = 'idle';
-    if (!isOnline) {
-      gameStatus = 'offline';
-    } else if (rawGameStatus === 'start' || rawGameStatus === 'busy') {
-      gameStatus = 'start';
-    } else if (rawGameStatus === 'stop') {
-      gameStatus = 'stop';
-    } else {
-      gameStatus = 'idle';
+      const ensureString = (value: unknown): string | null => {
+        if (typeof value === 'string' && value.trim().length > 0) {
+          return value;
+        }
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          return String(value);
+        }
+        return null;
+      };
+
+      const rawSummary = (session.thingsboardData ?? null) as Record<string, unknown> | null;
+      const getSummaryValue = (key: string): unknown =>
+        rawSummary && Object.prototype.hasOwnProperty.call(rawSummary, key)
+          ? (rawSummary as Record<string, unknown>)[key]
+          : undefined;
+
+      const startTimestamp = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
+      const durationMs = typeof session.duration === 'number' && Number.isFinite(session.duration) ? session.duration : 0;
+      const summaryStart = ensureNumber(getSummaryValue('startTime'));
+      const summaryEnd = ensureNumber(getSummaryValue('endTime'));
+
+      const fallbackEnd = session.endedAt
+        ? new Date(session.endedAt).getTime()
+        : summaryStart !== null && durationMs > 0
+          ? summaryStart + durationMs
+          : durationMs > 0
+            ? startTimestamp + durationMs
+            : startTimestamp;
+
+      const endTimestamp = summaryEnd ?? fallbackEnd;
+
+      const actualDurationSeconds =
+        ensureNumber(getSummaryValue('actualDuration')) ??
+        (durationMs > 0
+          ? Math.max(0, Math.round(durationMs / 1000))
+          : Math.max(0, Math.round((endTimestamp - (summaryStart ?? startTimestamp)) / 1000)));
+
+      const totalHits =
+        ensureNumber(getSummaryValue('totalHits')) ??
+        (typeof session.hitCount === 'number' && Number.isFinite(session.hitCount)
+          ? session.hitCount
+          : typeof session.totalShots === 'number' && Number.isFinite(session.totalShots)
+            ? session.totalShots
+            : 0);
+
+      const rawDeviceResults = getSummaryValue('deviceResults');
+      const deviceResults = Array.isArray(rawDeviceResults)
+        ? rawDeviceResults
+            .map((entry) => {
+              const record = entry as Record<string, unknown>;
+              const deviceId = ensureString(record.deviceId);
+              if (!deviceId) {
+                return null;
+              }
+              const deviceName = ensureString(record.deviceName) ?? deviceId;
+              const hitCount = ensureNumber(record.hitCount) ?? 0;
+              return { deviceId, deviceName, hitCount };
+            })
+            .filter((value): value is GameHistory['deviceResults'][number] => value !== null)
+        : [];
+
+      const rawTargetStats = getSummaryValue('targetStats');
+      const targetStats = Array.isArray(rawTargetStats)
+        ? rawTargetStats
+            .map((entry) => {
+              const record = entry as Record<string, unknown>;
+              const deviceId = ensureString(record.deviceId);
+              if (!deviceId) {
+                return null;
+              }
+              const deviceName = ensureString(record.deviceName) ?? deviceId;
+              const hitCount = ensureNumber(record.hitCount) ?? 0;
+              const hitTimes = Array.isArray(record.hitTimes)
+                ? (record.hitTimes as unknown[])
+                    .map((value) => ensureNumber(value))
+                    .filter((value): value is number => value !== null)
+                : [];
+              return {
+                deviceId,
+                deviceName,
+                hitCount,
+                hitTimes,
+                averageInterval: ensureNumber(record.averageInterval) ?? 0,
+                firstHitTime: ensureNumber(record.firstHitTime) ?? 0,
+                lastHitTime: ensureNumber(record.lastHitTime) ?? 0,
+              };
+            })
+            .filter((value): value is GameHistory['targetStats'][number] => value !== null)
+        : [];
+
+      const crossSummaryValue = getSummaryValue('crossTargetStats');
+      const crossSummary =
+        crossSummaryValue && typeof crossSummaryValue === 'object'
+          ? (crossSummaryValue as Record<string, unknown>)
+          : null;
+
+      const crossTargetStats = crossSummary
+        ? {
+            totalSwitches: ensureNumber(crossSummary.totalSwitches) ?? 0,
+            averageSwitchTime: ensureNumber(crossSummary.averageSwitchTime) ?? 0,
+            switchTimes: Array.isArray(crossSummary.switchTimes)
+              ? (crossSummary.switchTimes as unknown[])
+                  .map((value) => ensureNumber(value))
+                  .filter((value): value is number => value !== null)
+              : [],
+          }
+        : null;
+
+      const averageHitInterval =
+        ensureNumber(getSummaryValue('averageHitInterval')) ??
+        (totalHits > 0 && actualDurationSeconds > 0 ? actualDurationSeconds / totalHits : null);
+
+      const durationMinutes =
+        ensureNumber(getSummaryValue('durationMinutes')) ??
+        (durationMs > 0
+          ? Math.max(1, Math.round(durationMs / 60000))
+          : actualDurationSeconds > 0
+            ? Math.max(1, Math.round(actualDurationSeconds / 60))
+            : 0);
+
+      const gameId = ensureString(getSummaryValue('gameId')) ?? session.id;
+      const gameName =
+        ensureString(getSummaryValue('gameName')) ??
+        session.scenarioName ??
+        session.roomName ??
+        gameId;
+
+      const scoreValue =
+        ensureNumber(getSummaryValue('score')) ??
+        (typeof session.score === 'number' && Number.isFinite(session.score) ? session.score : totalHits);
+
+      const accuracyValue =
+        ensureNumber(getSummaryValue('accuracy')) ??
+        (typeof session.accuracy === 'number' && Number.isFinite(session.accuracy) ? session.accuracy : null);
+
+      const summaryPayload: GameHistorySummaryPayload = {
+        gameId,
+        gameName,
+        durationMinutes,
+        startTime: summaryStart ?? startTimestamp,
+        endTime: endTimestamp,
+        totalHits,
+        actualDuration: actualDurationSeconds,
+        averageHitInterval: averageHitInterval ?? undefined,
+        score: scoreValue,
+        accuracy: accuracyValue,
+        scenarioName: session.scenarioName,
+        scenarioType: session.scenarioType,
+        roomName: session.roomName,
+        deviceResults,
+        targetStats,
+        crossTargetStats,
+      };
+
+      return mapSummaryToGameHistory(summaryPayload);
+    },
+    []
+  );
+
+  // Pulls persisted history rows so the dashboard reflects stored and recent game sessions.
+  const loadGameHistory = useCallback(async () => {
+    if (!user) {
+      return;
     }
 
-    const ambientValue = (device.ambientLight ?? '').toString().toLowerCase();
-    let ambientLight: DeviceStatus['ambientLight'];
-    if (ambientValue === 'average') {
-      ambientLight = 'average';
-    } else if (ambientValue === 'poor') {
-      ambientLight = 'poor';
-    } else {
-      ambientLight = 'good';
-    }
+    setIsHistoryLoading(true);
+    try {
+      const [historyResult, sessionsResult] = await Promise.allSettled([
+        fetchPersistedGameHistory(),
+        fetchRecentSessions(user.id, 20),
+      ]);
 
-    const wifi = Number(device.wifiStrength ?? 0);
-    const hitCount = Number(device.hitCount ?? 0);
-    const lastSeen = typeof device.lastSeen === 'number' && Number.isFinite(device.lastSeen)
-      ? device.lastSeen
-      : 0;
-
-    return {
-      deviceId: device.deviceId,
-      name: device.name,
-      gameStatus,
-      wifiStrength: Number.isFinite(wifi) ? Math.max(0, Math.round(wifi)) : 0,
-      ambientLight,
-      hitCount: Number.isFinite(hitCount) ? hitCount : 0,
-      lastSeen,
-      isOnline,
-      hitTimes: [],
-    };
-  }, []);
-
-  const loadLiveDevices = useCallback(
-    async ({ silent = false, showToast = false }: { silent?: boolean; showToast?: boolean } = {}) => {
-      if (!silent) {
-        setLoadingDevices(true);
+      const persistedHistory =
+        historyResult.status === 'fulfilled' ? historyResult.value.history ?? [] : [];
+      if (historyResult.status === 'rejected') {
+        console.warn('[Games] Failed to load persisted game history', historyResult.reason);
       }
 
+      const sessionHistory =
+        sessionsResult.status === 'fulfilled'
+          ? sessionsResult.value.map(convertSessionToHistory)
+          : [];
+      if (sessionsResult.status === 'rejected') {
+        console.warn('[Games] Failed to load session history', sessionsResult.reason);
+      }
+
+      const historyMap = new Map<string, GameHistory>();
+      persistedHistory.forEach((entry) => {
+        historyMap.set(entry.gameId, {
+          ...entry,
+          score: entry.score ?? entry.totalHits ?? 0,
+        });
+      });
+      sessionHistory.forEach((entry) => {
+        const existing = historyMap.get(entry.gameId);
+        if (!existing || (existing.totalHits ?? 0) === 0) {
+          historyMap.set(entry.gameId, entry);
+        }
+      });
+
+      const combinedHistory = Array.from(historyMap.values())
+        .sort((a, b) => (b.startTime ?? 0) - (a.startTime ?? 0))
+        .slice(0, 30);
+
+      setGameHistory(combinedHistory);
+    } catch (error) {
+      console.warn('[Games] Failed to load game history', error);
+      setGameHistory([]);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  }, [convertSessionToHistory, user]);
+
+  useEffect(() => {
+    if (!user) {
+      setGameHistory([]);
+      setIsHistoryLoading(false);
+      return;
+    }
+    void loadGameHistory();
+  }, [loadGameHistory, user]);
+
+  const {
+    startGameSession,
+    stopGameSession,
+    currentGameId,
+    isStarting,
+    isStopping,
+  } = useGameSession({
+    onStop: () => undefined,
+  });
+
+  // Loads the latest edge snapshot and keeps local mirrors (state + refs) in sync so downstream hooks can reuse the same data.
+  const loadLiveDevices = useCallback(
+    async ({ silent = false, showToast = false }: { silent?: boolean; showToast?: boolean } = {}) => {
       try {
-        const { devices } = await fetchGameControlDevices();
-        const mapped = devices.map(mapEdgeDeviceToStatus);
+        const result = await refreshGameDevices({ silent });
+        if (!result) {
+          return;
+        }
+        const mapped = result.devices;
 
         setAvailableDevices(mapped);
         availableDevicesRef.current = mapped;
@@ -166,13 +375,29 @@ const Games: React.FC = () => {
         }
         setAvailableDevices([]);
         availableDevicesRef.current = [];
-      } finally {
-        if (!silent) {
-          setLoadingDevices(false);
-        }
       }
     },
-    [isGameRunning, mapEdgeDeviceToStatus],
+    [isGameRunning, refreshGameDevices],
+  );
+
+  // Periodically calls the info RPC while a game is running to keep local device cards in sync with ThingsBoard telemetry.
+  const pollDeviceInfo = useCallback(
+    async (deviceIds: string[]) => {
+      if (deviceIds.length === 0) {
+        return;
+      }
+      try {
+        const result = await pollGameControlInfo(deviceIds);
+        if (result) {
+          setAvailableDevices(result.devices);
+          availableDevicesRef.current = result.devices;
+          setErrorMessage(null);
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to poll device info via RPC', error);
+      }
+    },
+    [pollGameControlInfo],
   );
 
   useEffect(() => {
@@ -189,19 +414,41 @@ const Games: React.FC = () => {
     }
   }, [currentStage, loadLiveDevices]);
 
+  // Background poll loop keeps device health (wifi/ambient) fresh via the lightweight info RPC while games run.
   useEffect(() => {
-    const intervalMs = isGameRunning ? 3_000 : 10_000;
+    const intervalMs = isGameRunning ? 5_000 : 10_000;
     const interval = setInterval(() => {
-      void loadLiveDevices({ silent: true });
+      if (isGameRunning) {
+        const activeIds = activeDeviceIds.length > 0
+          ? [...activeDeviceIds]
+          : availableDevicesRef.current
+              .filter((device) => {
+                if (device.isOnline) {
+                  return true;
+                }
+                if (typeof device.lastSeen === 'number' && device.lastSeen > 0) {
+                  return Date.now() - device.lastSeen <= DEVICE_ONLINE_STALE_THRESHOLD_MS;
+                }
+                return false;
+              })
+              .map((device) => device.deviceId);
+
+        if (activeIds.length === 0) {
+          void loadLiveDevices({ silent: true });
+        } else {
+          void pollDeviceInfo(activeIds);
+        }
+      } else {
+        void loadLiveDevices({ silent: true });
+      }
     }, intervalMs);
 
     return () => clearInterval(interval);
-  }, [isGameRunning, loadLiveDevices]);
+  }, [activeDeviceIds, isGameRunning, loadLiveDevices, pollDeviceInfo]);
 
   const fetchTotalShots = useCallback(async () => {
     setLoadingTotalShots(true);
     try {
-      const { useTargets } = await import('@/store/useTargets');
       const targets = useTargets.getState().targets as Target[];
       let totalShots = 0;
 
@@ -242,81 +489,86 @@ const Games: React.FC = () => {
   }, [fetchTotalShots]);
 
   useEffect(() => {
-    return () => {
-      telemetryUnsubscribeRef.current?.();
-    };
-  }, []);
+    if (targetsSnapshot.length === 0 && !targetsStoreLoading) {
+      void refreshTargets().catch((err) => {
+        console.warn('[Games] Failed to refresh targets snapshot for status sync', err);
+      });
+    }
+  }, [targetsSnapshot.length, targetsStoreLoading, refreshTargets]);
+
+  const targetStatusById = useMemo(() => {
+    const map = new Map<string, string>();
+    targetsSnapshot.forEach((target) => {
+      map.set(target.id, target.status ?? 'unknown');
+    });
+    return map;
+  }, [targetsSnapshot]);
+
+  const deriveIsOnline = useCallback((device: DeviceStatus) => {
+    const targetStatus = targetStatusById.get(device.deviceId);
+    if (targetStatus === 'online' || targetStatus === 'standby' || targetStatus === 'active') {
+      return true;
+    }
+    if (device.isOnline) {
+      return true;
+    }
+    if (typeof device.lastSeen === 'number' && device.lastSeen > 0) {
+      return Date.now() - device.lastSeen <= DEVICE_ONLINE_STALE_THRESHOLD_MS;
+    }
+    return false;
+  }, [targetStatusById]);
 
   const getOnlineDevices = useCallback(() => {
-    return availableDevicesRef.current.filter(device => device.isOnline);
-  }, []);
+    return availableDevicesRef.current.filter((device) => deriveIsOnline(device));
+  }, [deriveIsOnline]);
 
-  const handleTelemetryMessage = useCallback(
-    (message: TelemetryEnvelope) => {
-      if (!message.data || !isGameRunning || !currentGameId) {
-        return;
-      }
-
-      const telemetryData = message.data as Record<string, unknown>;
-      const eventPayload = telemetryData.event;
-      const eventValue = Array.isArray(eventPayload) ? eventPayload[0]?.[1] : eventPayload;
-
-      if (eventValue !== 'hit') {
-        return;
-      }
-
-      const gameIdPayload = telemetryData.gameId;
-      const gameIdValue = Array.isArray(gameIdPayload) ? gameIdPayload[0]?.[1] : gameIdPayload;
-
-      if (gameIdValue !== currentGameId) {
-        return;
-      }
-
-      const deviceId = message.entityId;
-      if (!deviceId || !currentGameDevicesRef.current.includes(deviceId)) {
-        return;
-      }
-
-      const deviceInfo = availableDevicesRef.current.find(device => device.deviceId === deviceId);
-      const deviceName = deviceInfo?.name ?? deviceId;
-      const timestamp = Date.now();
-
-      setHitCounts(prev => ({
-        ...prev,
-        [deviceId]: (prev[deviceId] ?? 0) + 1
-      }));
-
-      setHitHistory(prev => [
-        ...prev,
-        {
-          deviceId,
-          deviceName,
-          timestamp,
-          gameId: currentGameId
-        }
-      ]);
-
-      setAvailableDevices(prev =>
-        prev.map(device => {
-          if (device.deviceId !== deviceId) {
-            return device;
-          }
-
-          return {
-            ...device,
-            gameStatus: 'start',
-            hitCount: (device.hitCount ?? 0) + 1,
-            hitTimes: [...(device.hitTimes ?? []), timestamp],
-            lastSeen: timestamp
-          };
-        })
-      );
+  // Shared telemetry hook feeds real-time hit data for active devices so the page can merge hit counts, splits, and transitions.
+  const telemetryState = useGameTelemetry({
+    token: tbSession?.token ?? null,
+    gameId: currentGameId,
+    deviceIds: activeDeviceIds.map((deviceId) => ({
+      deviceId,
+      deviceName: availableDevicesRef.current.find((device) => device.deviceId === deviceId)?.name ?? deviceId,
+    })),
+    enabled: isGameRunning && Boolean(currentGameId),
+    onAuthError: () => {
+      void refreshThingsboardSession({ force: true });
     },
-    [currentGameId, isGameRunning]
-  );
+    onError: (reason) => {
+      console.warn('[Games] Telemetry stream degraded', reason);
+    },
+  });
 
+  useEffect(() => {
+    if (!isGameRunning || !currentGameId) {
+      return;
+    }
+
+    setHitCounts(telemetryState.hitCounts);
+    setHitHistory(telemetryState.hitHistory);
+
+    setAvailableDevices((prev) => {
+      const next = prev.map((device) => {
+        const count = telemetryState.hitCounts[device.deviceId] ?? device.hitCount;
+        const hitTimes = telemetryState.hitTimesByDevice[device.deviceId];
+        if (typeof count !== 'number' && !hitTimes) {
+          return device;
+        }
+
+        return {
+          ...device,
+          hitCount: typeof count === 'number' ? count : device.hitCount,
+          hitTimes: hitTimes ?? device.hitTimes,
+        };
+      });
+      availableDevicesRef.current = next;
+      return next;
+    });
+  }, [activeDeviceIds, isGameRunning, currentGameId, telemetryState.hitCounts, telemetryState.hitHistory, telemetryState.hitTimesByDevice]);
+
+  // Orchestrates the start flow: validates devices/token, calls the edge start RPC, seeds local metrics, and refreshes the snapshot.
   const handleStartGame = useCallback(async () => {
-    if (isStartingGame || isGameRunning) {
+    if (isStarting || isGameRunning) {
       return;
     }
 
@@ -328,127 +580,110 @@ const Games: React.FC = () => {
       return;
     }
 
-    setIsStartingGame(true);
-    setErrorMessage(null);
-
-    const tentativeGameId = `GM-${Date.now()}`;
-
-    try {
-      const response = await invokeGameControl('start', {
-        deviceIds: onlineDevices.map((device) => device.deviceId),
-        gameId: tentativeGameId,
-      });
-
-      const results = response.results ?? [];
-      const successfulIds = results.filter((result) => result.success).map((result) => result.deviceId);
-      const warnedIds = results.filter((result) => result.success && result.warning).map((result) => result.deviceId);
-      const failedIds = results.filter((result) => !result.success).map((result) => result.deviceId);
-
-      if (successfulIds.length === 0) {
-        setErrorMessage('Failed to start game on the selected devices.');
-        toast.error('Failed to start game on the selected devices.');
+    if (!tbSession?.token) {
+      const refreshed = await refreshThingsboardSession({ force: true });
+      if (!refreshed?.token) {
+        toast.error('Unable to obtain ThingsBoard session token. Please retry.');
         return;
       }
+    }
 
-      telemetryUnsubscribeRef.current?.();
-      currentGameDevicesRef.current = successfulIds;
+    setErrorMessage(null);
 
-      const startedAt = response.startedAt ?? Date.now();
-      const gameId = response.gameId ?? tentativeGameId;
+    const startResult = await startGameSession({
+      deviceIds: onlineDevices.map((device) => device.deviceId),
+    });
 
-      setCurrentGameId(gameId);
-      setIsGameRunning(true);
-      setGameStartTime(startedAt);
-      setGameStopTime(null);
-      setHitCounts(Object.fromEntries(successfulIds.map((id) => [id, 0])));
-      setHitHistory([]);
+    if (!startResult.ok || startResult.successfulDeviceIds.length === 0) {
+      setErrorMessage('Failed to start game on the selected devices.');
+      toast.error('Failed to start game on the selected devices.');
+      return;
+    }
 
-      telemetryUnsubscribeRef.current = subscribeToGameTelemetry(
-        successfulIds,
-        handleTelemetryMessage,
-        { realtime: true },
-      );
+    const { successfulDeviceIds, failedDeviceIds, warnings, startedAt, gameId } = startResult;
 
-      await loadLiveDevices({ silent: true });
+    currentGameDevicesRef.current = successfulDeviceIds;
+    setActiveDeviceIds(successfulDeviceIds);
 
-      toast.success(`Game started (${successfulIds.length}/${onlineDevices.length} devices).`);
-      if (warnedIds.length > 0) {
-        toast.warning(`${warnedIds.length} device(s) reported a timeout but should still receive the command.`);
-      }
-      if (failedIds.length > 0) {
-        toast.error(`${failedIds.length} device(s) failed to start.`);
-      }
-    } catch (error) {
-      console.error('Failed to start game:', error);
-      setErrorMessage('Failed to start game. Please try again.');
-      toast.error('Failed to start game.');
-    } finally {
-      setIsStartingGame(false);
+    const startTimestamp = startedAt ?? Date.now();
+
+    setIsGameRunning(true);
+    setGameStartTime(startTimestamp);
+    setGameStopTime(null);
+    setHitCounts(Object.fromEntries(successfulDeviceIds.map((id) => [id, 0])));
+    setHitHistory([]);
+
+    await loadLiveDevices({ silent: true });
+
+    toast.success(`Game started (${successfulDeviceIds.length}/${onlineDevices.length} devices).`);
+    if (warnings.length > 0) {
+      toast.warning(`${warnings.length} device(s) reported a timeout but should still receive the command.`);
+    }
+    if (failedDeviceIds.length > 0) {
+      toast.error(`${failedDeviceIds.length} device(s) failed to start.`);
     }
   }, [
     getOnlineDevices,
-    handleTelemetryMessage,
     isGameRunning,
-    isStartingGame,
+    isStarting,
     loadLiveDevices,
+    startGameSession,
+    tbSession,
+    refreshThingsboardSession,
   ]);
 
+  // Coordinates stop lifecycle: calls the edge stop RPC, aggregates telemetry into a summary, persists history, and refreshes UI.
   const handleStopGame = useCallback(async () => {
-    if (!isGameRunning || !currentGameId || isStoppingGame) {
+    if (!isGameRunning || !currentGameId || isStopping) {
       return;
     }
 
-    const activeDeviceIds = [...currentGameDevicesRef.current];
-    if (activeDeviceIds.length === 0) {
+    const activeDeviceIdsSnapshot = [...currentGameDevicesRef.current];
+    if (activeDeviceIdsSnapshot.length === 0) {
       setIsGameRunning(false);
-      setCurrentGameId(null);
       return;
     }
 
-    setIsStoppingGame(true);
     try {
-      const response = await invokeGameControl('stop', {
-        deviceIds: activeDeviceIds,
-        gameId: currentGameId,
-      });
+      const stopResult = await stopGameSession({ deviceIds: activeDeviceIdsSnapshot });
 
-      const results = response.results ?? [];
-      const failedIds = results.filter((result) => !result.success).map((result) => result.deviceId);
-      const warnedIds = results.filter((result) => result.success && result.warning).map((result) => result.deviceId);
+      if (!stopResult.ok) {
+        setErrorMessage('Failed to stop game. Please try again.');
+        toast.error('Failed to stop game.');
+        return;
+      }
 
-      telemetryUnsubscribeRef.current?.();
-      telemetryUnsubscribeRef.current = null;
-
-      const stopTimestamp = response.stoppedAt ?? Date.now();
+      const { failedDeviceIds, warnings, stoppedAt, gameId } = stopResult;
+      const stopTimestamp = stoppedAt ?? Date.now();
 
       setIsGameRunning(false);
-      setCurrentGameId(null);
       setGameStopTime(stopTimestamp);
 
       setAvailableDevices(prev =>
         prev.map(device => {
-          if (activeDeviceIds.includes(device.deviceId)) {
+          if (activeDeviceIdsSnapshot.includes(device.deviceId)) {
             return {
               ...device,
               gameStatus: 'stop',
-              lastSeen: stopTimestamp
+              lastSeen: stopTimestamp,
             };
           }
           return device;
         })
       );
 
-      if (failedIds.length > 0) {
-        toast.warning(`${failedIds.length} device(s) may not have received the stop command.`);
+      if (failedDeviceIds.length > 0) {
+        toast.warning(`${failedDeviceIds.length} device(s) may not have received the stop command.`);
       } else {
         toast.success('Game stopped successfully.');
       }
 
-      if (warnedIds.length > 0) {
-        toast.warning(`${warnedIds.length} device(s) reported a timeout when stopping.`);
+      if (warnings.length > 0) {
+        toast.warning(`${warnings.length} device(s) reported a timeout when stopping.`);
       }
 
-      const deviceStats = activeDeviceIds.map(deviceId => {
+      const resolvedGameId = gameId ?? currentGameId ?? `GM-${Date.now()}`;
+      const deviceStats = activeDeviceIdsSnapshot.map(deviceId => {
         const hitsForDevice = hitHistory.filter(hit => hit.deviceId === deviceId);
         const hitTimes = hitsForDevice.map(hit => hit.timestamp);
         const intervals = hitTimes.slice(1).map((ts, idx) => (ts - hitTimes[idx]) / 1000);
@@ -463,7 +698,7 @@ const Games: React.FC = () => {
             ? intervals.reduce((sum, value) => sum + value, 0) / intervals.length
             : 0,
           firstHitTime: hitTimes[0] ?? 0,
-          lastHitTime: hitTimes[hitTimes.length - 1] ?? 0
+          lastHitTime: hitTimes[hitTimes.length - 1] ?? 0,
         };
       });
 
@@ -489,15 +724,16 @@ const Games: React.FC = () => {
       }
 
       const historyEntry: GameHistory = {
-        gameId: currentGameId,
+        gameId: resolvedGameId,
         gameName: `Game ${new Date(gameStartTime ?? stopTimestamp).toLocaleTimeString()}`,
         duration: Math.max(1, Math.ceil(actualDurationSeconds / 60)),
         startTime: gameStartTime ?? stopTimestamp,
         endTime: stopTimestamp,
+        score: totalHits,
         deviceResults: deviceStats.map(({ deviceId, deviceName, hitCount }) => ({
           deviceId,
           deviceName,
-          hitCount
+          hitCount,
         })),
         totalHits,
         actualDuration: actualDurationSeconds,
@@ -508,29 +744,43 @@ const Games: React.FC = () => {
           averageSwitchTime: switchTimes.length
             ? switchTimes.reduce((sum, value) => sum + value, 0) / switchTimes.length
             : 0,
-          switchTimes
-        }
+          switchTimes,
+        },
       };
 
-      setGameHistory(prev => [historyEntry, ...prev]);
-      currentGameDevicesRef.current = [];
-      void fetchTotalShots();
-      await loadLiveDevices({ silent: true });
-    } catch (error) {
-      console.error('Failed to stop game:', error);
-      setErrorMessage('Failed to stop the game. Please try again.');
-      toast.error('Failed to stop the game.');
-    } finally {
-      setIsStoppingGame(false);
-    }
+    setGameHistory(prev => [historyEntry, ...prev]);
+    void saveGameHistory(historyEntry)
+      .then((status) => {
+        if (status === 'created') {
+          console.info('[Games] Game history entry created', historyEntry.gameId);
+        } else if (status === 'updated') {
+          console.info('[Games] Game history entry updated', historyEntry.gameId);
+        }
+        void loadGameHistory();
+      })
+      .catch((error) => {
+        console.warn('[Games] Failed to persist game history', error);
+      });
+    currentGameDevicesRef.current = [];
+    setActiveDeviceIds([]);
+    void fetchTotalShots();
+    await loadLiveDevices({ silent: true });
+  } catch (error) {
+    console.error('Failed to stop game:', error);
+    setErrorMessage('Failed to stop game. Please try again.');
+    toast.error('Failed to stop game.');
+  }
   }, [
+    availableDevicesRef,
     currentGameId,
     fetchTotalShots,
     gameStartTime,
     hitHistory,
     isGameRunning,
-    isStoppingGame,
-    loadLiveDevices
+    isStopping,
+    loadLiveDevices,
+    loadGameHistory,
+    stopGameSession
   ]);
 
   const handleBackToMain = useCallback(async () => {
@@ -541,7 +791,8 @@ const Games: React.FC = () => {
   }, [handleStopGame, isGameRunning]);
 
   const getDeviceStatusBadge = (device: DeviceStatus) => {
-    if (!device.isOnline) {
+    const deviceOnline = deriveIsOnline(device);
+    if (!deviceOnline) {
       return <Badge variant="destructive" className="text-xs">Offline</Badge>;
     }
 
@@ -583,14 +834,86 @@ const Games: React.FC = () => {
     return new Date(timestamp).toLocaleTimeString();
   };
 
-  const totalDevices = availableDevices.length;
-  const onlineDevices = availableDevices.filter(device => device.isOnline).length;
-  const offlineDevices = Math.max(totalDevices - onlineDevices, 0);
-  const activeSessionDevices = currentGameDevicesRef.current.length;
-  const activeSessionHits = currentGameDevicesRef.current.reduce(
+  const deviceStatusSummary = useMemo(() => {
+    if (targetsSnapshot.length > 0) {
+      const online = targetsSnapshot.filter((target) =>
+        target && typeof target.status === 'string'
+          ? ['online', 'standby', 'active'].includes(target.status)
+          : false,
+      ).length;
+      const total = targetsSnapshot.length;
+      return {
+        total,
+        online,
+        offline: Math.max(total - online, 0),
+      };
+    }
+
+    const total = availableDevices.length;
+    const online = availableDevices.filter((device) => deriveIsOnline(device)).length;
+    return {
+      total,
+      online,
+      offline: Math.max(total - online, 0),
+    };
+  }, [targetsSnapshot, availableDevices, deriveIsOnline]);
+
+  const totalDevices = deviceStatusSummary.total;
+  const onlineDevices = deviceStatusSummary.online;
+  const offlineDevices = deviceStatusSummary.offline;
+  const activeSessionDevices = activeDeviceIds.length;
+  const activeSessionHits = activeDeviceIds.reduce(
     (sum, id) => sum + (hitCounts[id] ?? 0),
     0
   );
+  const totalHitsFromHistory = useMemo(
+    () =>
+      gameHistory.reduce((sum, game) => {
+        if (typeof game.totalHits === 'number' && Number.isFinite(game.totalHits)) {
+          return sum + game.totalHits;
+        }
+        if (typeof game.score === 'number' && Number.isFinite(game.score)) {
+          return sum + game.score;
+        }
+        if (Array.isArray(game.deviceResults) && game.deviceResults.length > 0) {
+          return (
+            sum +
+            game.deviceResults.reduce(
+              (inner, result) => inner + (Number.isFinite(result.hitCount) ? result.hitCount : 0),
+              0,
+            )
+          );
+        }
+        return sum;
+      }, 0),
+    [gameHistory],
+  );
+  const totalHitsFallback = useMemo(
+    () =>
+      availableDevices.reduce(
+        (sum, device) => sum + (Number.isFinite(device.hitCount) ? device.hitCount : 0),
+        0,
+      ),
+    [availableDevices],
+  );
+  const resolvedTotalHits = useMemo(() => {
+    const fallback = Math.max(totalHitsFromHistory, totalHitsFallback);
+    return totalShotsFromThingsBoard > 0 ? totalShotsFromThingsBoard : fallback;
+  }, [totalShotsFromThingsBoard, totalHitsFallback, totalHitsFromHistory]);
+  const bestScore = useMemo(() => {
+    if (gameHistory.length === 0) {
+      return 0;
+    }
+    return gameHistory.reduce((max, game) => {
+      const candidate =
+        typeof game.score === 'number' && Number.isFinite(game.score)
+          ? game.score
+          : typeof game.totalHits === 'number' && Number.isFinite(game.totalHits)
+            ? game.totalHits
+            : 0;
+      return Math.max(max, candidate);
+    }, 0);
+  }, [gameHistory]);
 
   return (
     <div className="min-h-screen bg-brand-background">
@@ -655,10 +978,16 @@ const Games: React.FC = () => {
                         <div className="flex-1 space-y-0.5 md:space-y-1 text-center md:text-left">
                           <p className="text-xs font-medium text-brand-dark/70 font-body">Total Devices</p>
                           <p className="text-sm md:text-xl lg:text-2xl font-bold text-brand-dark font-heading">
-                            {totalDevices}
+                            {loadingDevices && totalDevices === 0 ? (
+                              <span className="animate-pulse">...</span>
+                            ) : (
+                              totalDevices
+                            )}
                           </p>
                           <p className="text-xs text-brand-dark/50 font-body">
-                            {onlineDevices} online • {offlineDevices} offline
+                            {loadingDevices && totalDevices === 0
+                              ? 'Loading...'
+                              : `${onlineDevices} online • ${offlineDevices} offline`}
                           </p>
                         </div>
                         <div className="flex-shrink-0 p-1 md:p-2 bg-brand-secondary/10 rounded-sm md:rounded-lg">
@@ -674,7 +1003,11 @@ const Games: React.FC = () => {
                         <div className="flex-1 space-y-0.5 md:space-y-1 text-center md:text-left">
                           <p className="text-xs font-medium text-brand-dark/70 font-body">Games Played</p>
                           <p className="text-sm md:text-xl lg:text-2xl font-bold text-brand-dark font-heading">
-                            {gameHistory.length}
+                            {isHistoryLoading && gameHistory.length === 0 ? (
+                              <span className="animate-pulse">...</span>
+                            ) : (
+                              gameHistory.length
+                            )}
                           </p>
                           <p className="text-xs text-brand-dark/50 font-body">Total sessions</p>
                         </div>
@@ -691,10 +1024,10 @@ const Games: React.FC = () => {
                         <div className="flex-1 space-y-0.5 md:space-y-1 text-center md:text-left">
                           <p className="text-xs font-medium text-brand-dark/70 font-body">Total Hits</p>
                           <p className="text-sm md:text-xl lg:text-2xl font-bold text-brand-dark font-heading">
-                            {loadingTotalShots ? (
+                            {loadingTotalShots || (isHistoryLoading && gameHistory.length === 0) ? (
                               <span className="animate-pulse">...</span>
                             ) : (
-                              totalShotsFromThingsBoard.toLocaleString()
+                              resolvedTotalHits.toLocaleString()
                             )}
                           </p>
                           <p className="text-xs text-brand-dark/50 font-body">All time shots</p>
@@ -712,13 +1045,11 @@ const Games: React.FC = () => {
                         <div className="flex-1 space-y-0.5 md:space-y-1 text-center md:text-left">
                           <p className="text-xs font-medium text-brand-dark/70 font-body">Best Score</p>
                           <p className="text-sm md:text-xl lg:text-2xl font-bold text-brand-dark font-heading">
-                            {gameHistory.length > 0
-                              ? Math.max(
-                                  ...gameHistory.map(game =>
-                                    game.deviceResults.reduce((sum, result) => sum + result.hitCount, 0)
-                                  )
-                                )
-                              : 0}
+                            {isHistoryLoading && gameHistory.length === 0 ? (
+                              <span className="animate-pulse">...</span>
+                            ) : (
+                              bestScore.toLocaleString()
+                            )}
                           </p>
                           <p className="text-xs text-brand-dark/50 font-body">Single game</p>
                         </div>
@@ -769,14 +1100,16 @@ const Games: React.FC = () => {
                         <div className="border-t border-gray-200 pt-3">
                           <p className="text-xs uppercase tracking-wide text-brand-dark/50 mb-2">Live Device Status</p>
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3">
-                            {availableDevices.map(device => (
+                            {availableDevices.map(device => {
+                              const deviceOnline = deriveIsOnline(device);
+                              return (
                               <div
                                 key={device.deviceId}
                                 className="border border-gray-200 rounded-md md:rounded-lg p-2 md:p-3 bg-white shadow-sm"
                               >
                                 <div className="flex items-center justify-between mb-2">
                                   <div className="flex items-center gap-2">
-                                    <div className={`w-2 h-2 rounded-full ${device.isOnline ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                                    <div className={`w-2 h-2 rounded-full ${deviceOnline ? 'bg-green-500' : 'bg-gray-400'}`}></div>
                                     <span className="font-heading text-xs md:text-sm text-brand-dark">{device.name}</span>
                                   </div>
                                   {getDeviceStatusBadge(device)}
@@ -789,11 +1122,11 @@ const Games: React.FC = () => {
                                   <span>Last Hit</span>
                                   <span className="font-semibold text-brand-dark">{device.hitTimes?.length ? formatLastSeen(device.hitTimes[device.hitTimes.length - 1]) : '—'}</span>
                                 </div>
-                                <div className="mt-2 flex items-center justify-between text-[11px] md:text-xs text-brand-dark/60">
-                                  <div className="flex items-center gap-1">
-                                    {getWifiIndicator(device.wifiStrength)}
-                                    <span>{device.wifiStrength}%</span>
-                                  </div>
+                                  <div className="mt-2 flex items-center justify-between text-[11px] md:text-xs text-brand-dark/60">
+                                    <div className="flex items-center gap-1">
+                                      {getWifiIndicator(device.wifiStrength)}
+                                      <span>{device.wifiStrength}%</span>
+                                    </div>
                                   <div className={`flex items-center gap-1 ${getAmbientLightColor(device.ambientLight)}`}>
                                     <div className="w-2 h-2 rounded-full bg-current"></div>
                                     <span className="capitalize">{device.ambientLight}</span>
@@ -801,7 +1134,8 @@ const Games: React.FC = () => {
                                   <span>{formatLastSeen(device.lastSeen)}</span>
                                 </div>
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       </CardContent>
@@ -815,7 +1149,13 @@ const Games: React.FC = () => {
                     <h2 className="font-heading text-xl font-semibold text-brand-text">Game History</h2>
                   </div>
 
-                  {gameHistory.length === 0 ? (
+                  {isHistoryLoading ? (
+                    <Card className="bg-white border-gray-200 shadow-sm rounded-sm md:rounded-lg">
+                      <CardContent className="p-8 text-center text-brand-dark/60 text-sm">
+                        Loading game history...
+                      </CardContent>
+                    </Card>
+                  ) : gameHistory.length === 0 ? (
                     <Card className="bg-white border-gray-200 shadow-sm rounded-sm md:rounded-lg">
                       <CardContent className="p-8 text-center">
                         <Trophy className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -826,12 +1166,24 @@ const Games: React.FC = () => {
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4">
                       {gameHistory.slice(0, 6).map(game => {
-                        const totalHits = game.deviceResults.reduce((sum, r) => sum + r.hitCount, 0);
-                        const bestDevice = game.deviceResults.reduce(
-                          (best, r) => (r.hitCount > best.hitCount ? r : best),
-                          game.deviceResults[0]
-                        );
-                        const avgHits = Math.round(totalHits / (game.deviceResults.length || 1));
+                        const deviceResults = Array.isArray(game.deviceResults) ? game.deviceResults : [];
+                        const totalHits = typeof game.totalHits === 'number' && Number.isFinite(game.totalHits)
+                          ? game.totalHits
+                          : deviceResults.reduce(
+                              (sum, r) => sum + (Number.isFinite(r.hitCount) ? r.hitCount : 0),
+                              0,
+                            );
+                        const score = typeof game.score === 'number' && Number.isFinite(game.score)
+                          ? game.score
+                          : totalHits;
+                        const accuracy = typeof game.accuracy === 'number' && Number.isFinite(game.accuracy)
+                          ? game.accuracy
+                          : null;
+                        const deviceCount = deviceResults.length > 0 ? deviceResults.length : null;
+                        const displayScenario = game.scenarioName ?? game.gameName;
+                        const formattedDate = game.startTime
+                          ? new Date(game.startTime).toLocaleDateString()
+                          : '';
 
                         return (
                           <Card
@@ -841,12 +1193,15 @@ const Games: React.FC = () => {
                             <CardContent className="p-2 md:p-4">
                               <div className="flex items-start gap-2">
                                 <div className="flex-1 space-y-0.5 md:space-y-1 text-center md:text-left">
-                                  <p className="text-xs font-medium text-brand-dark/70 font-body">{game.gameName}</p>
+                                  <p className="text-xs font-medium text-brand-dark/70 font-body">
+                                    {displayScenario}
+                                  </p>
                                   <p className="text-sm md:text-xl lg:text-2xl font-bold text-brand-dark font-heading">
-                                    {totalHits}
+                                    {score.toLocaleString()}
                                   </p>
                                   <p className="text-xs text-brand-dark/50 font-body">
-                                    {new Date(game.startTime).toLocaleDateString()} • {game.duration}m
+                                    {formattedDate}
+                                    {accuracy !== null ? ` • ${accuracy.toFixed(1)}% accuracy` : ''}
                                   </p>
                                 </div>
                                 <div className="flex-shrink-0 p-1 md:p-2 bg-brand-secondary/10 rounded-sm md:rounded-lg">
@@ -856,17 +1211,27 @@ const Games: React.FC = () => {
 
                               <div className="mt-1 md:mt-3 space-y-1">
                                 <div className="flex items-center justify-between text-xs">
+                                  <span className="text-brand-dark/70">Hits</span>
+                                  <span className="font-medium text-brand-dark">{totalHits}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-brand-dark/70">Duration</span>
+                                  <span className="font-medium text-brand-dark">
+                                    {game.duration ? `${game.duration}m` : '—'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
                                   <span className="text-brand-dark/70">Devices</span>
-                                  <span className="font-medium text-brand-dark">{game.deviceResults.length}</span>
+                                  <span className="font-medium text-brand-dark">
+                                    {deviceCount ?? '—'}
+                                  </span>
                                 </div>
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-brand-dark/70">Best Score</span>
-                                  <span className="font-medium text-brand-dark">{bestDevice?.hitCount ?? 0}</span>
-                                </div>
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-brand-dark/70">Avg per Device</span>
-                                  <span className="font-medium text-brand-dark">{avgHits}</span>
-                                </div>
+                                {game.roomName && (
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="text-brand-dark/70">Room</span>
+                                    <span className="font-medium text-brand-dark">{game.roomName}</span>
+                                  </div>
+                                )}
                               </div>
                             </CardContent>
                           </Card>
@@ -911,10 +1276,10 @@ const Games: React.FC = () => {
                       <div className="flex gap-2">
                         <Button
                           onClick={handleStartGame}
-                          disabled={isGameRunning || isStartingGame || loadingDevices}
+                          disabled={isGameRunning || isStarting || loadingDevices}
                           className="bg-green-600 hover:bg-green-700"
                         >
-                          {isStartingGame ? (
+                          {isStarting ? (
                             <>
                               <Play className="h-4 w-4 mr-2 animate-spin" />
                               Starting...
@@ -928,10 +1293,10 @@ const Games: React.FC = () => {
                         </Button>
                         <Button
                           onClick={handleStopGame}
-                          disabled={!isGameRunning || isStoppingGame}
+                          disabled={!isGameRunning || isStopping}
                           variant="destructive"
                         >
-                          {isStoppingGame ? (
+                          {isStopping ? (
                             <>
                               <Square className="h-4 w-4 mr-2 animate-spin" />
                               Stopping...
@@ -956,13 +1321,13 @@ const Games: React.FC = () => {
                       <div>
                         <p className="text-xs text-brand-dark/60 uppercase tracking-wide">Devices</p>
                         <p className="text-lg font-heading text-brand-dark">
-                          {currentGameDevicesRef.current.length}
+                          {activeDeviceIds.length}
                         </p>
                       </div>
                       <div>
                         <p className="text-xs text-brand-dark/60 uppercase tracking-wide">Total Hits</p>
                         <p className="text-lg font-heading text-brand-dark">
-                          {currentGameDevicesRef.current.reduce((sum, id) => sum + (hitCounts[id] ?? 0), 0)}
+                          {activeDeviceIds.reduce((sum, id) => sum + (hitCounts[id] ?? 0), 0)}
                         </p>
                       </div>
                       <div>
@@ -988,7 +1353,7 @@ const Games: React.FC = () => {
                     <div className="flex items-center justify-between">
                       <h2 className="font-heading text-lg font-semibold text-brand-dark">Devices</h2>
                       <Badge variant="outline" className="text-xs">
-                        {availableDevices.filter(device => device.isOnline).length} online / {availableDevices.length} total
+                        {onlineDevices} online / {totalDevices} total
                       </Badge>
                     </div>
 
@@ -998,14 +1363,16 @@ const Games: React.FC = () => {
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {availableDevices.map(device => (
+                        {availableDevices.map(device => {
+                          const deviceOnline = deriveIsOnline(device);
+                          return (
                           <div
                             key={device.deviceId}
                             className="border border-gray-200 rounded-md md:rounded-lg p-3 bg-white shadow-sm space-y-2"
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
-                                <div className={`w-2 h-2 rounded-full ${device.isOnline ? 'bg-green-500' : 'bg-gray-400'}`} />
+                                <div className={`w-2 h-2 rounded-full ${deviceOnline ? 'bg-green-500' : 'bg-gray-400'}`} />
                                 <span className="font-heading text-sm text-brand-dark">{device.name}</span>
                               </div>
                               {getDeviceStatusBadge(device)}
@@ -1026,7 +1393,8 @@ const Games: React.FC = () => {
                               <span>{formatLastSeen(device.lastSeen)}</span>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </CardContent>

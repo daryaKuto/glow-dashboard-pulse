@@ -27,7 +27,7 @@ export const fetchWifiFromThingsBoard = async (userId: string): Promise<WifiCred
       return null;
     }
 
-    const primaryTarget = targets.find((target) => target.status === 'online') ?? targets[0];
+    const primaryTarget = targets.find((target) => target.status === 'online' || target.status === 'standby') ?? targets[0];
     const rawDeviceId = primaryTarget?.id;
     const deviceId = typeof rawDeviceId === 'string'
       ? rawDeviceId

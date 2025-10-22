@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import API from '@/lib/api';
-import { toast } from "@/components/ui/sonner";
-import type { Scenario } from '@/types/game';
+import type { GameTemplate } from '@/types/game';
 
 export type Player = {
   userId: string;
@@ -20,7 +19,7 @@ export type ScenarioHistory = {
 };
 
 interface ScenariosState {
-  scenarios: Scenario[];
+  scenarios: GameTemplate[];
   scenarioHistory: ScenarioHistory[];
   currentScenario: ScenarioHistory | null;
   players: Player[];
@@ -28,9 +27,9 @@ interface ScenariosState {
   isActive: boolean;
   error: string | null;
   fetchScenarios: () => Promise<void>;
-  selectScenario: (scenarioId: number, includedRoomIds: number[]) => Promise<ScenarioHistory | null>;
+  selectScenario: (scenarioId: string, includedRoomIds: string[]) => Promise<ScenarioHistory | null>;
   endScenario: (id: number) => Promise<void>;
-  createInvite: (scenarioId: number) => Promise<string | null>;
+  createInvite: (scenarioId: string) => Promise<string | null>;
   updatePlayerScore: (userId: string, hits: number, accuracy: number) => void;
   setPlayers: (players: Player[]) => void;
   clearScenario: () => void;
@@ -47,23 +46,25 @@ export const useScenarios = create<ScenariosState>((set, get) => ({
   error: null,
 
   fetchScenarios: async () => {
+    set({ isLoading: true, error: null });
     try {
       const scenarios = await API.listScenarios();
-      console.log('Scenarios received:', scenarios);
-      set({ 
-        scenarios: scenarios.map(s => ({
-          id: parseInt(s.id),
-          name: s.name,
-          targetCount: s.targetCount,
-        })) as Scenario[] 
+      set({
+        scenarios,
+        isLoading: false,
+        error: null,
       });
     } catch (error) {
       console.error('Error fetching scenarios:', error);
-      // toast.error('Failed to fetch scenarios'); // Disabled notifications
+      set({
+        scenarios: [],
+        isLoading: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch scenarios',
+      });
     }
   },
 
-  selectScenario: async (scenarioId: number, includedRoomIds: number[]) => {
+  selectScenario: async (_scenarioId: string, _includedRoomIds: string[]) => {
     // TODO: Implement scenario selection logic
     return null;
   },

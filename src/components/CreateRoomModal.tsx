@@ -207,9 +207,9 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                       <div>
                         <p className="font-medium text-brand-dark text-sm">{target.name}</p>
                         <Badge 
-                          variant={target.status === 'online' ? 'default' : 'secondary'}
+                          variant={target.status === 'online' || target.status === 'standby' ? 'default' : 'secondary'}
                           className={`text-xs ${
-                            target.status === 'online' 
+                            target.status === 'online' || target.status === 'standby' 
                               ? 'bg-green-100 text-green-800' 
                               : 'bg-gray-100 text-gray-800'
                           }`}

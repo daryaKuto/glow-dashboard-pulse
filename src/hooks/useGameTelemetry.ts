@@ -32,9 +32,12 @@ export interface TransitionRecord {
 }
 
 interface UseGameTelemetryOptions {
+  token: string | null;
   gameId: string | null;
-  isGameActive: boolean;
-  devices: DeviceMeta[];
+  deviceIds: DeviceMeta[];
+  enabled?: boolean;
+  onAuthError?: () => void;
+  onError?: (reason: unknown) => void;
 }
 
 interface GameTelemetryState {
@@ -86,10 +89,14 @@ const buildDeviceKey = (devices: DeviceMeta[]): string =>
     .sort()
     .join(',');
 
+// React hook that normalises raw ThingsBoard telemetry into hit counts, splits, and transition stats for the active game session.
 export const useGameTelemetry = ({
+  token,
   gameId,
-  isGameActive,
-  devices,
+  deviceIds,
+  enabled = true,
+  onAuthError,
+  onError,
 }: UseGameTelemetryOptions): GameTelemetryState => {
   const [hitCounts, setHitCounts] = useState<Record<string, number>>({});
   const [hitHistory, setHitHistory] = useState<HitRecord[]>([]);
@@ -103,15 +110,29 @@ export const useGameTelemetry = ({
     timestamp: number;
   } | null>(null);
 
-  const deviceKey = useMemo(() => buildDeviceKey(devices), [devices]);
+  const deviceKey = useMemo(() => buildDeviceKey(deviceIds), [deviceIds]);
+  const deviceMetaSignature = useMemo(
+    () =>
+      deviceIds
+        .map((device) => `${device.deviceId}:${device.deviceName ?? ''}`)
+        .sort()
+        .join('|'),
+    [deviceIds]
+  );
+  const latestDeviceMetaRef = useRef<DeviceMeta[]>(deviceIds);
+
+  useEffect(() => {
+    latestDeviceMetaRef.current = deviceIds;
+  }, [deviceIds]);
 
   const resetState = useCallback(() => {
-    const initialCounts = devices.reduce<Record<string, number>>((acc, device) => {
+    const currentDevices = latestDeviceMetaRef.current ?? [];
+    const initialCounts = currentDevices.reduce<Record<string, number>>((acc, device) => {
       acc[device.deviceId] = 0;
       return acc;
     }, {});
 
-    const initialTimestamps = devices.reduce<Record<string, number | null>>((acc, device) => {
+    const initialTimestamps = currentDevices.reduce<Record<string, number | null>>((acc, device) => {
       acc[device.deviceId] = null;
       return acc;
     }, {});
@@ -123,34 +144,39 @@ export const useGameTelemetry = ({
     setHitTimesByDevice({});
     setLastHitTimestamp(initialTimestamps);
     setLastHitDevice(null);
-  }, [devices]);
+  }, []);
 
-  const previousActiveRef = useRef<boolean>(false);
+  const previousEnabledRef = useRef<boolean>(false);
 
   useEffect(() => {
     // Reset whenever device list changes or a new game starts
     resetState();
-  }, [resetState, deviceKey, gameId]);
+  }, [resetState, deviceKey, gameId, token]);
 
   useEffect(() => {
-    if (isGameActive && !previousActiveRef.current) {
+    if (enabled && !previousEnabledRef.current) {
       resetState();
     }
-    previousActiveRef.current = isGameActive;
-  }, [isGameActive, resetState]);
+    previousEnabledRef.current = enabled;
+  }, [enabled, resetState]);
 
   useEffect(() => {
-    if (!isGameActive || !gameId || devices.length === 0) {
+    if (!enabled || !token || !gameId) {
+      return undefined;
+    }
+
+    const currentDevices = latestDeviceMetaRef.current;
+    if (!currentDevices || currentDevices.length === 0) {
       return undefined;
     }
 
     const deviceNameMap = new Map<string, string>(
-      devices.map((device) => [device.deviceId, device.deviceName])
+      currentDevices.map((device) => [device.deviceId, device.deviceName])
     );
 
-    const deviceIds = devices.map((device) => device.deviceId);
+    const plainDeviceIds = currentDevices.map((device) => device.deviceId);
 
-    const unsubscribe = subscribeToGameTelemetry(deviceIds, (message) => {
+    const unsubscribe = subscribeToGameTelemetry(plainDeviceIds, (message) => {
       if (!message.data) {
         return;
       }
@@ -252,10 +278,10 @@ export const useGameTelemetry = ({
           timestamp: currentTimestamp,
         };
       });
-    }, { realtime: true });
+    }, { realtime: true, token, onAuthError, onError });
 
     return unsubscribe;
-  }, [isGameActive, gameId, devices, deviceKey]);
+  }, [enabled, token, gameId, deviceKey, deviceMetaSignature]);
 
   return useMemo(
     () => ({

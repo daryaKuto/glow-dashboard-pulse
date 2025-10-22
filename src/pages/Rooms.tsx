@@ -154,6 +154,23 @@ const Rooms: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (targets.length === 0) {
+      refreshTargets().catch((error) => {
+        console.warn('⚠️ Rooms page: Failed to refresh targets on mount', error);
+      });
+    }
+  }, [targets.length, refreshTargets]);
+
+  useEffect(() => {
+    if (!createRoomModalOpen) {
+      return;
+    }
+    refreshTargets().catch((error) => {
+      console.warn('⚠️ Rooms page: Failed to refresh targets when opening create-room modal', error);
+    });
+  }, [createRoomModalOpen, refreshTargets]);
+
   const handleCreateRoom = (roomData: {
     name: string;
     icon: string;
@@ -713,8 +730,8 @@ const Rooms: React.FC = () => {
                             <p className="text-sm sm:text-base font-heading text-brand-dark truncate">{target.name}</p>
                             <div className="flex items-center gap-1 sm:gap-2 mt-0.5 sm:mt-1">
                               <Badge 
-                                variant={target.status === 'online' ? 'default' : 'secondary'}
-                                className={`text-xs ${target.status === 'online' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}
+                                variant={target.status === 'online' || target.status === 'standby' ? 'default' : 'secondary'}
+                                className={`text-xs ${(target.status === 'online' || target.status === 'standby') ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}
                               >
                                 {target.status}
                               </Badge>
@@ -832,8 +849,8 @@ const Rooms: React.FC = () => {
                             <p className="text-sm sm:text-base font-heading text-brand-dark truncate">{target.name}</p>
                             <div className="flex items-center gap-1 sm:gap-2 mt-0.5 sm:mt-1">
                               <Badge 
-                                variant={target.status === 'online' ? 'default' : 'secondary'}
-                                className={`text-xs ${target.status === 'online' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}
+                                variant={target.status === 'online' || target.status === 'standby' ? 'default' : 'secondary'}
+                                className={`text-xs ${(target.status === 'online' || target.status === 'standby') ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}
                               >
                                 {target.status}
                               </Badge>
@@ -878,7 +895,7 @@ const Rooms: React.FC = () => {
         isOpen={createRoomModalOpen}
         onClose={() => setCreateRoomModalOpen(false)}
         onCreateRoom={handleCreateRoom}
-        availableTargets={targets.map(target => ({
+        availableTargets={unassignedTargets.map(target => ({
           id: target.id,
           name: target.name,
           status: target.status || 'active'

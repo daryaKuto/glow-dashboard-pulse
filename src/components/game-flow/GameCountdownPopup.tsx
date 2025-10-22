@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { DeviceStatus } from '@/services/device-game-flow';
 import { Play, Square, Trophy, Clock, Target, Activity, Target as TargetIcon, Gamepad2 } from 'lucide-react';
 import { useGameTelemetry } from '@/hooks/useGameTelemetry';
+import { useThingsboardToken } from '@/hooks/useThingsboardToken';
 
 interface GameCountdownPopupProps {
   isOpen: boolean;
@@ -104,13 +105,19 @@ export const GameCountdownPopup: React.FC<GameCountdownPopupProps> = ({
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const gameTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  const { token: tbToken, refresh: refreshThingsboardSession } = useThingsboardToken();
+
   const telemetry = useGameTelemetry({
+    token: tbToken,
     gameId,
-    isGameActive: gameStarted && !gameEnded,
-    devices: devices.map((device) => ({
+    deviceIds: devices.map((device) => ({
       deviceId: device.deviceId,
       deviceName: device.name,
     })),
+    enabled: gameStarted && !gameEnded,
+    onAuthError: () => {
+      void refreshThingsboardSession({ force: true });
+    },
   });
 
   const liveScores = useMemo<LiveScore[]>(() => {

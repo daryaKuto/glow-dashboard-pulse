@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Target as TargetIcon, Users, Calendar, Bell, Clock, Zap, Trophy, TrendingUp, Activity, BarChart3, Play, User, X, Gamepad2, BarChart, Award } from 'lucide-react';
+import { Target as TargetIcon, Users, Calendar, Bell, Clock, Zap, Trophy, TrendingUp, Activity, BarChart3, Play, User, X, Gamepad2, BarChart, Award, RefreshCcw } from 'lucide-react';
 import { useStats } from '@/store/useStats';
 import { useTargets } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
@@ -272,7 +272,7 @@ const SystemOverview: React.FC<{
   const hasTargetDetails = targets.length > 0;
   const totalTargets = hasTargetDetails ? targets.length : summary?.totalTargets ?? 0;
   const onlineTargets = hasTargetDetails
-    ? targets.filter(t => t.status === 'online').length
+    ? targets.filter(t => t.status === 'online' || t.status === 'standby').length
     : summary?.onlineTargets ?? 0;
   const offlineTargets = hasTargetDetails
     ? targets.filter(t => t.status === 'offline').length
@@ -488,11 +488,14 @@ const Dashboard: React.FC = () => {
   const lastFetchTimeRef = useRef(0);
   const telemetryFetchedRef = useRef(false);
   const telemetryInitializedRef = useRef(false);
+  const [manualRefreshState, setManualRefreshState] = useState<'idle' | 'refreshing' | 'success' | 'error'>('idle');
+  const [manualRefreshMessage, setManualRefreshMessage] = useState<string | null>(null);
   const FETCH_DEBOUNCE_MS = 2000; // 2 seconds debounce
   
   // Real data from stores
   const { 
     metrics,
+    metricsCached,
     activeTargets, 
     roomsCreated, 
     lastScenarioScore, 
@@ -504,8 +507,8 @@ const Dashboard: React.FC = () => {
     setWsConnected 
   } = useStats();
   
-  const { targets: rawTargets, fetchTargetsFromEdge } = useTargets();
-  const { rooms } = useRooms();
+  const { targets: rawTargets, fetchTargetsFromEdge, fetchTargetDetails } = useTargets();
+  const { rooms, fetchRooms } = useRooms();
   const { scenarioHistory, isLoading: scenariosLoading, fetchScenarios } = useScenarios();
   const { sessions, isLoading: sessionsLoading, fetchSessions } = useSessions();
   
@@ -526,13 +529,25 @@ const Dashboard: React.FC = () => {
   const fetchMergedTargets = useCallback(async () => {
     setTargetsLoading(true);
     try {
-      await fetchTargetsFromEdge(true);
+      const targets = await fetchTargetsFromEdge(true);
+      if (targets.length > 0) {
+        const deviceIds = targets.map((target) => target.id);
+        try {
+          await fetchTargetDetails(deviceIds, {
+            includeHistory: false,
+            telemetryKeys: ['hit_ts', 'hits', 'event'],
+            recentWindowMs: 5 * 60 * 1000,
+          });
+        } catch (detailError) {
+          console.error('[Dashboard] Failed to hydrate target details', detailError);
+        }
+      }
     } catch (error) {
       console.error('[Dashboard] Error fetching edge targets', error);
     } finally {
       setTargetsLoading(false);
     }
-  }, [fetchTargetsFromEdge]);
+  }, [fetchTargetsFromEdge, fetchTargetDetails]);
 
   const summary: TargetsSummary | null = metrics?.summary ?? null;
   const summaryLoading = statsLoading && !summary;
@@ -547,6 +562,50 @@ const Dashboard: React.FC = () => {
   }, [summary, summaryLoading, rawTargets.length]);
 
   const telemetryEnabled = summaryReady;
+
+  const handleManualRefresh = useCallback(async () => {
+    if (manualRefreshState === 'refreshing') {
+      return;
+    }
+
+    setManualRefreshState('refreshing');
+    setManualRefreshMessage(null);
+
+    try {
+      const refreshPromises: Array<Promise<unknown>> = [
+        fetchStats({ force: true }),
+        fetchMergedTargets(),
+        fetchScenarios(),
+        fetchRooms(),
+      ];
+
+      if (user?.id) {
+        refreshPromises.push(fetchSessions(user.id, 10));
+      }
+
+      await Promise.all(refreshPromises);
+
+      setManualRefreshState('success');
+      setManualRefreshMessage('Dashboard data refreshed. Latest data is now cached.');
+    } catch (error) {
+      console.error('[Dashboard] Manual data refresh failed', error);
+      const message = error instanceof Error ? error.message : 'Failed to refresh dashboard data';
+      setManualRefreshState('error');
+      setManualRefreshMessage(message);
+    }
+  }, [manualRefreshState, fetchStats, fetchMergedTargets, fetchScenarios, fetchRooms, user?.id, fetchSessions]);
+
+  useEffect(() => {
+    if (manualRefreshState === 'success' || manualRefreshState === 'error') {
+      const timeout = setTimeout(() => {
+        setManualRefreshState('idle');
+        setManualRefreshMessage(null);
+      }, 4000);
+
+      return () => clearTimeout(timeout);
+    }
+    return undefined;
+  }, [manualRefreshState]);
 
   useEffect(() => {
     if (authLoading || !user?.id) {
@@ -682,6 +741,10 @@ const Dashboard: React.FC = () => {
   const shouldShowTargetsLoading = (targetsLoading || summaryLoading) && currentTargets.length === 0 && !hasSummaryData;
   const shouldShowSkeleton = (!hasSummaryData) || summaryPending || (sessionsLoading && sessions.length === 0);
   const telemetryLoading = !hasSummaryData || targetsLoading || summaryLoading || historicalLoading;
+  const isManualRefreshing = manualRefreshState === 'refreshing';
+  const isManualRefreshError = manualRefreshState === 'error';
+  const showManualRefreshBanner = telemetryEnabled || metricsCached || manualRefreshState !== 'idle';
+  const metricsGeneratedAt = metrics?.generatedAt ? dayjs(metrics.generatedAt) : null;
 
   const stats = useMemo(() => {
     const usingDetailedTargets = currentTargets.length > 0;
@@ -689,7 +752,7 @@ const Dashboard: React.FC = () => {
       ? currentTargets.length
       : summary?.totalTargets ?? 0;
     const onlineTargets = usingDetailedTargets
-      ? currentTargets.filter(target => target.status === 'online').length
+      ? currentTargets.filter(target => target.status === 'online' || target.status === 'standby').length
       : summary?.onlineTargets ?? 0;
     const assignedTargets = usingDetailedTargets
       ? currentTargets.filter(target => target.roomId).length
@@ -784,6 +847,52 @@ const Dashboard: React.FC = () => {
                   Connecting to ThingsBoard for live shooting activity and session data
                 </p>
               </div>
+            )}
+
+            {showManualRefreshBanner && (
+              <Card className="bg-white border border-brand-secondary/20 shadow-sm rounded-md md:rounded-lg mb-2 md:mb-3">
+                <CardContent className="p-3 md:p-4 flex flex-col gap-3 md:flex-row items-center md:items-center md:justify-between">
+                  <div className="flex items-center gap-3 w-full">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-secondary/10 text-brand-secondary">
+                      <RefreshCcw className="w-4 h-4" />
+                    </div>
+                    <div className="w-full space-y-1 text-left">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs md:text-sm font-medium text-brand-dark">
+                          {metricsCached ? 'Dashboard data may be cached.' : 'Need the latest dashboard data?'}
+                        </span>
+                        <span className="text-xs text-brand-dark/60 md:text-sm">
+                          {metricsCached && metricsGeneratedAt
+                            ? `Last generated ${metricsGeneratedAt.format('MMM D, HH:mm')} · Refresh to pull the newest telemetry and sessions.`
+                            : 'Refresh targets, rooms, scenarios, and sessions from Supabase now.'}
+                        </span>
+                      </div>
+                      {manualRefreshMessage && (
+                        <p className={`text-xs leading-relaxed ${isManualRefreshing ? 'text-brand-dark/60' : isManualRefreshError ? 'text-red-600' : 'text-green-600'}`}>
+                          {manualRefreshMessage}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleManualRefresh}
+                    disabled={isManualRefreshing}
+                    className="self-start md:self-auto rounded-md text-xs h-8 px-4 min-w-[120px] bg-brand-purple text-white transition-colors hover:bg-brand-red disabled:bg-brand-purple/70 disabled:hover:bg-brand-purple/70 disabled:cursor-not-allowed"
+                  >
+                    {isManualRefreshing ? (
+                      <span className="flex items-center gap-2">
+                        <span className="w-3 h-3 border-2 border-brand-secondary border-t-transparent rounded-full animate-spin" />
+                        Refreshing…
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <RefreshCcw className="w-3 h-3" />
+                        Sync now
+                      </span>
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
             )}
 
             

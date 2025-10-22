@@ -62,7 +62,20 @@ export const useInitialSync = () => {
         fetchRecentSessions(user.id, 10),
       ]);
 
-      useTargets.getState().setTargets(targetsResult.targets);
+      const targetStore = useTargets.getState();
+      targetStore.setTargets(targetsResult.targets);
+      if (targetsResult.targets.length > 0) {
+        const deviceIds = targetsResult.targets.map((target) => target.id);
+        try {
+          await targetStore.fetchTargetDetails(deviceIds, {
+            includeHistory: false,
+            telemetryKeys: ['hit_ts', 'hits', 'event'],
+            recentWindowMs: 5 * 60 * 1000,
+          });
+        } catch (detailError) {
+          console.warn('[InitialSync] Unable to hydrate target details', detailError);
+        }
+      }
 
       const mappedRooms = roomsResult.rooms.map((room) => ({
         id: room.id,

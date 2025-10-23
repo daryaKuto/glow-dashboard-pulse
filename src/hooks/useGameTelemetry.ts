@@ -46,6 +46,8 @@ interface GameTelemetryState {
   splits: SplitRecord[];
   transitions: TransitionRecord[];
   hitTimesByDevice: Record<string, number[]>;
+  sessionEventTimestamp: number | null;
+  readyDevices: Record<string, number>;
 }
 
 const resolveTelemetryValue = (input: unknown): unknown => {
@@ -109,6 +111,8 @@ export const useGameTelemetry = ({
     deviceName: string;
     timestamp: number;
   } | null>(null);
+  const [sessionEventTimestamp, setSessionEventTimestamp] = useState<number | null>(null);
+  const [readyDevices, setReadyDevices] = useState<Record<string, number>>({});
 
   const deviceKey = useMemo(() => buildDeviceKey(deviceIds), [deviceIds]);
   const deviceMetaSignature = useMemo(
@@ -144,6 +148,8 @@ export const useGameTelemetry = ({
     setHitTimesByDevice({});
     setLastHitTimestamp(initialTimestamps);
     setLastHitDevice(null);
+    setSessionEventTimestamp(null);
+    setReadyDevices({});
   }, []);
 
   const previousEnabledRef = useRef<boolean>(false);
@@ -185,10 +191,28 @@ export const useGameTelemetry = ({
 
       const eventValue = resolveTelemetryValue(telemetryData.event);
       const gameIdValue = resolveTelemetryValue(telemetryData.gameId);
+      const eventTimestamp = resolveTelemetryTimestamp(telemetryData.event, Date.now());
 
       const resolvedDeviceId =
         message.entityId ||
         (resolveTelemetryValue(telemetryData.deviceId) as string | undefined);
+
+      if (
+        gameIdValue === gameId &&
+        resolvedDeviceId &&
+        (eventValue === 'start' || eventValue === 'busy')
+      ) {
+        setSessionEventTimestamp((prev) => (prev === null ? eventTimestamp : Math.min(prev, eventTimestamp)));
+        setReadyDevices((prev) => {
+          if (prev[resolvedDeviceId]) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [resolvedDeviceId]: eventTimestamp,
+          };
+        });
+      }
 
       if (eventValue !== 'hit' || gameIdValue !== gameId || !resolvedDeviceId) {
         return;
@@ -196,10 +220,6 @@ export const useGameTelemetry = ({
 
       const deviceId = resolvedDeviceId;
       const deviceName = deviceNameMap.get(deviceId) ?? deviceId;
-      const eventTimestamp = resolveTelemetryTimestamp(
-        telemetryData.event,
-        Date.now()
-      );
       const currentTimestamp = eventTimestamp || Date.now();
 
       setHitCounts((prev) => ({
@@ -290,7 +310,18 @@ export const useGameTelemetry = ({
       splits,
       transitions,
       hitTimesByDevice,
+      sessionEventTimestamp,
+      readyDevices,
     }),
-    [hitCounts, hitHistory, splits, transitions, hitTimesByDevice]
+    [hitCounts, hitHistory, splits, transitions, hitTimesByDevice, sessionEventTimestamp, readyDevices]
   );
 };
+      setReadyDevices((prev) => {
+        if (prev[deviceId]) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [deviceId]: currentTimestamp,
+        };
+      });

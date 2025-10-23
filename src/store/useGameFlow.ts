@@ -7,7 +7,7 @@ import {
   DeviceGameEvent,
   type GameCommandWarning,
 } from '@/services/device-game-flow';
-import { fetchGameHistory as fetchPersistedGameHistory, saveGameHistory as persistGameHistory } from '@/services/game-history';
+import { fetchAllGameHistory as fetchPersistedGameHistory, saveGameHistory as persistGameHistory } from '@/services/game-history';
 
 type ConfigureDevicesResult = {
   ok: boolean;

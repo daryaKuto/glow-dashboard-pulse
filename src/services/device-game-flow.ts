@@ -37,6 +37,28 @@ export interface GameSession {
   status: 'configuring' | 'active' | 'stopped' | 'completed';
 }
 
+export interface SessionSplit {
+  deviceId: string;
+  deviceName: string;
+  splitNumber: number;
+  time: number;
+  timestamp?: number | null;
+}
+
+export interface SessionTransition {
+  fromDevice: string;
+  toDevice: string;
+  transitionNumber: number;
+  time: number;
+}
+
+export interface SessionHitRecord {
+  deviceId: string;
+  deviceName: string;
+  timestamp: number;
+  gameId: string;
+}
+
 export interface GameHistory {
   gameId: string;
   gameName: string;
@@ -71,6 +93,9 @@ export interface GameHistory {
     averageSwitchTime: number;
     switchTimes: number[];
   } | null;
+  splits?: SessionSplit[];
+  transitions?: SessionTransition[];
+  hitHistory?: SessionHitRecord[];
 }
 
 export type GameCommandWarning = { deviceId: string; warning: string };

@@ -74,6 +74,9 @@ type HistoryPayload = {
     deviceResults?: Array<Record<string, unknown>>;
     targetStats?: Array<Record<string, unknown>>;
     crossTargetStats?: Record<string, unknown>;
+    splits?: Array<Record<string, unknown>>;
+    transitions?: Array<Record<string, unknown>>;
+    hitHistory?: Array<Record<string, unknown>>;
   };
 };
 
@@ -447,33 +450,67 @@ async function handleStart(payload: StartPayload) {
   const gameId = payload.gameId && payload.gameId.trim().length > 0 ? payload.gameId : `GM-${Date.now()}`;
   const timestamp = Date.now();
 
-  const results: DeviceCommandResult[] = [];
-  for (const deviceId of deviceIds) {
-    const result: DeviceCommandResult = { deviceId, success: false };
-    try {
-      await setDeviceSharedAttributes(deviceId, { gameId, status: "busy" });
+  const results: DeviceCommandResult[] = await Promise.all(
+    deviceIds.map(async (deviceId) => {
+      const result: DeviceCommandResult = { deviceId, success: false };
+      const commandStartedAt = Date.now();
       try {
-        await sendOneWayRpc(deviceId, "start", {
-          ts: timestamp,
-          values: {
-            deviceId,
-            event: "start",
-            gameId,
-          },
-        });
-      } catch (error) {
-        if (isTimeoutError(error)) {
-          result.warning = "rpc-timeout";
-        } else {
-          throw error;
+        console.log(`[game-control:start] setting shared attributes for ${deviceId}`);
+        const attributesStartedAt = Date.now();
+        await setDeviceSharedAttributes(deviceId, { gameId, status: "busy" });
+        const attributesCompletedAt = Date.now();
+
+        console.log(
+          `[game-control:start] issuing start RPC for ${deviceId} (attrs ${attributesCompletedAt - attributesStartedAt}ms)`
+        );
+
+        const rpcStartedAt = Date.now();
+        try {
+          await sendOneWayRpc(deviceId, "start", {
+            ts: timestamp,
+            values: {
+              deviceId,
+              event: "start",
+              gameId,
+            },
+          });
+        } catch (error) {
+          if (isTimeoutError(error)) {
+            result.warning = "rpc-timeout";
+            console.warn(`[game-control:start] RPC timeout for ${deviceId} (expected)`);
+          } else {
+            throw error;
+          }
         }
+        const rpcCompletedAt = Date.now();
+
+        result.success = true;
+        result.data = {
+          attributeMs: attributesCompletedAt - attributesStartedAt,
+          rpcMs: rpcCompletedAt - rpcStartedAt,
+          totalMs: Date.now() - commandStartedAt,
+        };
+
+        console.log(
+          `[game-control:start] device ${deviceId} marked busy and start command dispatched in ${
+            (result.data as { totalMs: number }).totalMs
+          }ms`
+        );
+      } catch (error) {
+        result.error = error instanceof Error ? error.message : String(error);
+        result.data = {
+          totalMs: Date.now() - commandStartedAt,
+        };
+        console.error(
+          `[game-control:start] failed to start device ${deviceId} after ${
+            (result.data as { totalMs: number }).totalMs
+          }ms`,
+          error,
+        );
       }
-      result.success = true;
-    } catch (error) {
-      result.error = error instanceof Error ? error.message : String(error);
-    }
-    results.push(result);
-  }
+      return result;
+    }),
+  );
 
   const successCount = results.filter((r) => r.success).length;
   const failureCount = results.length - successCount;

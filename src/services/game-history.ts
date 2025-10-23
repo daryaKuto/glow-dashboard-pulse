@@ -1,5 +1,10 @@
 import { supabase } from '@/integrations/supabase/client';
-import type { GameHistory } from '@/services/device-game-flow';
+import type {
+  GameHistory,
+  SessionHitRecord,
+  SessionSplit,
+  SessionTransition,
+} from '@/services/device-game-flow';
 
 export interface GameHistorySummaryPayload {
   gameId: string;
@@ -18,6 +23,9 @@ export interface GameHistorySummaryPayload {
   deviceResults: GameHistory['deviceResults'];
   targetStats: GameHistory['targetStats'];
   crossTargetStats: GameHistory['crossTargetStats'];
+  splits?: SessionSplit[];
+  transitions?: SessionTransition[];
+  hitHistory?: SessionHitRecord[];
 }
 
 interface GameHistoryResponse {
@@ -58,6 +66,9 @@ export function mapSummaryToGameHistory(summary: GameHistorySummaryPayload): Gam
     averageHitInterval: typeof summary.averageHitInterval === 'number' ? summary.averageHitInterval : null,
     targetStats: summary.targetStats ?? [],
     crossTargetStats: summary.crossTargetStats ?? null,
+    splits: summary.splits ?? [],
+    transitions: summary.transitions ?? [],
+    hitHistory: summary.hitHistory ?? [],
   };
 }
 
@@ -80,6 +91,9 @@ export async function saveGameHistory(summary: GameHistory): Promise<'created' |
     deviceResults: summary.deviceResults,
     targetStats: summary.targetStats,
     crossTargetStats: summary.crossTargetStats,
+    splits: summary.splits ?? [],
+    transitions: summary.transitions ?? [],
+    hitHistory: summary.hitHistory ?? [],
   };
 
   const { data, error } = await supabase.functions.invoke<GameHistoryResponse>('game-control', {
@@ -104,6 +118,11 @@ export interface FetchGameHistoryOptions {
   startBefore?: number;
   startAfter?: number;
   deviceId?: string;
+}
+
+export interface FetchAllGameHistoryOptions extends Omit<FetchGameHistoryOptions, 'limit'> {
+  pageSize?: number;
+  maxPages?: number;
 }
 
 // Retrieves the most recent game history records for the authenticated user.
@@ -133,4 +152,51 @@ export async function fetchGameHistory(
     history: history.map((entry) => mapSummaryToGameHistory(entry.summary)),
     nextCursor: data?.nextCursor ?? null,
   };
+}
+
+// Walks all available history pages (within the configured guardrails) and flattens them into a single array.
+export async function fetchAllGameHistory(
+  options: FetchAllGameHistoryOptions = {},
+): Promise<{ history: GameHistory[]; nextCursor: string | null }> {
+  const {
+    pageSize,
+    maxPages,
+    cursor: initialCursor,
+    ...baseFilters
+  } = options;
+
+  const perPage = typeof pageSize === 'number' && Number.isFinite(pageSize)
+    ? Math.max(1, Math.min(100, Math.floor(pageSize)))
+    : HISTORY_LIMIT;
+
+  const maximumPages = typeof maxPages === 'number' && Number.isFinite(maxPages)
+    ? Math.max(1, Math.floor(maxPages))
+    : 50;
+
+  const aggregated: GameHistory[] = [];
+  let cursor: string | null = initialCursor ?? null;
+  let nextCursor: string | null = null;
+
+  for (let page = 0; page < maximumPages; page += 1) {
+    const { history, nextCursor: pageCursor } = await fetchGameHistory({
+      ...baseFilters,
+      cursor: cursor ?? undefined,
+      limit: perPage,
+    });
+
+    aggregated.push(...history);
+
+    const noMoreRecords = !pageCursor || history.length < perPage;
+    const repeatedCursor = cursor !== null && pageCursor === cursor;
+
+    if (noMoreRecords || repeatedCursor) {
+      nextCursor = pageCursor ?? null;
+      break;
+    }
+
+    cursor = pageCursor;
+    nextCursor = pageCursor ?? null;
+  }
+
+  return { history: aggregated, nextCursor };
 }

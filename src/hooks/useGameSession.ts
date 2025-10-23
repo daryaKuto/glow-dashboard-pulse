@@ -7,6 +7,14 @@ interface WarningEntry {
   warning: string;
 }
 
+interface GameCommandResult {
+  deviceId: string;
+  success: boolean;
+  warning?: string;
+  error?: string;
+  data?: unknown;
+}
+
 interface UseGameSessionOptions {
   onResetMetrics?: () => void;
   onStop?: () => void;
@@ -26,6 +34,7 @@ interface StartGameSessionResult {
   successfulDeviceIds: string[];
   failedDeviceIds: string[];
   warnings: WarningEntry[];
+  results?: GameCommandResult[];
 }
 
 interface StopGameSessionArgs {
@@ -161,6 +170,7 @@ export function useGameSession(options: UseGameSessionOptions = {}) {
             successfulDeviceIds: [],
             failedDeviceIds,
             warnings,
+            results: commandResults as GameCommandResult[],
           };
         }
 
@@ -183,6 +193,7 @@ export function useGameSession(options: UseGameSessionOptions = {}) {
           successfulDeviceIds,
           failedDeviceIds,
           warnings,
+          results: commandResults as GameCommandResult[],
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -195,6 +206,7 @@ export function useGameSession(options: UseGameSessionOptions = {}) {
           successfulDeviceIds: [],
           failedDeviceIds: [...deviceIds],
           warnings: [],
+          results: [],
         };
       } finally {
         setIsStarting(false);

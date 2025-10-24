@@ -52,8 +52,6 @@ import {
   ensureTbAuthToken,
   tbSetShared,
   tbSendOneway,
-  sendTwoWayRpc as tbSendTwoway,
-  getDeviceTelemetry,
 } from '@/services/thingsboard-client';
 import {
   fetchAllGameHistory as fetchPersistedGameHistory,
@@ -119,8 +117,6 @@ const DEVICE_COLOR_PALETTE = [
 
 const MAX_TIMELINE_POINTS = 24;
 const TIMELINE_BUCKET_MS = 1_000;
-const READINESS_CONFIRMATION_TIMEOUT_MS = 3_000;
-
 type AxiosErrorLike = {
   isAxiosError?: boolean;
   response?: { status?: unknown };
@@ -377,8 +373,6 @@ const Games: React.FC = () => {
   const [pendingSessionTargets, setPendingSessionTargets] = useState<NormalizedGameDevice[]>([]);
   const [currentSessionTargets, setCurrentSessionTargets] = useState<NormalizedGameDevice[]>([]);
   const [recentSessionSummary, setRecentSessionSummary] = useState<LiveSessionSummary | null>(null);
-  const [expectedDeviceIdsForReadiness, setExpectedDeviceIdsForReadiness] = useState<string[]>([]);
-  const [pendingReadyDeviceIds, setPendingReadyDeviceIds] = useState<string[]>([]);
   const [directSessionGameId, setDirectSessionGameId] = useState<string | null>(null);
   const [directSessionTargets, setDirectSessionTargets] = useState<Array<{ deviceId: string; name: string }>>([]);
   const [directFlowActive, setDirectFlowActive] = useState(false);
@@ -425,9 +419,6 @@ const Games: React.FC = () => {
   const availableDevicesRef = useRef<NormalizedGameDevice[]>([]);
   const selectionManuallyModifiedRef = useRef(false);
   const lastTargetsRefreshRef = useRef<number>(0);
-  const readinessTimeoutRef = useRef<number | null>(null);
-  const readinessWarningIssuedRef = useRef(false);
-  const readinessPendingIdsRef = useRef<string[]>([]);
   // Centralised token manager so the Games page always has a fresh ThingsBoard JWT for sockets/RPCs.
   const { session: tbSession, refresh: refreshThingsboardSession } = useThingsboardToken();
 
@@ -478,168 +469,6 @@ const Games: React.FC = () => {
     } finally {
       setIsDirectAuthLoading(false);
     }
-  }, []);
-
-  const fetchDirectTargetsSnapshot = useCallback(
-    async (deviceIds: string[]): Promise<Array<{ deviceId: string; telemetry: Record<string, unknown> }>> => {
-      if (deviceIds.length === 0) {
-        return [];
-      }
-      const TELEMETRY_KEYS = ['event', 'gameStatus', 'hits', 'hit_ts', 'lastActivityTime'];
-      const snapshots = await Promise.all(
-        deviceIds.map(async (deviceId) => {
-          const telemetry = await getDeviceTelemetry(deviceId, TELEMETRY_KEYS, 1);
-          return { deviceId, telemetry: telemetry ?? {} };
-        }),
-      );
-      return snapshots;
-    },
-    [],
-  );
-
-  const waitForTargetsState = useCallback(
-    async (
-      deviceIds: string[],
-      {
-        expectState,
-        timeoutMs = 8_000,
-        pollIntervalMs = 500,
-      }: { expectState: 'active' | 'idle'; timeoutMs?: number; pollIntervalMs?: number },
-    ): Promise<{ success: boolean; timestamp: number | null }> => {
-      if (deviceIds.length === 0) {
-        return { success: true, timestamp: null };
-      }
-
-      const deadline = Date.now() + timeoutMs;
-      let lastErrorLogged = 0;
-      let lastNetworkErrorLogged = 0;
-      let lastAuthErrorLogged = 0;
-      while (Date.now() < deadline) {
-        try {
-          const snapshots = await fetchDirectTargetsSnapshot(deviceIds);
-          const timestampCandidates: number[] = [];
-          const satisfied = deviceIds.every((deviceId) => {
-            const snapshot = snapshots.find((entry) => entry.deviceId === deviceId);
-            if (!snapshot) {
-              return false;
-            }
-            const telemetry = snapshot.telemetry ?? {};
-            const telemetryRecord = telemetry as Record<string, unknown>;
-            const statusValue = resolveSeriesString(telemetryRecord['gameStatus'])?.toLowerCase() ?? '';
-            const eventValue = resolveSeriesString(telemetryRecord['event'])?.toLowerCase() ?? null;
-            const active =
-              ['start', 'busy', 'active'].includes(statusValue) || (eventValue ? ['start', 'busy'].includes(eventValue) : false);
-            if (expectState === 'active' && !active) {
-              return false;
-            }
-            if (expectState === 'idle' && active) {
-              return false;
-            }
-            const eventSeries = telemetryRecord['event'];
-            const eventTimestamp = resolveSeriesTimestamp(eventSeries);
-            if (typeof eventTimestamp === 'number') {
-              timestampCandidates.push(eventTimestamp);
-            } else {
-              const hitTimestamp = resolveSeriesTimestamp(telemetryRecord['hit_ts']);
-              if (typeof hitTimestamp === 'number') {
-                timestampCandidates.push(hitTimestamp);
-              } else {
-                const lastActivityTime = resolveSeriesTimestamp(telemetryRecord['lastActivityTime']);
-                if (typeof lastActivityTime === 'number') {
-                  timestampCandidates.push(lastActivityTime);
-                }
-              }
-            }
-            return true;
-          });
-
-          if (satisfied) {
-            const minTimestamp =
-              timestampCandidates.length > 0 ? Math.min(...timestampCandidates) : Date.now();
-            return { success: true, timestamp: minTimestamp };
-          }
-        } catch (error) {
-          const now = Date.now();
-          const status = resolveHttpStatus(error);
-          if (status === 401 || status === 403) {
-            if (now - lastAuthErrorLogged > 5_000) {
-              console.warn('[Games] ThingsBoard authentication required while waiting for state; refreshing token', {
-                deviceIds,
-              });
-              lastAuthErrorLogged = now;
-            }
-            await refreshDirectAuthToken().catch(() => undefined);
-          } else if (isAxiosNetworkError(error)) {
-            if (now - lastNetworkErrorLogged > 5_000) {
-              console.info('[Games] ThingsBoard telemetry snapshot unavailable (network)', {
-                deviceIds,
-              });
-              lastNetworkErrorLogged = now;
-            }
-          } else if (now - lastErrorLogged > 3_000) {
-            console.warn('[Games] Failed to fetch ThingsBoard telemetry snapshot while waiting for state', error);
-            lastErrorLogged = now;
-          }
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-      }
-
-      return { success: false, timestamp: null };
-    },
-    [refreshDirectAuthToken, fetchDirectTargetsSnapshot],
-  );
-
-  const ensureTargetsReleased = useCallback(
-    async (deviceIds: string[]) => {
-      if (deviceIds.length === 0) {
-        return true;
-      }
-
-      const timestamp = Date.now();
-      await Promise.all(
-        deviceIds.map(async (deviceId) => {
-          try {
-            await tbSendOneway(deviceId, 'stop', {
-              ts: timestamp,
-              values: {
-                deviceId,
-                event: 'stop',
-              },
-            });
-          } catch (error) {
-            const status = resolveHttpStatus(error);
-            if (status === 504) {
-              console.info('[Games] Pre-flight stop command timed out (expected for oneway)', { deviceId });
-            } else if (isAxiosNetworkError(error)) {
-              console.info('[Games] Pre-flight stop command hit a network issue; will rely on readiness polling', {
-                deviceId,
-              });
-            } else if (status === 401 || status === 403) {
-              await refreshDirectAuthToken().catch(() => undefined);
-            } else {
-              console.warn('[Games] Pre-flight stop command failed', { deviceId, error });
-            }
-          }
-        }),
-      );
-
-      const idleResult = await waitForTargetsState(deviceIds, { expectState: 'idle', timeoutMs: 6_000 });
-      if (!idleResult.success) {
-        console.warn('[Games] Devices did not confirm idle state before starting session', { deviceIds });
-      }
-      return idleResult.success;
-    },
-    [waitForTargetsState, refreshDirectAuthToken],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (readinessTimeoutRef.current) {
-        window.clearTimeout(readinessTimeoutRef.current);
-        readinessTimeoutRef.current = null;
-      }
-    };
   }, []);
 
   const convertSessionToHistory = useCallback(
@@ -1264,13 +1093,6 @@ const Games: React.FC = () => {
     }));
     console.info('[Games] Direct control targets prepared', directTargetList);
 
-    const stopSuccess = await ensureTargetsReleased(directTargetList.map((target) => target.deviceId));
-    if (!stopSuccess) {
-      toast.warning('Targets did not confirm idle state. They may still be busy.', {
-        description: 'Verify their status in ThingsBoard if problems persist.',
-      });
-    }
-
     const initialStates = directTargetList.reduce<Record<string, 'idle' | 'pending' | 'success' | 'error'>>((acc, target) => {
       acc[target.deviceId] = 'idle';
       return acc;
@@ -1307,7 +1129,6 @@ const Games: React.FC = () => {
     setGameStartTime,
     setGameStopTime,
     setIsSessionDialogDismissed,
-    ensureTargetsReleased,
     toast,
   ]);
 
@@ -1410,76 +1231,6 @@ const Games: React.FC = () => {
     markTelemetryConfirmed,
     telemetryState.sessionEventTimestamp,
     isDirectFlow,
-  ]);
-
-  useEffect(() => {
-    if (expectedDeviceIdsForReadiness.length === 0) {
-      return;
-    }
-    const readinessSnapshot: Record<string, number> = { ...telemetryState.readyDevices };
-    const expectedSet = new Set(expectedDeviceIdsForReadiness);
-    availableDevicesRef.current.forEach((device) => {
-      if (!expectedSet.has(device.deviceId)) {
-        return;
-      }
-      if (readinessSnapshot[device.deviceId]) {
-        return;
-      }
-      const rawStatus = (device.raw?.gameStatus ?? '').toString().toLowerCase();
-      const rawEvent = (device.raw?.event ?? '').toString().toLowerCase();
-      if (rawStatus === 'start' || rawStatus === 'busy' || rawEvent === 'start' || rawEvent === 'busy') {
-        readinessSnapshot[device.deviceId] = Date.now();
-      }
-    });
-    const readinessAnchors = Object.values(readinessSnapshot).filter(
-      (value): value is number => typeof value === 'number',
-    );
-    const earliestReadyTimestamp = readinessAnchors.length > 0 ? Math.min(...readinessAnchors) : null;
-
-    console.info('[Games] Readiness check tick', {
-      expectedDeviceIdsForReadiness,
-      readyMap: readinessSnapshot,
-      pending: readinessPendingIdsRef.current,
-    });
-    setPendingReadyDeviceIds((prev) => {
-      if (prev.length === 0) {
-        return prev;
-      }
-      const next = prev.filter((deviceId) => !readinessSnapshot[deviceId]);
-      if (next.length === prev.length) {
-        readinessPendingIdsRef.current = next;
-        return prev;
-      }
-      const newlyReady = prev.filter((deviceId) => readinessSnapshot[deviceId] && !next.includes(deviceId));
-      if (newlyReady.length > 0) {
-        newlyReady.forEach((deviceId) => {
-          const deviceName = deviceNameById.get(deviceId) ?? deviceId;
-          console.log(`[Games] device ${deviceName} confirmed readiness via telemetry`);
-        });
-      }
-      readinessPendingIdsRef.current = next;
-      if (next.length === 0) {
-        if (readinessTimeoutRef.current) {
-          window.clearTimeout(readinessTimeoutRef.current);
-          readinessTimeoutRef.current = null;
-        }
-        if (!sessionConfirmedRef.current && sessionLifecycleRef.current === 'launching') {
-          console.info('[Games] Readiness heuristic confirmed all devices');
-          const anchor =
-            earliestReadyTimestamp ??
-            (startTriggeredAt !== null ? startTriggeredAt : Date.now());
-          markTelemetryConfirmed(anchor);
-        }
-        toast.success('All devices confirmed readiness.');
-      }
-      return next;
-    });
-  }, [
-    deviceNameById,
-    expectedDeviceIdsForReadiness,
-    telemetryState.readyDevices,
-    markTelemetryConfirmed,
-    startTriggeredAt,
   ]);
 
   useEffect(() => {
@@ -1608,11 +1359,11 @@ const Games: React.FC = () => {
     const stopResults = await Promise.allSettled(
       directSessionTargets.map(async ({ deviceId }) => {
         updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'pending' }));
-        try {
-          await tbSetShared(deviceId, { status: 'free' });
-          let stopSucceeded = false;
+        let attemptedRefresh = false;
+
+        const sendStopCommand = async () => {
           try {
-            await tbSendTwoway(deviceId, 'stop', {
+            await tbSendOneway(deviceId, 'stop', {
               ts: stopTimestamp,
               values: {
                 deviceId,
@@ -1620,50 +1371,30 @@ const Games: React.FC = () => {
                 gameId: directSessionGameId,
               },
             });
-            stopSucceeded = true;
-          } catch (rpcError) {
-            const status = resolveHttpStatus(rpcError);
-            if (status === 401 || status === 403) {
-              throw rpcError;
-            }
-            if (status === 504 || typeof status !== 'number') {
-              console.info('[Games] ThingsBoard stop two-way RPC timing out; using oneway fallback', {
+          } catch (error) {
+            const status = resolveHttpStatus(error);
+            if (status === 504) {
+              console.info('[Games] ThingsBoard stop RPC timed out (expected for oneway command)', {
                 deviceId,
                 gameId: directSessionGameId,
-                status,
+              });
+            } else if (status === 401 && !attemptedRefresh) {
+              attemptedRefresh = true;
+              await refreshDirectAuthToken();
+              await sendStopCommand();
+            } else if (isAxiosNetworkError(error)) {
+              console.info('[Games] ThingsBoard stop RPC hit a network issue; command may still apply', {
+                deviceId,
               });
             } else {
-              console.warn('[Games] ThingsBoard stop two-way RPC failed; trying fallback', {
-                deviceId,
-                gameId: directSessionGameId,
-                status,
-                error: rpcError,
-              });
+              throw error;
             }
           }
+        };
 
-          if (!stopSucceeded) {
-            try {
-              await tbSendOneway(deviceId, 'stop', {
-                ts: stopTimestamp,
-                values: {
-                  deviceId,
-                  event: 'stop',
-                  gameId: directSessionGameId,
-                },
-              });
-            } catch (fallbackError) {
-              const status = resolveHttpStatus(fallbackError);
-              if (status !== 504) {
-                throw fallbackError;
-              }
-              console.info('[Games] ThingsBoard stop fallback RPC timed out (expected for oneway command)', {
-                deviceId,
-                gameId: directSessionGameId,
-              });
-            }
-          }
-
+        try {
+          await tbSetShared(deviceId, { status: 'free' });
+          await sendStopCommand();
           updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'success' }));
         } catch (error) {
           console.error('[Games] Failed to stop device via ThingsBoard', error);
@@ -1747,15 +1478,6 @@ const Games: React.FC = () => {
     updateDirectStartStates({});
     setDirectSessionTargets([]);
     setDirectSessionGameId(null);
-    setExpectedDeviceIdsForReadiness([]);
-    setPendingReadyDeviceIds([]);
-    readinessPendingIdsRef.current = [];
-    readinessWarningIssuedRef.current = false;
-    if (readinessTimeoutRef.current) {
-      window.clearTimeout(readinessTimeoutRef.current);
-      readinessTimeoutRef.current = null;
-    }
-
     void loadLiveDevices({ silent: true });
   }, [
     directSessionGameId,
@@ -1782,8 +1504,7 @@ const Games: React.FC = () => {
     setDirectSessionTargets,
     setDirectSessionGameId,
     setAvailableDevices,
-    setExpectedDeviceIdsForReadiness,
-    setPendingReadyDeviceIds,
+    refreshDirectAuthToken,
     loadLiveDevices,
     toast,
   ]);
@@ -1827,6 +1548,11 @@ const Games: React.FC = () => {
         return { successIds: [], errorIds: [] };
       }
 
+      if (!directSessionGameId) {
+        toast.error('Missing ThingsBoard game identifier. Close and reopen the dialog to retry.');
+        return { successIds: [], errorIds: uniqueIds };
+      }
+
       const targetsToCommand = directSessionTargets.filter((target) => uniqueIds.includes(target.deviceId));
       if (targetsToCommand.length === 0) {
         toast.error('Unable to resolve ThingsBoard devices for the start command.');
@@ -1841,121 +1567,57 @@ const Games: React.FC = () => {
         return next;
       });
 
-      const MAX_RPC_ATTEMPTS = 3;
       await Promise.allSettled(
         targetsToCommand.map(async ({ deviceId }) => {
-          let attempts = 0;
-          while (attempts < MAX_RPC_ATTEMPTS) {
-            attempts += 1;
+          let attemptedRefresh = false;
+          const run = async () => {
+            await tbSetShared(deviceId, {
+              gameId: directSessionGameId,
+              status: 'busy',
+            });
+
             try {
-              await tbSetShared(deviceId, {
-                gameId: directSessionGameId,
-                status: 'busy',
+              await tbSendOneway(deviceId, 'start', {
+                ts: timestamp,
+                values: {
+                  deviceId,
+                  event: 'start',
+                  gameId: directSessionGameId,
+                },
               });
-
-              let rpcSucceeded = false;
-              try {
-                await tbSendTwoway(deviceId, 'start', {
-                  ts: timestamp,
-                  values: {
-                    deviceId,
-                    event: 'start',
-                    gameId: directSessionGameId,
-                  },
-                });
-                rpcSucceeded = true;
-              } catch (rpcError) {
-                const status = resolveHttpStatus(rpcError);
-                if (status === 504) {
-                  console.info('[Games] ThingsBoard start two-way RPC timed out; falling back to oneway', {
-                    deviceId,
-                    gameId: directSessionGameId,
-                  });
-                } else if (status === 401 && attempts < MAX_RPC_ATTEMPTS) {
-                  await refreshDirectAuthToken();
-                  continue;
-                } else {
-                  if (isAxiosNetworkError(rpcError) || typeof status !== 'number') {
-                    console.info('[Games] ThingsBoard start RPC encountered a transient issue; attempting fallback', {
-                      deviceId,
-                      attempt: attempts,
-                      status,
-                    });
-                  } else {
-                    console.warn('[Games] ThingsBoard start two-way RPC failed, attempting fallback', {
-                      deviceId,
-                      attempt: attempts,
-                      status,
-                      error: rpcError,
-                    });
-                  }
-                }
-              }
-
-              if (!rpcSucceeded) {
-                try {
-                  await tbSendOneway(deviceId, 'start', {
-                    ts: timestamp,
-                    values: {
-                      deviceId,
-                      event: 'start',
-                      gameId: directSessionGameId,
-                    },
-                  });
-                  rpcSucceeded = true;
-                } catch (fallbackError) {
-                  const fallbackStatus = resolveHttpStatus(fallbackError);
-                  if (fallbackStatus === 401 && attempts < MAX_RPC_ATTEMPTS) {
-                    await refreshDirectAuthToken();
-                    continue;
-                  }
-                  if (fallbackStatus === 504) {
-                    console.info('[Games] ThingsBoard start fallback RPC timed out (expected for oneway command)', {
-                      deviceId,
-                      gameId: directSessionGameId,
-                    });
-                    rpcSucceeded = true;
-                  } else {
-                    console.error('[Games] ThingsBoard start command failed after fallback', {
-                      deviceId,
-                      attempt: attempts,
-                      status: fallbackStatus,
-                      error: fallbackError,
-                    });
-                    throw fallbackError;
-                  }
-                }
-              }
-
-              updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'success' }));
-              return;
-            } catch (commandError) {
-              const status = resolveHttpStatus(commandError);
-              if (status === 401 && attempts < MAX_RPC_ATTEMPTS) {
+            } catch (error) {
+              const status = resolveHttpStatus(error);
+              if (status === 504) {
+                console.info('[Games] ThingsBoard start RPC timed out (expected for oneway)', { deviceId, gameId: directSessionGameId });
+              } else if (status === 401 && !attemptedRefresh) {
+                attemptedRefresh = true;
                 await refreshDirectAuthToken();
-                continue;
+                await run();
+                return;
+              } else if (isAxiosNetworkError(error)) {
+                console.info('[Games] ThingsBoard start RPC hit a network issue; command may still apply', { deviceId });
+              } else {
+                throw error;
               }
-              console.error('[Games] ThingsBoard start command failed', {
-                deviceId,
-                attempt: attempts,
-                status,
-                error: commandError,
-              });
-              updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'error' }));
-              throw commandError;
             }
+          };
+
+          try {
+            await run();
+            updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'success' }));
+          } catch (error) {
+            updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'error' }));
+            console.error('[Games] ThingsBoard start command failed', { deviceId, error });
+            throw error;
           }
         }),
       );
 
       const finalStates = directStartStatesRef.current;
-      const aggregatedSuccessIds = Object.entries(finalStates)
-        .filter(([, state]) => state === 'success')
-        .map(([deviceId]) => deviceId);
-      const attemptSuccessIds = uniqueIds.filter((deviceId) => finalStates[deviceId] === 'success');
-      const attemptErrorIds = uniqueIds.filter((deviceId) => finalStates[deviceId] === 'error');
+      const successIds = uniqueIds.filter((deviceId) => finalStates[deviceId] === 'success');
+      const errorIds = uniqueIds.filter((deviceId) => finalStates[deviceId] === 'error');
 
-      if (aggregatedSuccessIds.length === 0) {
+      if (successIds.length === 0) {
         setDirectFlowActive(false);
         setDirectTelemetryEnabled(false);
         setSessionLifecycle('selecting');
@@ -1964,117 +1626,51 @@ const Games: React.FC = () => {
         resetSessionTimer(null);
         setHitCounts({});
         setHitHistory([]);
-        setExpectedDeviceIdsForReadiness([]);
-        setPendingReadyDeviceIds([]);
-        readinessPendingIdsRef.current = [];
-        readinessWarningIssuedRef.current = false;
-        if (readinessTimeoutRef.current) {
-          window.clearTimeout(readinessTimeoutRef.current);
-          readinessTimeoutRef.current = null;
-        }
         setDirectControlError('Start commands failed. Adjust the devices or refresh your session and try again.');
         if (!isRetry) {
           toast.error('Failed to start session. Update device status and retry.');
         }
-        return { successIds: [], errorIds: attemptErrorIds };
+        return { successIds: [], errorIds };
       }
 
       setDirectFlowActive(true);
-      setDirectControlError(attemptErrorIds.length > 0 ? 'Some devices failed to start. Retry failed devices.' : null);
+      setDirectTelemetryEnabled(true);
+      setSessionLifecycle('running');
+      setGameStartTime((prev) => prev ?? timestamp);
+      markTelemetryConfirmed(timestamp);
+      setDirectControlError(errorIds.length > 0 ? 'Some devices failed to start. Retry failed devices.' : null);
 
-      if (readinessTimeoutRef.current) {
-        window.clearTimeout(readinessTimeoutRef.current);
-        readinessTimeoutRef.current = null;
-      }
-
-      const activationResult = await waitForTargetsState(aggregatedSuccessIds, {
-        expectState: 'active',
-        timeoutMs: 8_000,
-      });
-
-      if (activationResult.success) {
-        setDirectTelemetryEnabled(true);
-        setExpectedDeviceIdsForReadiness([]);
-        setPendingReadyDeviceIds([]);
-        readinessPendingIdsRef.current = [];
-        readinessWarningIssuedRef.current = false;
-        const confirmedTimestamp = activationResult.timestamp ?? timestamp;
-        setGameStartTime((prev) => (prev ?? confirmedTimestamp));
-        markTelemetryConfirmed(confirmedTimestamp);
-      } else {
-        setDirectTelemetryEnabled(true);
-        setGameStartTime((prev) => (prev ?? timestamp));
-        const pendingReady = aggregatedSuccessIds.filter((deviceId) => !telemetryState.readyDevices[deviceId]);
-        const readinessAnchors = aggregatedSuccessIds
-          .map((deviceId) => telemetryState.readyDevices[deviceId])
-          .filter((value): value is number => typeof value === 'number');
-        const fallbackReadyTimestamp =
-          readinessAnchors.length > 0 ? Math.min(...readinessAnchors) : timestamp;
-        setExpectedDeviceIdsForReadiness(aggregatedSuccessIds);
-        setPendingReadyDeviceIds(() => {
-          readinessPendingIdsRef.current = [...pendingReady];
-          return pendingReady;
-        });
-        readinessWarningIssuedRef.current = false;
-
-        if (pendingReady.length > 0) {
-          readinessTimeoutRef.current = window.setTimeout(() => {
-            const unresolved = readinessPendingIdsRef.current;
-            console.info('[Games] Readiness timeout fired', {
-              unresolved,
-              readyMap: telemetryState.readyDevices,
-            });
-            if (unresolved.length > 0 && !readinessWarningIssuedRef.current) {
-              readinessWarningIssuedRef.current = true;
-              toast.warning(`${unresolved.length} device${unresolved.length === 1 ? '' : 's'} have not confirmed readiness.`, {
-                description: unresolved.join(', '),
-              });
-            }
-            if (unresolved.length > 0 && !sessionConfirmedRef.current && sessionLifecycleRef.current === 'launching') {
-              console.info('[Games] Forcing session confirmation after readiness timeout', { unresolved });
-              markTelemetryConfirmed(fallbackReadyTimestamp);
-              setExpectedDeviceIdsForReadiness([]);
-              setPendingReadyDeviceIds([]);
-              readinessPendingIdsRef.current = [];
-            }
-            readinessTimeoutRef.current = null;
-          }, READINESS_CONFIRMATION_TIMEOUT_MS);
-        }
-      }
-
-      if (attemptErrorIds.length > 0) {
-        toast.warning(`${attemptErrorIds.length} device${attemptErrorIds.length === 1 ? '' : 's'} failed to start. Use retry to try again.`);
+      if (errorIds.length > 0) {
+        toast.warning(`${errorIds.length} device${errorIds.length === 1 ? '' : 's'} failed to start. Use retry to try again.`);
       } else if (!isRetry) {
-        toast.success(`Start commands dispatched to ${attemptSuccessIds.length} device${attemptSuccessIds.length === 1 ? '' : 's'}.`);
+        toast.success(`Start commands dispatched to ${successIds.length} device${successIds.length === 1 ? '' : 's'}.`);
       }
 
-      if (attemptSuccessIds.length > 0) {
+      if (successIds.length > 0) {
         void loadLiveDevices({ silent: true });
       }
 
-      return { successIds: attemptSuccessIds, errorIds: attemptErrorIds };
-    }, [
-    directSessionTargets,
-    directSessionGameId,
-    updateDirectStartStates,
-    refreshDirectAuthToken,
-    toast,
-    setDirectFlowActive,
-    setDirectTelemetryEnabled,
-    setSessionLifecycle,
-    setGameStartTime,
-    setGameStopTime,
-    resetSessionTimer,
-    setHitCounts,
-    setHitHistory,
-    setDirectControlError,
-    setExpectedDeviceIdsForReadiness,
-    setPendingReadyDeviceIds,
-    telemetryState.readyDevices,
-    markTelemetryConfirmed,
-    loadLiveDevices,
-    waitForTargetsState,
-  ]);
+      return { successIds, errorIds };
+    },
+    [
+      directSessionTargets,
+      directSessionGameId,
+      updateDirectStartStates,
+      refreshDirectAuthToken,
+      toast,
+      setDirectFlowActive,
+      setDirectTelemetryEnabled,
+      setSessionLifecycle,
+      setGameStartTime,
+      setGameStopTime,
+      resetSessionTimer,
+      setHitCounts,
+      setHitHistory,
+      setDirectControlError,
+      markTelemetryConfirmed,
+      loadLiveDevices,
+    ],
+  );
 
   // Fires the direct start flow after dismissing the dialog confirmation.
   const handleConfirmStartDialog = useCallback(() => {
@@ -2148,12 +1744,10 @@ const Games: React.FC = () => {
     setDirectTelemetryEnabled,
     setDirectControlError,
     setErrorMessage,
-    setExpectedDeviceIdsForReadiness,
     setGameStartTime,
     setGameStopTime,
     setHitCounts,
     setHitHistory,
-    setPendingReadyDeviceIds,
     setPendingSessionTargets,
     setRecentSessionSummary,
     setSelectedDeviceIds,
@@ -2645,6 +2239,176 @@ const Games: React.FC = () => {
                       />
                     )}
 
+                    {/* Hit timeline card plots hits over time per device to highlight activity spikes and target performance. */}
+                    {isPageLoading ? (
+                      <HitTimelineSkeleton />
+                    ) : (
+                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
+                        <CardContent className="p-4 md:p-5 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h2 className="font-heading text-lg text-brand-dark">Hit Timeline</h2>
+                            <Badge variant="outline" className="text-xs">
+                              {trackedDevices.length} devices
+                            </Badge>
+                          </div>
+                          <div className="h-56">
+                            {hitTimelineData.length === 0 ? (
+                              <div className="flex h-full items-center justify-center text-sm text-brand-dark/60 text-center">
+                                Start streaming hits to see the live timeline.
+                              </div>
+                            ) : (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={hitTimelineData} margin={{ top: 8, right: 16, left: -12, bottom: 36 }}>
+                                  <CartesianGrid strokeDasharray="4 4" stroke="#E2E8F0" />
+                                  <XAxis dataKey="time" stroke="#64748B" fontSize={10} />
+                                  <YAxis stroke="#64748B" fontSize={10} allowDecimals={false} />
+                                  <RechartsTooltip />
+                                  <Legend
+                                    verticalAlign="bottom"
+                                    iconSize={8}
+                                    height={48}
+                                    wrapperStyle={{ paddingTop: 12, width: '100%', maxHeight: 56, overflowY: 'auto' }}
+                                  />
+                                  {trackedDevices.map((device, index) => (
+                                    <Line
+                                      key={device.deviceId}
+                                      type="monotone"
+                                      dataKey={device.deviceName}
+                                      stroke={DEVICE_COLOR_PALETTE[index % DEVICE_COLOR_PALETTE.length]}
+                                      strokeWidth={2}
+                                      dot={false}
+                                      isAnimationActive={false}
+                                    />
+                                  ))}
+                                </LineChart>
+                              </ResponsiveContainer>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                  </div>
+
+                  <div className="space-y-4">
+                    {/* Hit distribution card renders live pie chart + breakdown sourced from current session hit tallies. */}
+                    {isPageLoading ? (
+                      <HitDistributionSkeleton />
+                    ) : (
+                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
+                        <CardContent className="p-4 md:p-5 space-y-4">
+                          <div className="flex items-center justify-between">
+                            <h2 className="font-heading text-lg text-brand-dark">Hit Distribution</h2>
+                            <Badge variant="outline" className="text-xs">
+                              {totalHitsLive} hits
+                            </Badge>
+                          </div>
+                          <div className="h-56">
+                            {deviceHitSummary.length === 0 ? (
+                              <div className="flex h-full items-center justify-center text-sm text-brand-dark/60 text-center">
+                                Start a game to see live hit distribution.
+                              </div>
+                            ) : (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={pieChartData}
+                                    dataKey="value"
+                                    nameKey="name"
+                                    innerRadius="45%"
+                                    outerRadius="75%"
+                                    paddingAngle={2}
+                                  >
+                                    {pieChartData.map((entry, index) => (
+                                      <Cell
+                                        key={entry.name}
+                                        fill={DEVICE_COLOR_PALETTE[index % DEVICE_COLOR_PALETTE.length]}
+                                      />
+                                    ))}
+                                  </Pie>
+                                  <RechartsTooltip />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            )}
+                          </div>
+                          <div className="space-y-3">
+                            {deviceHitSummary.length === 0 ? (
+                              <p className="text-xs text-brand-dark/60 text-center">
+                                No hits recorded yet.
+                              </p>
+                            ) : (
+                              deviceHitSummary.slice(0, 4).map((entry, index) => {
+                                const color = DEVICE_COLOR_PALETTE[index % DEVICE_COLOR_PALETTE.length];
+                                return (
+                                  <div key={entry.deviceId} className="space-y-1">
+                                    <div className="flex items-center justify-between text-xs text-brand-dark/60">
+                                      <span className="flex items-center gap-2 font-medium text-brand-dark">
+                                        <span
+                                          className="inline-block h-2.5 w-2.5 rounded-full"
+                                          style={{ backgroundColor: color }}
+                                        />
+                                        {entry.deviceName}
+                                      </span>
+                                      <span className="font-heading text-sm text-brand-dark">
+                                        {entry.hits}
+                                      </span>
+                                    </div>
+                                    <Progress
+                                      value={
+                                        totalHitsLive > 0
+                                          ? Math.min(100, (entry.hits / totalHitsLive) * 100)
+                                          : 0
+                                      }
+                                      className="h-2 bg-brand-secondary/10"
+                                    />
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Recent hits card streams the latest telemetry events so operators can audit per-hit chronology. */}
+                    {isPageLoading ? (
+                      <RecentHitsSkeleton />
+                    ) : (
+                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
+                        <CardContent className="p-4 md:p-5 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h2 className="font-heading text-lg text-brand-dark">Recent Hits</h2>
+                            <Badge variant="outline" className="text-xs">
+                              {hitHistory.length}
+                            </Badge>
+                          </div>
+                          {hitHistory.length === 0 ? (
+                            <p className="text-sm text-brand-dark/60 text-center py-6">
+                              {isRunningLifecycle ? 'Waiting for hits...' : 'No hits recorded yet.'}
+                            </p>
+                          ) : (
+                            <ScrollArea className="max-h-64 pr-2">
+                              <div className="space-y-2">
+                                {[...hitHistory].reverse().slice(0, 60).map((hit) => (
+                                  <div
+                                    key={`${hit.deviceId}-${hit.timestamp}`}
+                                    className="flex items-center justify-between rounded-md border border-gray-100 bg-gray-50 px-3 py-2 text-xs"
+                                  >
+                                    <span className="font-medium text-brand-dark">{hit.deviceName}</span>
+                                    <span className="text-brand-dark/60">
+                                      {new Date(hit.timestamp).toLocaleTimeString()}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </ScrollArea>
+                          )}
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+
+                  <div className="space-y-4">
                     {/* Target selection card (with Start Game action) lists ThingsBoard devices with connection, hit counts, and lets operators assemble session rosters. */}
                     {isPageLoading ? (
                       <TargetSelectionSkeleton />
@@ -2783,176 +2547,6 @@ const Games: React.FC = () => {
                               </>
                             )}
                           </Button>
-                        </CardContent>
-                      </Card>
-                    )}
-
-                  </div>
-
-                  <div className="space-y-4">
-                    {/* Hit distribution card renders live pie chart + breakdown sourced from current session hit tallies. */}
-                    {isPageLoading ? (
-                      <HitDistributionSkeleton />
-                    ) : (
-                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                        <CardContent className="p-4 md:p-5 space-y-4">
-                          <div className="flex items-center justify-between">
-                            <h2 className="font-heading text-lg text-brand-dark">Hit Distribution</h2>
-                            <Badge variant="outline" className="text-xs">
-                              {totalHitsLive} hits
-                            </Badge>
-                          </div>
-                          <div className="h-56">
-                            {deviceHitSummary.length === 0 ? (
-                              <div className="flex h-full items-center justify-center text-sm text-brand-dark/60 text-center">
-                                Start a game to see live hit distribution.
-                              </div>
-                            ) : (
-                              <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                  <Pie
-                                    data={pieChartData}
-                                    dataKey="value"
-                                    nameKey="name"
-                                    innerRadius="45%"
-                                    outerRadius="75%"
-                                    paddingAngle={2}
-                                  >
-                                    {pieChartData.map((entry, index) => (
-                                      <Cell
-                                        key={entry.name}
-                                        fill={DEVICE_COLOR_PALETTE[index % DEVICE_COLOR_PALETTE.length]}
-                                      />
-                                    ))}
-                                  </Pie>
-                                  <RechartsTooltip />
-                                </PieChart>
-                              </ResponsiveContainer>
-                            )}
-                          </div>
-                          <div className="space-y-3">
-                            {deviceHitSummary.length === 0 ? (
-                              <p className="text-xs text-brand-dark/60 text-center">
-                                No hits recorded yet.
-                              </p>
-                            ) : (
-                              deviceHitSummary.slice(0, 4).map((entry, index) => {
-                                const color = DEVICE_COLOR_PALETTE[index % DEVICE_COLOR_PALETTE.length];
-                                return (
-                                  <div key={entry.deviceId} className="space-y-1">
-                                    <div className="flex items-center justify-between text-xs text-brand-dark/60">
-                                      <span className="flex items-center gap-2 font-medium text-brand-dark">
-                                        <span
-                                          className="inline-block h-2.5 w-2.5 rounded-full"
-                                          style={{ backgroundColor: color }}
-                                        />
-                                        {entry.deviceName}
-                                      </span>
-                                      <span className="font-heading text-sm text-brand-dark">
-                                        {entry.hits}
-                                      </span>
-                                    </div>
-                                    <Progress
-                                      value={
-                                        totalHitsLive > 0
-                                          ? Math.min(100, (entry.hits / totalHitsLive) * 100)
-                                          : 0
-                                      }
-                                      className="h-2 bg-brand-secondary/10"
-                                    />
-                                  </div>
-                                );
-                              })
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    {/* Recent hits card streams the latest telemetry events so operators can audit per-hit chronology. */}
-                    {isPageLoading ? (
-                      <RecentHitsSkeleton />
-                    ) : (
-                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                        <CardContent className="p-4 md:p-5 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <h2 className="font-heading text-lg text-brand-dark">Recent Hits</h2>
-                            <Badge variant="outline" className="text-xs">
-                              {hitHistory.length}
-                            </Badge>
-                          </div>
-                          {hitHistory.length === 0 ? (
-                            <p className="text-sm text-brand-dark/60 text-center py-6">
-                              {isRunningLifecycle ? 'Waiting for hits...' : 'No hits recorded yet.'}
-                            </p>
-                          ) : (
-                            <ScrollArea className="max-h-64 pr-2">
-                              <div className="space-y-2">
-                                {[...hitHistory].reverse().slice(0, 60).map((hit) => (
-                                  <div
-                                    key={`${hit.deviceId}-${hit.timestamp}`}
-                                    className="flex items-center justify-between rounded-md border border-gray-100 bg-gray-50 px-3 py-2 text-xs"
-                                  >
-                                    <span className="font-medium text-brand-dark">{hit.deviceName}</span>
-                                    <span className="text-brand-dark/60">
-                                      {new Date(hit.timestamp).toLocaleTimeString()}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </ScrollArea>
-                          )}
-                        </CardContent>
-                      </Card>
-                    )}
-                  </div>
-
-                  <div className="space-y-4">
-                    {/* Hit timeline card plots hits over time per device to highlight activity spikes and target performance. */}
-                    {isPageLoading ? (
-                      <HitTimelineSkeleton />
-                    ) : (
-                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                        <CardContent className="p-4 md:p-5 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <h2 className="font-heading text-lg text-brand-dark">Hit Timeline</h2>
-                            <Badge variant="outline" className="text-xs">
-                              {trackedDevices.length} devices
-                            </Badge>
-                          </div>
-                          <div className="h-56">
-                            {hitTimelineData.length === 0 ? (
-                              <div className="flex h-full items-center justify-center text-sm text-brand-dark/60 text-center">
-                                Start streaming hits to see the live timeline.
-                              </div>
-                            ) : (
-                              <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={hitTimelineData} margin={{ top: 8, right: 16, left: -12, bottom: 36 }}>
-                                  <CartesianGrid strokeDasharray="4 4" stroke="#E2E8F0" />
-                                  <XAxis dataKey="time" stroke="#64748B" fontSize={10} />
-                                  <YAxis stroke="#64748B" fontSize={10} allowDecimals={false} />
-                                  <RechartsTooltip />
-                                <Legend
-                                  verticalAlign="bottom"
-                                  iconSize={8}
-                                  height={48}
-                                  wrapperStyle={{ paddingTop: 12, width: '100%', maxHeight: 56, overflowY: 'auto' }}
-                                />
-                                  {trackedDevices.map((device, index) => (
-                                    <Line
-                                      key={device.deviceId}
-                                      type="monotone"
-                                      dataKey={device.deviceName}
-                                      stroke={DEVICE_COLOR_PALETTE[index % DEVICE_COLOR_PALETTE.length]}
-                                      strokeWidth={2}
-                                      dot={false}
-                                      isAnimationActive={false}
-                                    />
-                                  ))}
-                                </LineChart>
-                              </ResponsiveContainer>
-                            )}
-                          </div>
                         </CardContent>
                       </Card>
                     )}
@@ -3556,7 +3150,7 @@ const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   const isRunningPhase = lifecycle === 'running';
   const isStoppingPhase = lifecycle === 'stopping';
   const isFinalizingPhase = lifecycle === 'finalizing';
-  const usesLivePalette = isRunningPhase || isStoppingPhase || isFinalizingPhase;
+  const usesLivePalette = isLaunchingPhase || isRunningPhase || isStoppingPhase || isFinalizingPhase;
   const resolvedGameId = currentGameId ?? directGameId;
   const directControlStatus = (() => {
     if (!directControlEnabled) {
@@ -3798,24 +3392,32 @@ const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         className={[
+          'w-full',
           'max-w-xl',
+          'ml-5',
+          'mr-8',
+          'sm:mx-auto',
           'transition-colors',
           'duration-300',
           'shadow-xl',
+          'px-4',
+          'py-5',
+          'sm:px-6',
+          'sm:py-6',
           usesLivePalette ? 'bg-brand-secondary text-white border-brand-secondary/50' : 'bg-white text-brand-dark border-gray-200',
         ].join(' ')}
       >
-        <DialogHeader className="space-y-2">
-          <DialogTitle className="text-2xl font-heading">Current Session</DialogTitle>
+        <DialogHeader className="space-y-1.5 sm:space-y-2">
+          <DialogTitle className="text-xl sm:text-2xl font-heading">Current Session</DialogTitle>
           <DialogDescription className={usesLivePalette ? 'text-white/80' : 'text-brand-dark/70'}>
             {dialogDescription}
           </DialogDescription>
           {resolvedGameId && (
-            <p className={`text-xs font-mono ${usesLivePalette ? 'text-white/65' : 'text-brand-dark/50'}`}>Game ID: {resolvedGameId}</p>
+            <p className={`text-xs sm:text-[13px] font-mono ${usesLivePalette ? 'text-white/65' : 'text-brand-dark/50'}`}>Game ID: {resolvedGameId}</p>
           )}
         </DialogHeader>
 
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           <SessionStopwatchCard
             seconds={sessionSeconds}
             accent={usesLivePalette ? 'live' : 'default'}

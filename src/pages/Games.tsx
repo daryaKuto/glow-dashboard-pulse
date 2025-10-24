@@ -26,7 +26,10 @@ import {
   Activity,
   Trophy,
   Timer,
-  Loader2
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  RotateCcw,
 } from 'lucide-react';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
@@ -41,11 +44,17 @@ import type {
   SessionTransition,
 } from '@/services/device-game-flow';
 import { useGameDevices, type NormalizedGameDevice, DEVICE_ONLINE_STALE_THRESHOLD_MS } from '@/hooks/useGameDevices';
-import { fetchTargetDetails } from '@/lib/edge';
 import { useTargets, type Target } from '@/store/useTargets';
-import { useGameSession } from '@/hooks/useGameSession';
 import { useGameTelemetry, type SplitRecord, type TransitionRecord } from '@/hooks/useGameTelemetry';
 import { useThingsboardToken } from '@/hooks/useThingsboardToken';
+import { useDirectTbTelemetry } from '@/hooks/useDirectTbTelemetry';
+import {
+  ensureTbAuthToken,
+  tbSetShared,
+  tbSendOneway,
+  sendTwoWayRpc as tbSendTwoway,
+  getDeviceTelemetry,
+} from '@/services/thingsboard-client';
 import {
   fetchAllGameHistory as fetchPersistedGameHistory,
   saveGameHistory,
@@ -110,8 +119,174 @@ const DEVICE_COLOR_PALETTE = [
 
 const MAX_TIMELINE_POINTS = 24;
 const TIMELINE_BUCKET_MS = 1_000;
+const READINESS_CONFIRMATION_TIMEOUT_MS = 3_000;
+
+type AxiosErrorLike = {
+  isAxiosError?: boolean;
+  response?: { status?: unknown };
+  code?: string;
+  message?: unknown;
+};
+
+const isAxiosErrorLike = (error: unknown): error is AxiosErrorLike => {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  return Boolean((error as { isAxiosError?: unknown }).isAxiosError);
+};
+
+const isAxiosNetworkError = (error: unknown): boolean => {
+  if (!isAxiosErrorLike(error)) {
+    return false;
+  }
+  const status = error.response?.status;
+  if (typeof status === 'number') {
+    return false;
+  }
+  const code = typeof error.code === 'string' ? error.code : null;
+  if (code === 'ERR_NETWORK') {
+    return true;
+  }
+  const message = typeof error.message === 'string' ? error.message : '';
+  return message.toLowerCase().includes('network error');
+};
+
+const resolveHttpStatus = (error: unknown): number | undefined => {
+  if (!error || typeof error !== 'object') {
+    return undefined;
+  }
+  if ('status' in error && !(error instanceof Response)) {
+    const status = (error as { status?: unknown }).status;
+    if (typeof status === 'number') {
+      return status;
+    }
+  }
+  if (isAxiosErrorLike(error) && error.response && typeof error.response.status === 'number') {
+    return error.response.status as number;
+  }
+  if (error instanceof Response) {
+    return error.status;
+  }
+  return undefined;
+};
+
+const resolveSeriesValue = (input: unknown): unknown => {
+  if (Array.isArray(input) && input.length > 0) {
+    const first = input[0];
+    if (Array.isArray(first) && first.length > 1) {
+      return first[1];
+    }
+    if (first && typeof first === 'object' && 'value' in (first as Record<string, unknown>)) {
+      return (first as { value: unknown }).value;
+    }
+    return first;
+  }
+  if (input && typeof input === 'object' && 'value' in (input as Record<string, unknown>)) {
+    return (input as { value: unknown }).value;
+  }
+  return input;
+};
+
+const resolveSeriesTimestamp = (input: unknown): number | null => {
+  if (Array.isArray(input) && input.length > 0) {
+    const first = input[0];
+    if (Array.isArray(first) && typeof first[0] === 'number') {
+      return first[0];
+    }
+    if (first && typeof first === 'object' && 'ts' in (first as Record<string, unknown>)) {
+      const ts = (first as { ts?: number }).ts;
+      if (typeof ts === 'number') {
+        return ts;
+      }
+    }
+  }
+  if (input && typeof input === 'object' && 'ts' in (input as Record<string, unknown>)) {
+    const ts = (input as { ts?: number }).ts;
+    if (typeof ts === 'number') {
+      return ts;
+    }
+  }
+  if (typeof input === 'number') {
+    return input;
+  }
+  return null;
+};
+
+const resolveSeriesString = (input: unknown): string | null => {
+  const value = resolveSeriesValue(input);
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return String(value);
+  }
+  return null;
+};
 
 type SessionLifecycle = 'idle' | 'selecting' | 'launching' | 'running' | 'stopping' | 'finalizing';
+
+const DIRECT_TB_CONTROL_ENABLED = true;
+
+const resolveNumericTelemetryValue = (input: unknown): number | null => {
+  if (typeof input === 'number' && Number.isFinite(input)) {
+    return input;
+  }
+  if (typeof input === 'string') {
+    const numeric = Number(input);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  if (Array.isArray(input) && input.length > 0) {
+    const first = input[0];
+    if (typeof first === 'number' && Number.isFinite(first)) {
+      return first;
+    }
+    if (first && typeof first === 'object') {
+      const firstRecord = first as Record<string, unknown>;
+      if ('value' in firstRecord) {
+        const candidate = firstRecord.value;
+        if (candidate != null) {
+          return resolveNumericTelemetryValue(candidate);
+        }
+      }
+    }
+  }
+  return null;
+};
+
+const getTargetTotalShots = (target: Target): number | null => {
+  const candidates: Array<unknown> = [
+    target.totalShots,
+    target.lastHits,
+    target.telemetry?.hits,
+    target.telemetry?.totalShots,
+  ];
+
+  for (const candidate of candidates) {
+    const resolved = resolveNumericTelemetryValue(candidate);
+    if (typeof resolved === 'number') {
+      return resolved;
+    }
+  }
+  return null;
+};
+
+const getTargetBestScore = (target: Target): number | null => {
+  const candidates: Array<unknown> = [
+    target.lastHits,
+    target.totalShots,
+    target.telemetry?.score,
+    target.telemetry?.hits,
+  ];
+
+  for (const candidate of candidates) {
+    const resolved = resolveNumericTelemetryValue(candidate);
+    if (typeof resolved === 'number') {
+      return resolved;
+    }
+  }
+
+  return null;
+};
 
 // useSessionTimer centralises stopwatch control so the UI can react immediately to lifecycle transitions.
 function useSessionTimer() {
@@ -185,12 +360,14 @@ const Games: React.FC = () => {
     useGameDevices({ immediate: false });
   const targetsSnapshot = useTargets((state) => state.targets);
   const targetsStoreLoading = useTargets((state) => state.isLoading);
+  const targetDetailsLoading = useTargets((state) => state.detailsLoading);
   const refreshTargets = useTargets((state) => state.refresh);
+  const targetsLastFetched = useTargets((state) => state.lastFetched);
   const [availableDevices, setAvailableDevices] = useState<NormalizedGameDevice[]>([]);
-  const [totalShotsFromThingsBoard, setTotalShotsFromThingsBoard] = useState<number>(0);
-  const [loadingTotalShots, setLoadingTotalShots] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sessionLifecycle, setSessionLifecycle] = useState<SessionLifecycle>('idle');
+  const [isSessionDialogDismissed, setIsSessionDialogDismissed] = useState(false);
+  const sessionLifecycleRef = useRef<SessionLifecycle>('idle');
   const [gameStartTime, setGameStartTime] = useState<number | null>(null);
   const [gameStopTime, setGameStopTime] = useState<number | null>(null);
   const [hitCounts, setHitCounts] = useState<Record<string, number>>({});
@@ -202,6 +379,30 @@ const Games: React.FC = () => {
   const [recentSessionSummary, setRecentSessionSummary] = useState<LiveSessionSummary | null>(null);
   const [expectedDeviceIdsForReadiness, setExpectedDeviceIdsForReadiness] = useState<string[]>([]);
   const [pendingReadyDeviceIds, setPendingReadyDeviceIds] = useState<string[]>([]);
+  const [directSessionGameId, setDirectSessionGameId] = useState<string | null>(null);
+  const [directSessionTargets, setDirectSessionTargets] = useState<Array<{ deviceId: string; name: string }>>([]);
+  const [directFlowActive, setDirectFlowActive] = useState(false);
+  const [directStartStates, setDirectStartStates] = useState<Record<string, 'idle' | 'pending' | 'success' | 'error'>>({});
+  const [directTelemetryEnabled, setDirectTelemetryEnabled] = useState(false);
+  const [directControlToken, setDirectControlToken] = useState<string | null>(null);
+  const [directControlError, setDirectControlError] = useState<string | null>(null);
+  const [isDirectAuthLoading, setIsDirectAuthLoading] = useState(false);
+  const [isRetryingFailedDevices, setIsRetryingFailedDevices] = useState(false);
+  const directStartStatesRef = useRef<Record<string, 'idle' | 'pending' | 'success' | 'error'>>({});
+  const updateDirectStartStates = useCallback((
+    value:
+      | Record<string, 'idle' | 'pending' | 'success' | 'error'>
+      | ((
+        prev: Record<string, 'idle' | 'pending' | 'success' | 'error'>,
+      ) => Record<string, 'idle' | 'pending' | 'success' | 'error'>),
+  ) => {
+    setDirectStartStates((prev) => {
+      const next = typeof value === 'function' ? value(prev) : value;
+      directStartStatesRef.current = next;
+      console.info('[Games] Direct start state update', next);
+      return next;
+    });
+  }, []);
 
   const {
     seconds: sessionTimerSeconds,
@@ -218,6 +419,7 @@ const Games: React.FC = () => {
     resetActivation: resetSessionActivation,
     activationParams,
   } = useSessionActivation();
+  const sessionConfirmedRef = useRef<boolean>(false);
 
   const currentGameDevicesRef = useRef<string[]>([]);
   const availableDevicesRef = useRef<NormalizedGameDevice[]>([]);
@@ -236,8 +438,200 @@ const Games: React.FC = () => {
   const isFinalizingLifecycle = sessionLifecycle === 'finalizing';
   const isSessionLocked =
     isLaunchingLifecycle || isRunningLifecycle || isStoppingLifecycle || isFinalizingLifecycle;
-  const isSessionDialogVisible = sessionLifecycle !== 'idle';
+  const isSessionDialogVisible = sessionLifecycle !== 'idle' && !isSessionDialogDismissed;
   const isLiveDialogPhase = isRunningLifecycle || isStoppingLifecycle || isFinalizingLifecycle;
+
+  useEffect(() => {
+    console.info('[Games] Session lifecycle changed', sessionLifecycle);
+    sessionLifecycleRef.current = sessionLifecycle;
+  }, [sessionLifecycle]);
+
+  useEffect(() => {
+    if (sessionLifecycle === 'idle') {
+      setIsSessionDialogDismissed(false);
+    }
+  }, [sessionLifecycle]);
+
+  useEffect(() => {
+    console.info('[Games] Direct telemetry enabled state', {
+      enabled: directTelemetryEnabled,
+      lifecycle: sessionLifecycle,
+    });
+  }, [directTelemetryEnabled, sessionLifecycle]);
+
+  useEffect(() => {
+    sessionConfirmedRef.current = sessionConfirmed;
+  }, [sessionConfirmed]);
+
+  const refreshDirectAuthToken = useCallback(async () => {
+    try {
+      setIsDirectAuthLoading(true);
+      const token = await ensureTbAuthToken();
+      setDirectControlToken(token);
+      setDirectControlError(null);
+      return token;
+    } catch (authError) {
+      const message =
+        authError instanceof Error ? authError.message : 'Failed to refresh ThingsBoard authentication.';
+      setDirectControlError(message);
+      throw authError;
+    } finally {
+      setIsDirectAuthLoading(false);
+    }
+  }, []);
+
+  const fetchDirectTargetsSnapshot = useCallback(
+    async (deviceIds: string[]): Promise<Array<{ deviceId: string; telemetry: Record<string, unknown> }>> => {
+      if (deviceIds.length === 0) {
+        return [];
+      }
+      const TELEMETRY_KEYS = ['event', 'gameStatus', 'hits', 'hit_ts', 'lastActivityTime'];
+      const snapshots = await Promise.all(
+        deviceIds.map(async (deviceId) => {
+          const telemetry = await getDeviceTelemetry(deviceId, TELEMETRY_KEYS, 1);
+          return { deviceId, telemetry: telemetry ?? {} };
+        }),
+      );
+      return snapshots;
+    },
+    [],
+  );
+
+  const waitForTargetsState = useCallback(
+    async (
+      deviceIds: string[],
+      {
+        expectState,
+        timeoutMs = 8_000,
+        pollIntervalMs = 500,
+      }: { expectState: 'active' | 'idle'; timeoutMs?: number; pollIntervalMs?: number },
+    ): Promise<{ success: boolean; timestamp: number | null }> => {
+      if (deviceIds.length === 0) {
+        return { success: true, timestamp: null };
+      }
+
+      const deadline = Date.now() + timeoutMs;
+      let lastErrorLogged = 0;
+      let lastNetworkErrorLogged = 0;
+      let lastAuthErrorLogged = 0;
+      while (Date.now() < deadline) {
+        try {
+          const snapshots = await fetchDirectTargetsSnapshot(deviceIds);
+          const timestampCandidates: number[] = [];
+          const satisfied = deviceIds.every((deviceId) => {
+            const snapshot = snapshots.find((entry) => entry.deviceId === deviceId);
+            if (!snapshot) {
+              return false;
+            }
+            const telemetry = snapshot.telemetry ?? {};
+            const telemetryRecord = telemetry as Record<string, unknown>;
+            const statusValue = resolveSeriesString(telemetryRecord['gameStatus'])?.toLowerCase() ?? '';
+            const eventValue = resolveSeriesString(telemetryRecord['event'])?.toLowerCase() ?? null;
+            const active =
+              ['start', 'busy', 'active'].includes(statusValue) || (eventValue ? ['start', 'busy'].includes(eventValue) : false);
+            if (expectState === 'active' && !active) {
+              return false;
+            }
+            if (expectState === 'idle' && active) {
+              return false;
+            }
+            const eventSeries = telemetryRecord['event'];
+            const eventTimestamp = resolveSeriesTimestamp(eventSeries);
+            if (typeof eventTimestamp === 'number') {
+              timestampCandidates.push(eventTimestamp);
+            } else {
+              const hitTimestamp = resolveSeriesTimestamp(telemetryRecord['hit_ts']);
+              if (typeof hitTimestamp === 'number') {
+                timestampCandidates.push(hitTimestamp);
+              } else {
+                const lastActivityTime = resolveSeriesTimestamp(telemetryRecord['lastActivityTime']);
+                if (typeof lastActivityTime === 'number') {
+                  timestampCandidates.push(lastActivityTime);
+                }
+              }
+            }
+            return true;
+          });
+
+          if (satisfied) {
+            const minTimestamp =
+              timestampCandidates.length > 0 ? Math.min(...timestampCandidates) : Date.now();
+            return { success: true, timestamp: minTimestamp };
+          }
+        } catch (error) {
+          const now = Date.now();
+          const status = resolveHttpStatus(error);
+          if (status === 401 || status === 403) {
+            if (now - lastAuthErrorLogged > 5_000) {
+              console.warn('[Games] ThingsBoard authentication required while waiting for state; refreshing token', {
+                deviceIds,
+              });
+              lastAuthErrorLogged = now;
+            }
+            await refreshDirectAuthToken().catch(() => undefined);
+          } else if (isAxiosNetworkError(error)) {
+            if (now - lastNetworkErrorLogged > 5_000) {
+              console.info('[Games] ThingsBoard telemetry snapshot unavailable (network)', {
+                deviceIds,
+              });
+              lastNetworkErrorLogged = now;
+            }
+          } else if (now - lastErrorLogged > 3_000) {
+            console.warn('[Games] Failed to fetch ThingsBoard telemetry snapshot while waiting for state', error);
+            lastErrorLogged = now;
+          }
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      }
+
+      return { success: false, timestamp: null };
+    },
+    [refreshDirectAuthToken, fetchDirectTargetsSnapshot],
+  );
+
+  const ensureTargetsReleased = useCallback(
+    async (deviceIds: string[]) => {
+      if (deviceIds.length === 0) {
+        return true;
+      }
+
+      const timestamp = Date.now();
+      await Promise.all(
+        deviceIds.map(async (deviceId) => {
+          try {
+            await tbSendOneway(deviceId, 'stop', {
+              ts: timestamp,
+              values: {
+                deviceId,
+                event: 'stop',
+              },
+            });
+          } catch (error) {
+            const status = resolveHttpStatus(error);
+            if (status === 504) {
+              console.info('[Games] Pre-flight stop command timed out (expected for oneway)', { deviceId });
+            } else if (isAxiosNetworkError(error)) {
+              console.info('[Games] Pre-flight stop command hit a network issue; will rely on readiness polling', {
+                deviceId,
+              });
+            } else if (status === 401 || status === 403) {
+              await refreshDirectAuthToken().catch(() => undefined);
+            } else {
+              console.warn('[Games] Pre-flight stop command failed', { deviceId, error });
+            }
+          }
+        }),
+      );
+
+      const idleResult = await waitForTargetsState(deviceIds, { expectState: 'idle', timeoutMs: 6_000 });
+      if (!idleResult.success) {
+        console.warn('[Games] Devices did not confirm idle state before starting session', { deviceIds });
+      }
+      return idleResult.success;
+    },
+    [waitForTargetsState, refreshDirectAuthToken],
+  );
 
   useEffect(() => {
     return () => {
@@ -549,15 +943,9 @@ const Games: React.FC = () => {
     void loadGameHistory();
   }, [loadGameHistory, user]);
 
-  const {
-    startGameSession,
-    stopGameSession,
-    currentGameId,
-    isStarting,
-    isStopping,
-  } = useGameSession({
-    onStop: () => undefined,
-  });
+  const currentGameId: string | null = null;
+  const isStarting = isLaunchingLifecycle;
+  const isStopping = isStoppingLifecycle;
 
   // Loads the latest edge snapshot and keeps local mirrors (state + refs) in sync so downstream hooks can reuse the same data.
   const loadLiveDevices = useCallback(
@@ -697,48 +1085,6 @@ const Games: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [activeDeviceIds, isRunningLifecycle, loadLiveDevices, pollDeviceInfo]);
-
-  const fetchTotalShots = useCallback(async () => {
-    setLoadingTotalShots(true);
-    try {
-      const targets = useTargets.getState().targets as Target[];
-      let totalShots = 0;
-
-      const deviceIds = targets.map((target) =>
-        typeof target.id === 'string'
-          ? target.id
-          : (target.id as { id: string })?.id || String(target.id),
-      );
-
-      if (deviceIds.length > 0) {
-        const { details } = await fetchTargetDetails(deviceIds, {
-          includeHistory: false,
-          telemetryKeys: ['hits'],
-        });
-
-        totalShots = details.reduce((sum, detail) => {
-          const hitsArray = Array.isArray(detail.telemetry?.hits) ? detail.telemetry.hits : [];
-          if (hitsArray.length === 0) {
-            return sum;
-          }
-
-          const latest = hitsArray[0]?.value ?? hitsArray[0];
-          const numeric = Number(latest);
-          return Number.isFinite(numeric) ? sum + numeric : sum;
-        }, 0);
-      }
-
-      setTotalShotsFromThingsBoard(totalShots);
-    } catch (error) {
-      console.error('Failed to fetch total shots:', error);
-    } finally {
-      setLoadingTotalShots(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void fetchTotalShots();
-  }, [fetchTotalShots]);
 
   useEffect(() => {
     if (targetsSnapshot.length === 0 && !targetsStoreLoading) {
@@ -880,7 +1226,7 @@ const Games: React.FC = () => {
   }, []);
 
   // Presents the confirmation dialog so operators can review selected devices before starting.
-  const handleOpenStartDialog = useCallback(() => {
+  const handleOpenStartDialog = useCallback(async () => {
     const onlineDevices = getOnlineDevices();
 
     if (selectedDeviceIds.length === 0) {
@@ -896,23 +1242,100 @@ const Games: React.FC = () => {
       return;
     }
 
+    let generatedGameId: string | null = null;
+    try {
+      console.info('[Games] Authenticating with ThingsBoard before opening start dialog');
+      const token = await refreshDirectAuthToken();
+      console.info('[Games] ThingsBoard authentication succeeded');
+      generatedGameId = `GM-${Date.now()}`;
+    } catch (error) {
+      console.error('[Games] ThingsBoard authentication failed', error);
+      const message =
+        error instanceof Error ? error.message : 'Failed to authenticate with ThingsBoard.';
+      setDirectControlError(message);
+      setErrorMessage(message);
+      toast.error(message);
+      return;
+    }
+
+    const directTargetList = selectedTargets.map((device) => ({
+      deviceId: device.deviceId,
+      name: device.name ?? device.deviceId,
+    }));
+    console.info('[Games] Direct control targets prepared', directTargetList);
+
+    const stopSuccess = await ensureTargetsReleased(directTargetList.map((target) => target.deviceId));
+    if (!stopSuccess) {
+      toast.warning('Targets did not confirm idle state. They may still be busy.', {
+        description: 'Verify their status in ThingsBoard if problems persist.',
+      });
+    }
+
+    const initialStates = directTargetList.reduce<Record<string, 'idle' | 'pending' | 'success' | 'error'>>((acc, target) => {
+      acc[target.deviceId] = 'idle';
+      return acc;
+    }, {});
+    setDirectSessionTargets(directTargetList);
+    updateDirectStartStates(() => initialStates);
+    setDirectFlowActive(false);
+    setDirectSessionGameId(generatedGameId ?? `GM-${Date.now()}`);
+    console.info('[Games] Direct telemetry disabled until begin is confirmed');
+    setDirectTelemetryEnabled(false);
+
     setErrorMessage(null);
     setPendingSessionTargets(selectedTargets);
     resetSessionTimer(null);
     resetSessionActivation();
     setGameStartTime(null);
     setGameStopTime(null);
+    setIsSessionDialogDismissed(false);
     setSessionLifecycle('selecting');
-  }, [getOnlineDevices, resetSessionActivation, resetSessionTimer, selectedDeviceIds]);
+  }, [
+    getOnlineDevices,
+    resetSessionActivation,
+    resetSessionTimer,
+    selectedDeviceIds,
+    updateDirectStartStates,
+    setDirectSessionGameId,
+    setDirectSessionTargets,
+    setDirectFlowActive,
+    setDirectTelemetryEnabled,
+    refreshDirectAuthToken,
+    setDirectControlError,
+    setErrorMessage,
+    setPendingSessionTargets,
+    setGameStartTime,
+    setGameStopTime,
+    setIsSessionDialogDismissed,
+    ensureTargetsReleased,
+    toast,
+  ]);
 
   // Shared telemetry hook feeds real-time hit data for active devices so the page can merge hit counts, splits, and transitions.
-  const telemetryState = useGameTelemetry({
+  const directTelemetryDeviceDescriptors = useMemo(
+    () =>
+      activeDeviceIds.map((deviceId) => ({
+        deviceId,
+        deviceName: availableDevicesRef.current.find((device) => device.deviceId === deviceId)?.name ?? deviceId,
+      })),
+    [activeDeviceIds],
+  );
+
+  const isDirectTelemetryLifecycle =
+    DIRECT_TB_CONTROL_ENABLED && Boolean(directSessionGameId) &&
+    (isLaunchingLifecycle || isRunningLifecycle || isStoppingLifecycle || isFinalizingLifecycle);
+
+  const directTelemetryState = useDirectTbTelemetry({
+    enabled: isDirectTelemetryLifecycle && directTelemetryEnabled,
+    token: directControlToken,
+    gameId: directSessionGameId,
+    devices: directTelemetryDeviceDescriptors,
+  });
+
+  const standardTelemetryState = useGameTelemetry({
     token: tbSession?.token ?? null,
     gameId: currentGameId,
-    deviceIds: activeDeviceIds.map((deviceId) => ({
-      deviceId,
-      deviceName: availableDevicesRef.current.find((device) => device.deviceId === deviceId)?.name ?? deviceId,
-    })),
+    deviceIds: directTelemetryDeviceDescriptors,
     enabled: (isLaunchingLifecycle || isRunningLifecycle) && Boolean(currentGameId),
     onAuthError: () => {
       void refreshThingsboardSession({ force: true });
@@ -922,8 +1345,11 @@ const Games: React.FC = () => {
     },
   });
 
+  const isDirectFlow = isDirectTelemetryLifecycle && directTelemetryEnabled;
+  const telemetryState = isDirectFlow ? directTelemetryState : standardTelemetryState;
+
   useEffect(() => {
-    if ((isLaunchingLifecycle || isRunningLifecycle) && currentGameId) {
+    if ((isLaunchingLifecycle || isRunningLifecycle) && (currentGameId || isDirectFlow)) {
       setHitCounts(telemetryState.hitCounts);
       setHitHistory(telemetryState.hitHistory);
 
@@ -983,22 +1409,48 @@ const Games: React.FC = () => {
     sessionConfirmed,
     markTelemetryConfirmed,
     telemetryState.sessionEventTimestamp,
+    isDirectFlow,
   ]);
 
   useEffect(() => {
     if (expectedDeviceIdsForReadiness.length === 0) {
       return;
     }
-    const readyMap = telemetryState.readyDevices;
+    const readinessSnapshot: Record<string, number> = { ...telemetryState.readyDevices };
+    const expectedSet = new Set(expectedDeviceIdsForReadiness);
+    availableDevicesRef.current.forEach((device) => {
+      if (!expectedSet.has(device.deviceId)) {
+        return;
+      }
+      if (readinessSnapshot[device.deviceId]) {
+        return;
+      }
+      const rawStatus = (device.raw?.gameStatus ?? '').toString().toLowerCase();
+      const rawEvent = (device.raw?.event ?? '').toString().toLowerCase();
+      if (rawStatus === 'start' || rawStatus === 'busy' || rawEvent === 'start' || rawEvent === 'busy') {
+        readinessSnapshot[device.deviceId] = Date.now();
+      }
+    });
+    const readinessAnchors = Object.values(readinessSnapshot).filter(
+      (value): value is number => typeof value === 'number',
+    );
+    const earliestReadyTimestamp = readinessAnchors.length > 0 ? Math.min(...readinessAnchors) : null;
+
+    console.info('[Games] Readiness check tick', {
+      expectedDeviceIdsForReadiness,
+      readyMap: readinessSnapshot,
+      pending: readinessPendingIdsRef.current,
+    });
     setPendingReadyDeviceIds((prev) => {
       if (prev.length === 0) {
         return prev;
       }
-      const next = prev.filter((deviceId) => !readyMap[deviceId]);
+      const next = prev.filter((deviceId) => !readinessSnapshot[deviceId]);
       if (next.length === prev.length) {
+        readinessPendingIdsRef.current = next;
         return prev;
       }
-      const newlyReady = prev.filter((deviceId) => readyMap[deviceId] && !next.includes(deviceId));
+      const newlyReady = prev.filter((deviceId) => readinessSnapshot[deviceId] && !next.includes(deviceId));
       if (newlyReady.length > 0) {
         newlyReady.forEach((deviceId) => {
           const deviceName = deviceNameById.get(deviceId) ?? deviceId;
@@ -1006,14 +1458,29 @@ const Games: React.FC = () => {
         });
       }
       readinessPendingIdsRef.current = next;
-      if (next.length === 0 && readinessTimeoutRef.current) {
-        window.clearTimeout(readinessTimeoutRef.current);
-        readinessTimeoutRef.current = null;
+      if (next.length === 0) {
+        if (readinessTimeoutRef.current) {
+          window.clearTimeout(readinessTimeoutRef.current);
+          readinessTimeoutRef.current = null;
+        }
+        if (!sessionConfirmedRef.current && sessionLifecycleRef.current === 'launching') {
+          console.info('[Games] Readiness heuristic confirmed all devices');
+          const anchor =
+            earliestReadyTimestamp ??
+            (startTriggeredAt !== null ? startTriggeredAt : Date.now());
+          markTelemetryConfirmed(anchor);
+        }
         toast.success('All devices confirmed readiness.');
       }
       return next;
     });
-  }, [deviceNameById, expectedDeviceIdsForReadiness, telemetryState.readyDevices]);
+  }, [
+    deviceNameById,
+    expectedDeviceIdsForReadiness,
+    telemetryState.readyDevices,
+    markTelemetryConfirmed,
+    startTriggeredAt,
+  ]);
 
   useEffect(() => {
     if (
@@ -1045,184 +1512,6 @@ const Games: React.FC = () => {
     isRunningLifecycle || sessionLifecycle === 'stopping' || sessionLifecycle === 'finalizing'
       ? telemetryState.transitions
       : [];
-
-  // Orchestrates the start flow: validates devices/token, calls the edge start RPC, seeds local metrics, and refreshes the snapshot.
-  const handleStartGame = useCallback(async (preselectedTargets?: NormalizedGameDevice[]) => {
-    if (
-      isStarting ||
-      isLaunchingLifecycle ||
-      isRunningLifecycle ||
-      isStoppingLifecycle ||
-      isFinalizingLifecycle
-    ) {
-      return;
-    }
-
-    await loadLiveDevices({ silent: true });
-
-    const onlineDevices = availableDevicesRef.current.filter((device) => deriveIsOnline(device));
-    const preselectedIdSet =
-      preselectedTargets && preselectedTargets.length > 0
-        ? new Set(preselectedTargets.map((device) => device.deviceId))
-        : null;
-    const selectedIds =
-      preselectedIdSet && preselectedIdSet.size > 0 ? Array.from(preselectedIdSet) : selectedDeviceIds;
-
-    if (selectedIds.length === 0) {
-      setErrorMessage('Select at least one target before starting a game.');
-      toast.error('Select at least one online target before starting a game.');
-      return;
-    }
-
-    const selectedOnlineDevices = onlineDevices.filter((device) => selectedIds.includes(device.deviceId));
-
-    if (selectedOnlineDevices.length === 0) {
-      setErrorMessage('Selected targets are offline. Choose at least one online target.');
-      toast.error('Selected targets are offline. Choose at least one online target.');
-      return;
-    }
-
-    if (!tbSession?.token) {
-      const refreshed = await refreshThingsboardSession({ force: true });
-      if (!refreshed?.token) {
-        toast.error('Unable to obtain ThingsBoard session token. Please retry.');
-        return;
-      }
-    }
-
-    setErrorMessage(null);
-    setPendingSessionTargets(selectedOnlineDevices);
-    setSessionLifecycle('launching');
-    resetSessionTimer(null);
-
-    const targetDeviceIds = selectedOnlineDevices.map((device) => device.deviceId);
-    const startResult = await startGameSession({
-      deviceIds: targetDeviceIds,
-    });
-
-    if (!startResult.ok || startResult.successfulDeviceIds.length === 0) {
-      setErrorMessage('Failed to start game on the selected devices.');
-      toast.error('Failed to start game on the selected devices.');
-      setSessionLifecycle('idle');
-      setPendingSessionTargets([]);
-      resetSessionTimer(null);
-      resetSessionActivation();
-      setExpectedDeviceIdsForReadiness([]);
-      setPendingReadyDeviceIds([]);
-      readinessPendingIdsRef.current = [];
-      readinessWarningIssuedRef.current = false;
-      if (readinessTimeoutRef.current) {
-        window.clearTimeout(readinessTimeoutRef.current);
-        readinessTimeoutRef.current = null;
-      }
-      return;
-    }
-
-    const { successfulDeviceIds, failedDeviceIds, warnings, startedAt, results: deviceResults } = startResult;
-
-    if (Array.isArray(deviceResults)) {
-      deviceResults.forEach((deviceResult) => {
-        const meta = deviceResult.data as { totalMs?: number; attributeMs?: number; rpcMs?: number } | undefined;
-        const parts = [
-          `[Games] start dispatch device ${deviceResult.deviceId}`,
-          deviceResult.success ? 'success' : 'failed',
-        ];
-        if (deviceResult.warning) {
-          parts.push(`warning=${deviceResult.warning}`);
-        }
-        if (deviceResult.error) {
-          parts.push(`error=${deviceResult.error}`);
-        }
-        if (meta) {
-          const timings = [
-            typeof meta.attributeMs === 'number' ? `attr=${meta.attributeMs}ms` : null,
-            typeof meta.rpcMs === 'number' ? `rpc=${meta.rpcMs}ms` : null,
-            typeof meta.totalMs === 'number' ? `total=${meta.totalMs}ms` : null,
-          ].filter(Boolean);
-          if (timings.length > 0) {
-            parts.push(`timings{${timings.join(', ')}}`);
-          }
-        }
-        console.log(parts.join(' | '));
-      });
-    }
-
-    currentGameDevicesRef.current = successfulDeviceIds;
-    setActiveDeviceIds(successfulDeviceIds);
-    selectionManuallyModifiedRef.current = true;
-    setSelectedDeviceIds(successfulDeviceIds);
-    setCurrentSessionTargets(
-      successfulDeviceIds
-        .map((deviceId) => {
-          const refreshed = availableDevicesRef.current.find((device) => device.deviceId === deviceId);
-          if (refreshed) {
-            return refreshed;
-          }
-          const fromSelection =
-            selectedOnlineDevices.find((device) => device.deviceId === deviceId) ??
-            preselectedTargets?.find((device) => device.deviceId === deviceId) ??
-            null;
-          return fromSelection ? { ...fromSelection } : null;
-        })
-        .filter((device): device is NormalizedGameDevice => device !== null),
-    );
-    setRecentSessionSummary(null);
-
-    setExpectedDeviceIdsForReadiness(successfulDeviceIds);
-    setPendingReadyDeviceIds(() => {
-      readinessPendingIdsRef.current = successfulDeviceIds;
-      return successfulDeviceIds;
-    });
-    readinessWarningIssuedRef.current = false;
-    if (readinessTimeoutRef.current) {
-      window.clearTimeout(readinessTimeoutRef.current);
-    }
-    if (successfulDeviceIds.length > 0) {
-      console.log('[Games] awaiting telemetry readiness for devices:', successfulDeviceIds.join(', '));
-      readinessTimeoutRef.current = window.setTimeout(() => {
-        const unresolved = readinessPendingIdsRef.current;
-        if (unresolved.length > 0 && !readinessWarningIssuedRef.current) {
-          readinessWarningIssuedRef.current = true;
-          toast.warning(`${unresolved.length} device${unresolved.length === 1 ? '' : 's'} have not confirmed readiness.`, {
-            description: unresolved.join(', '),
-          });
-        }
-      }, 5_000);
-    }
-
-    const startTimestamp = startedAt ?? Date.now();
-    markSessionTriggered(startTimestamp);
-
-    setGameStartTime(startTimestamp);
-    setGameStopTime(null);
-    setHitCounts(Object.fromEntries(successfulDeviceIds.map((id) => [id, 0])));
-    setHitHistory([]);
-
-    await loadLiveDevices({ silent: true });
-
-    toast.success(`Game started (${successfulDeviceIds.length}/${targetDeviceIds.length} selected devices).`);
-    if (warnings.length > 0) {
-      toast.warning(`${warnings.length} device(s) reported a timeout but should still receive the command.`);
-    }
-    if (failedDeviceIds.length > 0) {
-      toast.error(`${failedDeviceIds.length} device(s) failed to start.`);
-    }
-  }, [
-    availableDevicesRef,
-    deriveIsOnline,
-    isFinalizingLifecycle,
-    isLaunchingLifecycle,
-    isStarting,
-    isStoppingLifecycle,
-    loadLiveDevices,
-    refreshThingsboardSession,
-    selectedDeviceIds,
-    resetSessionTimer,
-    resetSessionActivation,
-    startGameSession,
-    tbSession,
-    markSessionTriggered,
-  ]);
 
   const finalizeSession = useCallback(
     async ({
@@ -1277,12 +1566,6 @@ const Games: React.FC = () => {
       }
 
       try {
-        await fetchTotalShots();
-      } catch (fetchShotsError) {
-        console.warn('[Games] Failed to refresh target totals after stop', fetchShotsError);
-      }
-
-      try {
         await loadLiveDevices({ silent: true });
       } catch (refreshError) {
         console.warn('[Games] Failed to refresh live devices after stop', refreshError);
@@ -1290,130 +1573,397 @@ const Games: React.FC = () => {
 
       return sessionSummary;
     },
-    [fetchTotalShots, loadGameHistory, loadLiveDevices, toast],
+    [loadGameHistory, loadLiveDevices, toast],
   );
 
-  // Coordinates stop lifecycle: calls the edge stop RPC, aggregates telemetry into a summary, persists history, and refreshes UI.
-  const handleStopGame = useCallback(async () => {
-    if (
-      !isRunningLifecycle ||
-      !currentGameId ||
-      isStopping ||
-      isStoppingLifecycle ||
-      isFinalizingLifecycle
-    ) {
+  // Coordinates stop lifecycle: calls direct ThingsBoard RPCs, aggregates telemetry into a summary, persists history, and refreshes UI.
+  const handleStopDirectGame = useCallback(async () => {
+    if (!directSessionGameId) {
       return;
     }
 
-    const activeDeviceIdsSnapshot = [...currentGameDevicesRef.current];
+    const activeDeviceIdsSnapshot = [...activeDeviceIds];
     if (activeDeviceIdsSnapshot.length === 0) {
       setSessionLifecycle('idle');
       setGameStopTime(null);
       resetSessionTimer(null);
       resetSessionActivation();
+      setDirectTelemetryEnabled(false);
+      setDirectFlowActive(false);
       return;
     }
 
-    const stopRequestTimestamp = Date.now();
-    const startTimestampSnapshot = gameStartTime ?? stopRequestTimestamp;
+    console.info('[Games] Stopping direct ThingsBoard session', {
+      gameId: directSessionGameId,
+      deviceIds: activeDeviceIdsSnapshot,
+    });
 
+    const stopTimestamp = Date.now();
     setSessionLifecycle('stopping');
-    setGameStopTime(stopRequestTimestamp);
-    freezeSessionTimer(stopRequestTimestamp);
+    setGameStopTime(stopTimestamp);
+    freezeSessionTimer(stopTimestamp);
+    console.info('[Games] Disabling direct telemetry stream (stop initiated)');
+    setDirectTelemetryEnabled(false);
+
+    const stopResults = await Promise.allSettled(
+      directSessionTargets.map(async ({ deviceId }) => {
+        updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'pending' }));
+        try {
+          await tbSetShared(deviceId, { status: 'free' });
+          let stopSucceeded = false;
+          try {
+            await tbSendTwoway(deviceId, 'stop', {
+              ts: stopTimestamp,
+              values: {
+                deviceId,
+                event: 'stop',
+                gameId: directSessionGameId,
+              },
+            });
+            stopSucceeded = true;
+          } catch (rpcError) {
+            const status = resolveHttpStatus(rpcError);
+            if (status === 401 || status === 403) {
+              throw rpcError;
+            }
+            if (status === 504 || typeof status !== 'number') {
+              console.info('[Games] ThingsBoard stop two-way RPC timing out; using oneway fallback', {
+                deviceId,
+                gameId: directSessionGameId,
+                status,
+              });
+            } else {
+              console.warn('[Games] ThingsBoard stop two-way RPC failed; trying fallback', {
+                deviceId,
+                gameId: directSessionGameId,
+                status,
+                error: rpcError,
+              });
+            }
+          }
+
+          if (!stopSucceeded) {
+            try {
+              await tbSendOneway(deviceId, 'stop', {
+                ts: stopTimestamp,
+                values: {
+                  deviceId,
+                  event: 'stop',
+                  gameId: directSessionGameId,
+                },
+              });
+            } catch (fallbackError) {
+              const status = resolveHttpStatus(fallbackError);
+              if (status !== 504) {
+                throw fallbackError;
+              }
+              console.info('[Games] ThingsBoard stop fallback RPC timed out (expected for oneway command)', {
+                deviceId,
+                gameId: directSessionGameId,
+              });
+            }
+          }
+
+          updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'success' }));
+        } catch (error) {
+          console.error('[Games] Failed to stop device via ThingsBoard', error);
+          updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'error' }));
+          throw error;
+        }
+      }),
+    );
+
+    const stopFailures = stopResults.filter((result) => result.status === 'rejected');
+    if (stopFailures.length > 0) {
+      toast.error(`${stopFailures.length} device(s) may not have received the stop command.`);
+    } else {
+      toast.success('Stop commands sent to all devices.');
+    }
+
+    setSessionLifecycle('finalizing');
+
+    setAvailableDevices((prev) =>
+      prev.map((device) => {
+        if (activeDeviceIdsSnapshot.includes(device.deviceId)) {
+          return {
+            ...device,
+            gameStatus: 'stop',
+            lastSeen: stopTimestamp,
+          };
+        }
+        return device;
+      }),
+    );
+
+    const targetDevices =
+      currentSessionTargets.length > 0
+        ? currentSessionTargets
+        : activeDeviceIdsSnapshot
+            .map((deviceId) => availableDevicesRef.current.find((device) => device.deviceId === deviceId) ?? null)
+            .filter((device): device is NormalizedGameDevice => device !== null);
+
+    const hitHistorySnapshot = [...hitHistory];
+    const splitRecordsSnapshot = [...splitRecords];
+    const transitionRecordsSnapshot = [...transitionRecords];
+    const startTimestampSnapshot = gameStartTime ?? stopTimestamp;
+    const sessionLabel = `Game ${new Date(startTimestampSnapshot).toLocaleTimeString()}`;
 
     try {
-      const stopResult = await stopGameSession({ deviceIds: activeDeviceIdsSnapshot });
+      await finalizeSession({
+        resolvedGameId: directSessionGameId,
+        sessionLabel,
+        startTimestamp: startTimestampSnapshot,
+        stopTimestamp,
+        targetDevices,
+        hitHistorySnapshot,
+        splitRecordsSnapshot,
+        transitionRecordsSnapshot,
+      });
 
-      if (!stopResult.ok) {
-        setErrorMessage('Failed to stop game. Please try again.');
-        toast.error('Failed to stop game.');
-        setSessionLifecycle('running');
-        setGameStopTime(null);
-        if (telemetryConfirmedAt || gameStartTime) {
-          const timerAnchor = telemetryConfirmedAt ?? gameStartTime ?? Date.now();
-          startSessionTimer(timerAnchor);
-        }
-        return;
+      console.info('[Games] Direct session persisted successfully', {
+        gameId: directSessionGameId,
+        stopTimestamp,
+      });
+      toast.success('Game stopped successfully.');
+    } catch (error) {
+      console.error('[Games] Failed to persist direct session summary', error);
+      toast.error('Failed to finalize session. Please try again.');
+      setSessionLifecycle('running');
+      setDirectTelemetryEnabled(true);
+      return;
+    }
+
+    currentGameDevicesRef.current = [];
+    setActiveDeviceIds([]);
+    setCurrentSessionTargets([]);
+    setPendingSessionTargets([]);
+    setDirectFlowActive(false);
+    setSessionLifecycle('idle');
+    setGameStartTime(null);
+    setGameStopTime(stopTimestamp);
+    resetSessionTimer(null);
+    resetSessionActivation();
+    setDirectTelemetryEnabled(false);
+    updateDirectStartStates({});
+    setDirectSessionTargets([]);
+    setDirectSessionGameId(null);
+    setExpectedDeviceIdsForReadiness([]);
+    setPendingReadyDeviceIds([]);
+    readinessPendingIdsRef.current = [];
+    readinessWarningIssuedRef.current = false;
+    if (readinessTimeoutRef.current) {
+      window.clearTimeout(readinessTimeoutRef.current);
+      readinessTimeoutRef.current = null;
+    }
+
+    void loadLiveDevices({ silent: true });
+  }, [
+    directSessionGameId,
+    directSessionTargets,
+    activeDeviceIds,
+    currentSessionTargets,
+    finalizeSession,
+    freezeSessionTimer,
+    hitHistory,
+    splitRecords,
+    transitionRecords,
+    gameStartTime,
+    resetSessionActivation,
+    resetSessionTimer,
+    setActiveDeviceIds,
+    setCurrentSessionTargets,
+    updateDirectStartStates,
+    setDirectTelemetryEnabled,
+    setDirectFlowActive,
+    setSessionLifecycle,
+    setGameStopTime,
+    setPendingSessionTargets,
+    setGameStartTime,
+    setDirectSessionTargets,
+    setDirectSessionGameId,
+    setAvailableDevices,
+    setExpectedDeviceIdsForReadiness,
+    setPendingReadyDeviceIds,
+    loadLiveDevices,
+    toast,
+  ]);
+
+  const handleStopGame = useCallback(async () => {
+    if (!isRunningLifecycle || isStopping || isStoppingLifecycle || isFinalizingLifecycle) {
+      return;
+    }
+
+    console.info('[Games] Forwarding stop request to direct ThingsBoard handler');
+    await handleStopDirectGame();
+  }, [isRunningLifecycle, isStopping, isStoppingLifecycle, isFinalizingLifecycle, handleStopDirectGame]);
+  // Dismisses the start dialog, cancelling setup when we're still in the pre-launch phase.
+  const handleCloseStartDialog = useCallback(() => {
+    if (sessionLifecycle === 'selecting' && !isStarting && !isLaunchingLifecycle) {
+      setSessionLifecycle('idle');
+      setPendingSessionTargets([]);
+      resetSessionTimer(null);
+      setIsSessionDialogDismissed(false);
+      return;
+    }
+
+    if (sessionLifecycle !== 'idle') {
+      setIsSessionDialogDismissed(true);
+    }
+  }, [
+    isLaunchingLifecycle,
+    isStarting,
+    resetSessionTimer,
+    sessionLifecycle,
+    setIsSessionDialogDismissed,
+    setPendingSessionTargets,
+  ]);
+
+
+  const executeDirectStart = useCallback(
+    async ({ deviceIds, timestamp, isRetry = false }: { deviceIds: string[]; timestamp: number; isRetry?: boolean }) => {
+      const uniqueIds = Array.from(new Set(deviceIds));
+      if (uniqueIds.length === 0) {
+        toast.error('No devices selected to start.');
+        return { successIds: [], errorIds: [] };
       }
 
-      let finalizeSucceeded = false;
+      const targetsToCommand = directSessionTargets.filter((target) => uniqueIds.includes(target.deviceId));
+      if (targetsToCommand.length === 0) {
+        toast.error('Unable to resolve ThingsBoard devices for the start command.');
+        return { successIds: [], errorIds: uniqueIds };
+      }
 
-      const { failedDeviceIds, warnings, stoppedAt, gameId } = stopResult;
-      const stopTimestamp = stoppedAt ?? stopRequestTimestamp;
-      setGameStopTime(stopTimestamp);
-      freezeSessionTimer(stopTimestamp);
-      setSessionLifecycle('finalizing');
-
-      try {
-        setAvailableDevices((prev) =>
-          prev.map((device) => {
-            if (activeDeviceIdsSnapshot.includes(device.deviceId)) {
-              return {
-                ...device,
-                gameStatus: 'stop',
-                lastSeen: stopTimestamp,
-              };
-            }
-            return device;
-          }),
-        );
-
-        if (failedDeviceIds.length > 0) {
-          toast.warning(`${failedDeviceIds.length} device(s) may not have received the stop command.`);
-        } else {
-          toast.success('Game stopped successfully.');
-        }
-
-        if (warnings.length > 0) {
-          toast.warning(`${warnings.length} device(s) reported a timeout when stopping.`);
-        }
-
-        const resolvedGameId = gameId ?? currentGameId ?? `GM-${Date.now()}`;
-        const targetDevices =
-          currentSessionTargets.length > 0
-            ? currentSessionTargets
-            : activeDeviceIdsSnapshot
-                .map((deviceId) => availableDevicesRef.current.find((device) => device.deviceId === deviceId) ?? null)
-                .filter((device): device is NormalizedGameDevice => device !== null);
-
-        const hitHistorySnapshot = [...hitHistory];
-        const splitRecordsSnapshot = [...splitRecords];
-        const transitionRecordsSnapshot = [...transitionRecords];
-        const sessionLabel = `Game ${new Date(startTimestampSnapshot).toLocaleTimeString()}`;
-
-        await finalizeSession({
-          resolvedGameId,
-          sessionLabel,
-          startTimestamp: startTimestampSnapshot,
-          stopTimestamp,
-          targetDevices,
-          hitHistorySnapshot,
-          splitRecordsSnapshot,
-          transitionRecordsSnapshot,
+      updateDirectStartStates((prev) => {
+        const next = { ...prev };
+        uniqueIds.forEach((deviceId) => {
+          next[deviceId] = 'pending';
         });
+        return next;
+      });
 
-        finalizeSucceeded = true;
-      } catch (finalizeError) {
-        console.error('[Games] Failed to finalize session', finalizeError);
-        setErrorMessage('Failed to finalize session. Please try again.');
-        toast.error('Failed to finalize session. Please try again.');
-        setSessionLifecycle('running');
-        setGameStopTime(null);
-        if (gameStartTime) {
-          startSessionTimer(gameStartTime);
-        }
-      }
+      const MAX_RPC_ATTEMPTS = 3;
+      await Promise.allSettled(
+        targetsToCommand.map(async ({ deviceId }) => {
+          let attempts = 0;
+          while (attempts < MAX_RPC_ATTEMPTS) {
+            attempts += 1;
+            try {
+              await tbSetShared(deviceId, {
+                gameId: directSessionGameId,
+                status: 'busy',
+              });
 
-      if (finalizeSucceeded) {
-        currentGameDevicesRef.current = [];
-        setActiveDeviceIds([]);
-        setCurrentSessionTargets([]);
-        setPendingSessionTargets([]);
+              let rpcSucceeded = false;
+              try {
+                await tbSendTwoway(deviceId, 'start', {
+                  ts: timestamp,
+                  values: {
+                    deviceId,
+                    event: 'start',
+                    gameId: directSessionGameId,
+                  },
+                });
+                rpcSucceeded = true;
+              } catch (rpcError) {
+                const status = resolveHttpStatus(rpcError);
+                if (status === 504) {
+                  console.info('[Games] ThingsBoard start two-way RPC timed out; falling back to oneway', {
+                    deviceId,
+                    gameId: directSessionGameId,
+                  });
+                } else if (status === 401 && attempts < MAX_RPC_ATTEMPTS) {
+                  await refreshDirectAuthToken();
+                  continue;
+                } else {
+                  if (isAxiosNetworkError(rpcError) || typeof status !== 'number') {
+                    console.info('[Games] ThingsBoard start RPC encountered a transient issue; attempting fallback', {
+                      deviceId,
+                      attempt: attempts,
+                      status,
+                    });
+                  } else {
+                    console.warn('[Games] ThingsBoard start two-way RPC failed, attempting fallback', {
+                      deviceId,
+                      attempt: attempts,
+                      status,
+                      error: rpcError,
+                    });
+                  }
+                }
+              }
+
+              if (!rpcSucceeded) {
+                try {
+                  await tbSendOneway(deviceId, 'start', {
+                    ts: timestamp,
+                    values: {
+                      deviceId,
+                      event: 'start',
+                      gameId: directSessionGameId,
+                    },
+                  });
+                  rpcSucceeded = true;
+                } catch (fallbackError) {
+                  const fallbackStatus = resolveHttpStatus(fallbackError);
+                  if (fallbackStatus === 401 && attempts < MAX_RPC_ATTEMPTS) {
+                    await refreshDirectAuthToken();
+                    continue;
+                  }
+                  if (fallbackStatus === 504) {
+                    console.info('[Games] ThingsBoard start fallback RPC timed out (expected for oneway command)', {
+                      deviceId,
+                      gameId: directSessionGameId,
+                    });
+                    rpcSucceeded = true;
+                  } else {
+                    console.error('[Games] ThingsBoard start command failed after fallback', {
+                      deviceId,
+                      attempt: attempts,
+                      status: fallbackStatus,
+                      error: fallbackError,
+                    });
+                    throw fallbackError;
+                  }
+                }
+              }
+
+              updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'success' }));
+              return;
+            } catch (commandError) {
+              const status = resolveHttpStatus(commandError);
+              if (status === 401 && attempts < MAX_RPC_ATTEMPTS) {
+                await refreshDirectAuthToken();
+                continue;
+              }
+              console.error('[Games] ThingsBoard start command failed', {
+                deviceId,
+                attempt: attempts,
+                status,
+                error: commandError,
+              });
+              updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'error' }));
+              throw commandError;
+            }
+          }
+        }),
+      );
+
+      const finalStates = directStartStatesRef.current;
+      const aggregatedSuccessIds = Object.entries(finalStates)
+        .filter(([, state]) => state === 'success')
+        .map(([deviceId]) => deviceId);
+      const attemptSuccessIds = uniqueIds.filter((deviceId) => finalStates[deviceId] === 'success');
+      const attemptErrorIds = uniqueIds.filter((deviceId) => finalStates[deviceId] === 'error');
+
+      if (aggregatedSuccessIds.length === 0) {
+        setDirectFlowActive(false);
+        setDirectTelemetryEnabled(false);
+        setSessionLifecycle('selecting');
         setGameStartTime(null);
         setGameStopTime(null);
         resetSessionTimer(null);
-        setSessionLifecycle('idle');
-        resetSessionActivation();
+        setHitCounts({});
+        setHitHistory([]);
         setExpectedDeviceIdsForReadiness([]);
         setPendingReadyDeviceIds([]);
         readinessPendingIdsRef.current = [];
@@ -1422,57 +1972,223 @@ const Games: React.FC = () => {
           window.clearTimeout(readinessTimeoutRef.current);
           readinessTimeoutRef.current = null;
         }
+        setDirectControlError('Start commands failed. Adjust the devices or refresh your session and try again.');
+        if (!isRetry) {
+          toast.error('Failed to start session. Update device status and retry.');
+        }
+        return { successIds: [], errorIds: attemptErrorIds };
       }
-    } catch (error) {
-      console.error('Failed to stop game:', error);
-      setErrorMessage('Failed to stop game. Please try again.');
-      toast.error('Failed to stop game.');
-      setSessionLifecycle('running');
-      setGameStopTime(null);
-      if (telemetryConfirmedAt || gameStartTime) {
-        const timerAnchor = telemetryConfirmedAt ?? gameStartTime ?? Date.now();
-        startSessionTimer(timerAnchor);
+
+      setDirectFlowActive(true);
+      setDirectControlError(attemptErrorIds.length > 0 ? 'Some devices failed to start. Retry failed devices.' : null);
+
+      if (readinessTimeoutRef.current) {
+        window.clearTimeout(readinessTimeoutRef.current);
+        readinessTimeoutRef.current = null;
       }
-    }
-  }, [
-    availableDevicesRef,
-    currentGameId,
-    currentSessionTargets,
-    fetchTotalShots,
-    gameStartTime,
-    hitHistory,
-    isFinalizingLifecycle,
-    isRunningLifecycle,
-    isStopping,
-    isStoppingLifecycle,
-    loadLiveDevices,
-    loadGameHistory,
-    finalizeSession,
-    freezeSessionTimer,
+
+      const activationResult = await waitForTargetsState(aggregatedSuccessIds, {
+        expectState: 'active',
+        timeoutMs: 8_000,
+      });
+
+      if (activationResult.success) {
+        setDirectTelemetryEnabled(true);
+        setExpectedDeviceIdsForReadiness([]);
+        setPendingReadyDeviceIds([]);
+        readinessPendingIdsRef.current = [];
+        readinessWarningIssuedRef.current = false;
+        const confirmedTimestamp = activationResult.timestamp ?? timestamp;
+        setGameStartTime((prev) => (prev ?? confirmedTimestamp));
+        markTelemetryConfirmed(confirmedTimestamp);
+      } else {
+        setDirectTelemetryEnabled(true);
+        setGameStartTime((prev) => (prev ?? timestamp));
+        const pendingReady = aggregatedSuccessIds.filter((deviceId) => !telemetryState.readyDevices[deviceId]);
+        const readinessAnchors = aggregatedSuccessIds
+          .map((deviceId) => telemetryState.readyDevices[deviceId])
+          .filter((value): value is number => typeof value === 'number');
+        const fallbackReadyTimestamp =
+          readinessAnchors.length > 0 ? Math.min(...readinessAnchors) : timestamp;
+        setExpectedDeviceIdsForReadiness(aggregatedSuccessIds);
+        setPendingReadyDeviceIds(() => {
+          readinessPendingIdsRef.current = [...pendingReady];
+          return pendingReady;
+        });
+        readinessWarningIssuedRef.current = false;
+
+        if (pendingReady.length > 0) {
+          readinessTimeoutRef.current = window.setTimeout(() => {
+            const unresolved = readinessPendingIdsRef.current;
+            console.info('[Games] Readiness timeout fired', {
+              unresolved,
+              readyMap: telemetryState.readyDevices,
+            });
+            if (unresolved.length > 0 && !readinessWarningIssuedRef.current) {
+              readinessWarningIssuedRef.current = true;
+              toast.warning(`${unresolved.length} device${unresolved.length === 1 ? '' : 's'} have not confirmed readiness.`, {
+                description: unresolved.join(', '),
+              });
+            }
+            if (unresolved.length > 0 && !sessionConfirmedRef.current && sessionLifecycleRef.current === 'launching') {
+              console.info('[Games] Forcing session confirmation after readiness timeout', { unresolved });
+              markTelemetryConfirmed(fallbackReadyTimestamp);
+              setExpectedDeviceIdsForReadiness([]);
+              setPendingReadyDeviceIds([]);
+              readinessPendingIdsRef.current = [];
+            }
+            readinessTimeoutRef.current = null;
+          }, READINESS_CONFIRMATION_TIMEOUT_MS);
+        }
+      }
+
+      if (attemptErrorIds.length > 0) {
+        toast.warning(`${attemptErrorIds.length} device${attemptErrorIds.length === 1 ? '' : 's'} failed to start. Use retry to try again.`);
+      } else if (!isRetry) {
+        toast.success(`Start commands dispatched to ${attemptSuccessIds.length} device${attemptSuccessIds.length === 1 ? '' : 's'}.`);
+      }
+
+      if (attemptSuccessIds.length > 0) {
+        void loadLiveDevices({ silent: true });
+      }
+
+      return { successIds: attemptSuccessIds, errorIds: attemptErrorIds };
+    }, [
+    directSessionTargets,
+    directSessionGameId,
+    updateDirectStartStates,
+    refreshDirectAuthToken,
+    toast,
+    setDirectFlowActive,
+    setDirectTelemetryEnabled,
+    setSessionLifecycle,
+    setGameStartTime,
+    setGameStopTime,
     resetSessionTimer,
-    startSessionTimer,
-    resetSessionActivation,
-    telemetryConfirmedAt,
-    splitRecords,
-    transitionRecords,
-    stopGameSession
+    setHitCounts,
+    setHitHistory,
+    setDirectControlError,
+    setExpectedDeviceIdsForReadiness,
+    setPendingReadyDeviceIds,
+    telemetryState.readyDevices,
+    markTelemetryConfirmed,
+    loadLiveDevices,
+    waitForTargetsState,
   ]);
 
-  // Closes the start dialog without mutating any session state.
-  const handleCloseStartDialog = useCallback(() => {
-    if (sessionLifecycle !== 'selecting' || isStarting || isLaunchingLifecycle) {
+  // Fires the direct start flow after dismissing the dialog confirmation.
+  const handleConfirmStartDialog = useCallback(() => {
+    if (directSessionTargets.length === 0 || !directSessionGameId) {
+      toast.error('No devices are ready for direct control. Close and reopen the dialog.');
       return;
     }
-    setSessionLifecycle('idle');
-    setPendingSessionTargets([]);
-    resetSessionTimer(null);
-  }, [isLaunchingLifecycle, isStarting, resetSessionTimer, sessionLifecycle]);
 
-  // Fires the existing start flow after dismissing the dialog confirmation.
-  const handleConfirmStartDialog = useCallback(() => {
-    void handleStartGame(pendingSessionTargets);
-  }, [handleStartGame, pendingSessionTargets]);
+    const timestamp = Date.now();
+    const targetedDeviceIds =
+      pendingSessionTargets.length > 0
+        ? pendingSessionTargets.map((device) => device.deviceId)
+        : directSessionTargets.map((target) => target.deviceId);
 
+    const normalizedTargets =
+      pendingSessionTargets.length > 0
+        ? pendingSessionTargets
+        : targetedDeviceIds
+            .map((deviceId) => availableDevicesRef.current.find((device) => device.deviceId === deviceId) ?? null)
+            .filter((device): device is NormalizedGameDevice => device !== null);
+
+    if (normalizedTargets.length === 0) {
+      toast.error('Unable to resolve target metadata for the selected devices.');
+      return;
+    }
+
+    setPendingSessionTargets(normalizedTargets);
+    setCurrentSessionTargets(normalizedTargets);
+    currentGameDevicesRef.current = targetedDeviceIds;
+    selectionManuallyModifiedRef.current = true;
+    setSelectedDeviceIds(targetedDeviceIds);
+    setActiveDeviceIds(targetedDeviceIds);
+    setRecentSessionSummary(null);
+    setGameStartTime(null);
+    setGameStopTime(null);
+    setHitCounts(Object.fromEntries(targetedDeviceIds.map((id) => [id, 0])));
+    setHitHistory([]);
+    setErrorMessage(null);
+    setDirectControlError(null);
+
+    markSessionTriggered(timestamp);
+    setSessionLifecycle('launching');
+    setDirectFlowActive(true);
+    setDirectTelemetryEnabled(false);
+    startSessionTimer(timestamp);
+
+    updateDirectStartStates(() => {
+      const next: Record<string, 'idle' | 'pending' | 'success' | 'error'> = {};
+      targetedDeviceIds.forEach((deviceId) => {
+        next[deviceId] = 'pending';
+      });
+      return next;
+    });
+
+    console.info('[Games] Begin session pressed (direct ThingsBoard path)', {
+      deviceIds: targetedDeviceIds,
+      gameId: directSessionGameId,
+    });
+
+    void executeDirectStart({ deviceIds: targetedDeviceIds, timestamp });
+  }, [
+    availableDevicesRef,
+    directSessionGameId,
+    directSessionTargets,
+    executeDirectStart,
+    markSessionTriggered,
+    pendingSessionTargets,
+    setActiveDeviceIds,
+    setCurrentSessionTargets,
+    setDirectFlowActive,
+    setDirectTelemetryEnabled,
+    setDirectControlError,
+    setErrorMessage,
+    setExpectedDeviceIdsForReadiness,
+    setGameStartTime,
+    setGameStopTime,
+    setHitCounts,
+    setHitHistory,
+    setPendingReadyDeviceIds,
+    setPendingSessionTargets,
+    setRecentSessionSummary,
+    setSelectedDeviceIds,
+    setSessionLifecycle,
+    startSessionTimer,
+    toast,
+    updateDirectStartStates,
+  ]);
+
+  const handleRetryFailedDevices = useCallback(async () => {
+    const failedIds = Object.entries(directStartStatesRef.current)
+      .filter(([, state]) => state === 'error')
+      .map(([deviceId]) => deviceId);
+
+    if (failedIds.length === 0) {
+      toast.info('No failed devices to retry.');
+      return;
+    }
+
+    if (!directSessionGameId) {
+      toast.error('Session is missing a ThingsBoard identifier. Close and reopen the dialog to retry.');
+      return;
+    }
+
+    setIsRetryingFailedDevices(true);
+    try {
+      setDirectControlError(null);
+      await executeDirectStart({ deviceIds: failedIds, timestamp: Date.now(), isRetry: true });
+    } catch (error) {
+      console.error('[Games] Retry failed devices encountered an error', error);
+      toast.error('Retry failed devices encountered an error. Check connectivity and try again.');
+    } finally {
+      setIsRetryingFailedDevices(false);
+    }
+  }, [directSessionGameId, executeDirectStart, toast, setDirectControlError]);
   // Allows the dialog to immediately terminate the active session if needed.
   const handleStopFromDialog = useCallback(() => {
     void handleStopGame();
@@ -1527,87 +2243,60 @@ const Games: React.FC = () => {
     return new Date(timestamp).toLocaleTimeString();
   };
 
-  const deviceStatusSummary = useMemo(() => {
-    if (targetsSnapshot.length > 0) {
-      const online = targetsSnapshot.filter((target) =>
-        target && typeof target.status === 'string'
-          ? ['online', 'standby', 'active'].includes(target.status)
-          : false,
-      ).length;
-      const total = targetsSnapshot.length;
-      return {
-        total,
-        online,
-        offline: Math.max(total - online, 0),
-      };
-    }
+  const operatorOverviewMetrics = useMemo(() => {
+    const validTargets = targetsSnapshot.filter(
+      (target) => !target?.isNoDataMessage && !target?.isErrorMessage,
+    );
+    const totalTargets = validTargets.length;
 
-    const total = availableDevices.length;
-    const online = availableDevices.filter((device) => deriveIsOnline(device)).length;
+    let onlineTargets = 0;
+    let totalShots = 0;
+    let bestScoreValue = 0;
+    let hasShotData = false;
+
+    validTargets.forEach((target) => {
+      if (!target || target.isNoDataMessage || target.isErrorMessage) {
+        return;
+      }
+
+      const status = typeof target.status === 'string' ? target.status.toLowerCase() : '';
+      if (['online', 'standby', 'active'].includes(status)) {
+        onlineTargets += 1;
+      }
+
+      const targetTotalShots = getTargetTotalShots(target);
+      if (typeof targetTotalShots === 'number') {
+        totalShots += targetTotalShots;
+        hasShotData = true;
+      }
+
+      const targetBestScore = getTargetBestScore(target);
+      if (typeof targetBestScore === 'number') {
+        bestScoreValue = Math.max(bestScoreValue, targetBestScore);
+      }
+    });
+
     return {
-      total,
-      online,
-      offline: Math.max(total - online, 0),
+      totalTargets,
+      onlineTargets,
+      offlineTargets: Math.max(totalTargets - onlineTargets, 0),
+      totalShots: hasShotData ? totalShots : 0,
+      bestScore: bestScoreValue,
     };
-  }, [targetsSnapshot, availableDevices, deriveIsOnline]);
+  }, [targetsSnapshot]);
 
-  const totalDevices = deviceStatusSummary.total;
-  const onlineDevices = deviceStatusSummary.online;
-  const offlineDevices = deviceStatusSummary.offline;
+  const hasResolvedTargets = useMemo(
+    () => operatorOverviewMetrics.totalTargets > 0,
+    [operatorOverviewMetrics.totalTargets],
+  );
+
+  const { totalTargets: totalDevices, onlineTargets: onlineDevices, totalShots: resolvedTotalHits, bestScore } =
+    operatorOverviewMetrics;
   const activeSessionDevices = activeDeviceIds.length;
   const activeSessionHits = activeDeviceIds.reduce(
     (sum, id) => sum + (hitCounts[id] ?? 0),
     0
   );
-  const totalHitsFromHistory = useMemo(
-    () =>
-      gameHistory.reduce((sum, game) => {
-        if (typeof game.totalHits === 'number' && Number.isFinite(game.totalHits)) {
-          return sum + game.totalHits;
-        }
-        if (typeof game.score === 'number' && Number.isFinite(game.score)) {
-          return sum + game.score;
-        }
-        if (Array.isArray(game.deviceResults) && game.deviceResults.length > 0) {
-          return (
-            sum +
-            game.deviceResults.reduce(
-              (inner, result) => inner + (Number.isFinite(result.hitCount) ? result.hitCount : 0),
-              0,
-            )
-          );
-        }
-        return sum;
-      }, 0),
-    [gameHistory],
-  );
-  const totalHitsFallback = useMemo(
-    () =>
-      availableDevices.reduce(
-        (sum, device) => sum + (Number.isFinite(device.hitCount) ? device.hitCount : 0),
-        0,
-      ),
-    [availableDevices],
-  );
-  const resolvedTotalHits = useMemo(() => {
-    const fallback = Math.max(totalHitsFromHistory, totalHitsFallback);
-    return totalShotsFromThingsBoard > 0 ? totalShotsFromThingsBoard : fallback;
-  }, [totalShotsFromThingsBoard, totalHitsFallback, totalHitsFromHistory]);
-  const bestScore = useMemo(() => {
-    if (gameHistory.length === 0) {
-      return 0;
-    }
-    return gameHistory.reduce((max, game) => {
-      const candidate =
-        typeof game.score === 'number' && Number.isFinite(game.score)
-          ? game.score
-          : typeof game.totalHits === 'number' && Number.isFinite(game.totalHits)
-            ? game.totalHits
-            : 0;
-      return Math.max(max, candidate);
-    }, 0);
-  }, [gameHistory]);
-
   const trackedDevices = useMemo(() => {
     const map = new Map<string, string>();
     const seedIds =
@@ -1825,7 +2514,7 @@ const Games: React.FC = () => {
     });
   }, [hitHistory, gameStartTime]);
 
-  const isLiveDataLoading = loadingDevices || isHistoryLoading || loadingTotalShots;
+  const isLiveDataLoading = loadingDevices || isHistoryLoading;
 
   const operatorName = useMemo(() => {
     if (user?.user_metadata?.full_name && typeof user.user_metadata.full_name === 'string') {
@@ -1847,6 +2536,12 @@ const Games: React.FC = () => {
   }, [operatorName]);
 
   const displayedSelectedCount = selectedDeviceIds.length;
+  const operatorOverviewLoading =
+    targetsStoreLoading ||
+    targetDetailsLoading ||
+    targetsLastFetched === null ||
+    !hasResolvedTargets;
+  const isPageLoading = operatorOverviewLoading || isLiveDataLoading;
   const sessionDialogTargets =
     isLiveDialogPhase && currentSessionTargets.length > 0 ? currentSessionTargets : pendingSessionTargets;
   const canDismissSessionDialog = sessionLifecycle === 'selecting' && !isStarting && !isLaunchingLifecycle;
@@ -1895,7 +2590,7 @@ const Games: React.FC = () => {
               <div className="grid gap-4 xl:gap-6 lg:grid-cols-[320px_minmax(320px,1fr)_minmax(320px,380px)]">
                   <div className="space-y-4">
                     {/* Operator overview card summarises current auth user and macro ThingsBoard stats (online targets, selections, lifetime hits). */}
-                    {isLiveDataLoading ? (
+                    {isPageLoading ? (
                       <OperatorOverviewSkeleton />
                     ) : (
                       <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
@@ -1912,17 +2607,11 @@ const Games: React.FC = () => {
                             </div>
                           </div>
                           <Separator />
-                          <div className="grid grid-cols-2 gap-3 text-xs text-brand-dark/60">
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs text-brand-dark/60">
                             <div>
                               <p className="uppercase tracking-wide">Targets Online</p>
                               <p className="font-heading text-lg text-brand-dark">
                                 {onlineDevices}/{totalDevices}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="uppercase tracking-wide">Selected</p>
-                              <p className="font-heading text-lg text-brand-dark">
-                                {displayedSelectedCount}
                               </p>
                             </div>
                             <div>
@@ -1943,7 +2632,7 @@ const Games: React.FC = () => {
                     )}
 
                     {/* Live session card visualises the active session timer, hit totals, and post-session summary fed by telemetry. */}
-                    {isLiveDataLoading ? (
+                    {isPageLoading ? (
                       <LiveSessionCardSkeleton />
                     ) : (
                       <LiveSessionCard
@@ -1957,7 +2646,7 @@ const Games: React.FC = () => {
                     )}
 
                     {/* Target selection card (with Start Game action) lists ThingsBoard devices with connection, hit counts, and lets operators assemble session rosters. */}
-                    {isLiveDataLoading ? (
+                    {isPageLoading ? (
                       <TargetSelectionSkeleton />
                     ) : (
                       <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
@@ -2102,7 +2791,7 @@ const Games: React.FC = () => {
 
                   <div className="space-y-4">
                     {/* Hit distribution card renders live pie chart + breakdown sourced from current session hit tallies. */}
-                    {isLiveDataLoading ? (
+                    {isPageLoading ? (
                       <HitDistributionSkeleton />
                     ) : (
                       <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
@@ -2181,7 +2870,7 @@ const Games: React.FC = () => {
                     )}
 
                     {/* Recent hits card streams the latest telemetry events so operators can audit per-hit chronology. */}
-                    {isLiveDataLoading ? (
+                    {isPageLoading ? (
                       <RecentHitsSkeleton />
                     ) : (
                       <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
@@ -2220,7 +2909,7 @@ const Games: React.FC = () => {
 
                   <div className="space-y-4">
                     {/* Hit timeline card plots hits over time per device to highlight activity spikes and target performance. */}
-                    {isLiveDataLoading ? (
+                    {isPageLoading ? (
                       <HitTimelineSkeleton />
                     ) : (
                       <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
@@ -2269,7 +2958,7 @@ const Games: React.FC = () => {
                     )}
 
                     {/* Split times card visualises recent per-device split durations calculated from telemetry split records. */}
-                    {isLiveDataLoading ? (
+                    {isPageLoading ? (
                       <RecentSplitsSkeleton />
                     ) : (
                       <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
@@ -2319,7 +3008,7 @@ const Games: React.FC = () => {
                     )}
 
                     {/* Target transitions card charts cross-target movement latency using transition telemetry. */}
-                    {isLiveDataLoading ? (
+                    {isPageLoading ? (
                       <RecentTransitionsSkeleton />
                     ) : (
                       <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
@@ -2385,6 +3074,16 @@ const Games: React.FC = () => {
           targets={sessionDialogTargets}
           sessionHits={sessionHitEntries}
           currentGameId={currentGameId}
+          directControlEnabled={DIRECT_TB_CONTROL_ENABLED}
+          directToken={directControlToken}
+          directAuthError={directControlError}
+          isDirectAuthLoading={isDirectAuthLoading}
+          directTargets={directSessionTargets}
+          directGameId={directSessionGameId}
+          directStartStates={directStartStates}
+          directFlowActive={directFlowActive}
+          onRetryFailed={handleRetryFailedDevices}
+          isRetryingFailedDevices={isRetryingFailedDevices}
         />
       </div>
     </div>
@@ -2665,6 +3364,16 @@ interface StartSessionDialogProps {
   targets: NormalizedGameDevice[];
   sessionHits: SessionHitEntry[];
   currentGameId: string | null;
+  directControlEnabled: boolean;
+  directToken: string | null;
+  directAuthError: string | null;
+  isDirectAuthLoading: boolean;
+  directTargets: Array<{ deviceId: string; name: string }>;
+  directGameId: string | null;
+  directStartStates: Record<string, 'idle' | 'pending' | 'success' | 'error'>;
+  directFlowActive: boolean;
+  onRetryFailed: () => void;
+  isRetryingFailedDevices: boolean;
 }
 
 const SessionStopwatchCard: React.FC<{
@@ -2825,9 +3534,19 @@ const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   targets,
   sessionHits,
   currentGameId,
+  directControlEnabled,
+  directToken,
+  directAuthError,
+  isDirectAuthLoading,
+  directTargets,
+  directGameId,
+  directStartStates,
+  directFlowActive,
+  onRetryFailed,
+  isRetryingFailedDevices,
 }) => {
   const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen && canClose) {
+    if (!nextOpen) {
       onClose();
     }
   };
@@ -2838,6 +3557,124 @@ const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   const isStoppingPhase = lifecycle === 'stopping';
   const isFinalizingPhase = lifecycle === 'finalizing';
   const usesLivePalette = isRunningPhase || isStoppingPhase || isFinalizingPhase;
+  const resolvedGameId = currentGameId ?? directGameId;
+  const directControlStatus = (() => {
+    if (!directControlEnabled) {
+      return null;
+    }
+    if (isDirectAuthLoading) {
+      return { message: 'Authenticating with ThingsBoard…', intent: 'info' as const };
+    }
+    if (directAuthError) {
+      return { message: directAuthError, intent: 'error' as const };
+    }
+    if (directFlowActive && directToken) {
+      return {
+        message: 'Live ThingsBoard control is active for this session.',
+        intent: 'success' as const,
+      };
+    }
+    if (directToken) {
+      return {
+        message: 'Connected to ThingsBoard. Commands will execute directly against live targets.',
+        intent: 'success' as const,
+      };
+    }
+    return { message: 'Awaiting ThingsBoard authentication…', intent: 'info' as const };
+  })();
+
+  const startStateValues = directTargets.map((target) => directStartStates[target.deviceId] ?? 'idle');
+  const failedCount = startStateValues.filter((state) => state === 'error').length;
+  const pendingCount = startStateValues.filter((state) => state === 'pending').length;
+  const successCount = startStateValues.filter((state) => state === 'success').length;
+  const hasFailedTargets = failedCount > 0;
+  const hasPendingTargets = pendingCount > 0;
+  const hasSuccessTargets = successCount > 0;
+
+  const renderDirectTargetStatuses = () => {
+    if (!directControlEnabled || directTargets.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-2">
+        <h4 className="text-xs uppercase tracking-wide text-brand-dark/60">
+          ThingsBoard Device IDs
+        </h4>
+        {(hasSuccessTargets || hasPendingTargets || hasFailedTargets) && (
+          <p className="text-xs text-brand-dark/60">
+            {hasSuccessTargets && (
+              <span>{successCount} device{successCount === 1 ? '' : 's'} acknowledged the start command. </span>
+            )}
+            {hasPendingTargets && (
+              <span>Waiting for {pendingCount} device{pendingCount === 1 ? '' : 's'} to acknowledge.</span>
+            )}
+            {hasFailedTargets && !hasPendingTargets && (
+              <span>Some devices failed to start. Retry the failed devices below.</span>
+            )}
+          </p>
+        )}
+        <div className="space-y-1 rounded-lg border border-dashed border-brand-secondary/30 bg-brand-secondary/5 px-3 py-3">
+          {directTargets.map((target) => {
+            const state = directStartStates[target.deviceId] ?? 'idle';
+            const label = (() => {
+              if (state === 'pending') {
+                return lifecycle === 'running' ? 'Sending start command…' : 'Stopping…';
+              }
+              if (state === 'success') {
+                return lifecycle === 'running' ? 'Ready' : 'Stopped';
+              }
+              if (state === 'error') {
+                return 'Error';
+              }
+              return 'Pending';
+            })();
+            const tone =
+              state === 'success'
+                ? 'text-green-700'
+                : state === 'error'
+                  ? 'text-red-600'
+                  : 'text-brand-dark/70';
+            const icon = (() => {
+              if (state === 'success') {
+                return <CheckCircle2 className="h-4 w-4 text-green-600" aria-hidden="true" />;
+              }
+              if (state === 'error') {
+                return <XCircle className="h-4 w-4 text-red-500" aria-hidden="true" />;
+              }
+              return (
+                <Loader2 className={`h-4 w-4 ${state === 'pending' ? 'animate-spin text-brand-dark/70' : 'text-brand-dark/40'}`} aria-hidden="true" />
+              );
+            })();
+            return (
+              <div key={target.deviceId} className="flex items-center justify-between gap-3 text-xs">
+                <span className="font-mono text-[11px] text-brand-dark/80">{target.deviceId}</span>
+                <div className="flex items-center gap-2">
+                  {icon}
+                  <span className={tone}>{label}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {hasFailedTargets && (
+          <Button
+            variant="outline"
+            onClick={onRetryFailed}
+            disabled={isRetryingFailedDevices}
+            className="w-full sm:w-auto"
+          >
+            {isRetryingFailedDevices ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RotateCcw className="mr-2 h-4 w-4" />
+            )}
+            Retry failed devices
+          </Button>
+        )}
+      </div>
+    );
+  };
 
   const dialogDescription = (() => {
     if (isFinalizingPhase) {
@@ -2876,6 +3713,23 @@ const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   const showCloseButton = isSelectingPhase || isLaunchingPhase;
   const showStartButton = isSelectingPhase;
   const showStopButton = isRunningPhase;
+  const canCancelSetup = isSelectingPhase && canClose;
+  const isDismissDisabled = canCancelSetup && isStarting;
+  const closeButtonLabel = canCancelSetup ? 'Cancel' : 'Close';
+  const directControlNotice =
+    directControlStatus && isSelectingPhase ? (
+      <div
+        className={
+          directControlStatus.intent === 'error'
+            ? 'rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700'
+            : directControlStatus.intent === 'success'
+              ? 'rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700'
+              : 'rounded-lg border border-brand-secondary/30 bg-brand-secondary/10 px-3 py-2 text-sm text-brand-dark/70'
+        }
+      >
+        {directControlStatus.message}
+      </div>
+    ) : null;
 
   let bodyContent: React.ReactNode;
   if (isRunningPhase) {
@@ -2902,6 +3756,7 @@ const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
     bodyContent = (
       <div className="space-y-3">
         <SessionProgressMessage tone="live" message={message} />
+        {renderDirectTargetStatuses()}
         {sessionHits.length > 0 && (
           <>
             <h3 className="text-sm uppercase tracking-wide text-white/80">Recent hits</h3>
@@ -2923,15 +3778,18 @@ const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
           message="Starting session on selected targets..."
           subtext="Waiting for ThingsBoard to confirm the game is live."
         />
+        {renderDirectTargetStatuses()}
       </div>
     );
   } else {
     bodyContent = (
       <div className="space-y-3">
+        {directControlNotice}
         <h3 className="font-heading text-sm uppercase tracking-wide text-brand-dark/70">
           Targets ({targets.length})
         </h3>
         <SessionTargetList targets={targets} />
+        {renderDirectTargetStatuses()}
       </div>
     );
   }
@@ -2952,8 +3810,8 @@ const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
           <DialogDescription className={usesLivePalette ? 'text-white/80' : 'text-brand-dark/70'}>
             {dialogDescription}
           </DialogDescription>
-          {currentGameId && (
-            <p className={`text-xs font-mono ${usesLivePalette ? 'text-white/65' : 'text-brand-dark/50'}`}>Game ID: {currentGameId}</p>
+          {resolvedGameId && (
+            <p className={`text-xs font-mono ${usesLivePalette ? 'text-white/65' : 'text-brand-dark/50'}`}>Game ID: {resolvedGameId}</p>
           )}
         </DialogHeader>
 
@@ -2973,10 +3831,10 @@ const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
             <Button
               variant="outline"
               onClick={onClose}
-              disabled={!canClose || isStarting || isLaunchingPhase}
+              disabled={isDismissDisabled}
               className={usesLivePalette ? 'border-white/35 text-white hover:bg-white/10 hidden' : undefined}
             >
-              {canClose ? 'Cancel' : 'Close'}
+              {closeButtonLabel}
             </Button>
           ) : (
             <span className="hidden sm:block" aria-hidden="true" />
@@ -3044,8 +3902,8 @@ const OperatorOverviewSkeleton: React.FC = () => (
         </div>
       </div>
       <Separator />
-      <div className="grid grid-cols-2 gap-3">
-        {Array.from({ length: 4 }).map((_, index) => (
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {Array.from({ length: 3 }).map((_, index) => (
           <div key={index} className="space-y-2">
             <Skeleton className="h-3 w-20 bg-gray-200" />
             <Skeleton className="h-5 w-12 bg-gray-200" />

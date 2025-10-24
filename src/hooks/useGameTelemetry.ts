@@ -316,12 +316,3 @@ export const useGameTelemetry = ({
     [hitCounts, hitHistory, splits, transitions, hitTimesByDevice, sessionEventTimestamp, readyDevices]
   );
 };
-      setReadyDevices((prev) => {
-        if (prev[deviceId]) {
-          return prev;
-        }
-        return {
-          ...prev,
-          [deviceId]: currentTimestamp,
-        };
-      });

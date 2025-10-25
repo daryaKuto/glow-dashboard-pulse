@@ -16,6 +16,13 @@ A modern React dashboard application for managing shooting range scenarios, targ
 - If the dialog closes or the target selection changes, the popup tears down the subscription and resets its local buffers to avoid replaying stale hits.
 - Supabase/edge snapshots for the cards and Target Selection panel are pulled once on first load and once after each game is finalized; everything in between is driven by cached device state plus direct ThingsBoard telemetry.
 
+### 🧩 Games Page Architecture
+
+- `src/pages/Games.tsx` now focuses solely on orchestration: it owns all Zustand/store subscriptions, derives memoized datasets (like `deviceHitSummary`, `roomSelections`, and `recentTransitions`), and wires lifecycle handlers into child components.
+- Presentational cards live in `src/components/games/` (`OperatorOverviewCard`, `LiveSessionCard`, `HitTimelineCard`, `HitDistributionCard`, `RoomSelectionCard`, `TargetSelectionCard`, `TargetTransitionsCard`). Each receives pre-computed props from `Games.tsx`, which keeps layout markup isolated from data-fetching logic.
+- The Start Session popup moved to `src/components/games/StartSessionDialog.tsx`. The page simply passes lifecycle state, direct-control flags, and the hydrated `sessionHits` array; the dialog component owns its own ThingsBoard telemetry subscription buffer to keep the live hit feed scoped.
+- Shared helpers (color palette, summary types, selection skeletons) live alongside the cards so the data flow is one-way: `Games.tsx → components`. No component reaches back into the page for state, which makes testing and Storybook coverage significantly easier.
+
 ## 🚀 Features
 
 ### Core Functionality

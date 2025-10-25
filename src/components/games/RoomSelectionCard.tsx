@@ -1,0 +1,115 @@
+import React from 'react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ScrollArea } from '@/components/ui/scroll-area';
+
+interface RoomSelection {
+  id: string;
+  name: string;
+  deviceIds: string[];
+  targetCount: number;
+  onlineCount: number;
+}
+
+interface RoomSelectionCardProps {
+  roomsLoading: boolean;
+  rooms: RoomSelection[];
+  selectedDeviceIds: string[];
+  isSessionLocked: boolean;
+  onSelectAllRooms: () => void;
+  onClearRooms: () => void;
+  onToggleRoomTargets: (roomId: string, checked: boolean) => void;
+}
+
+// Lists available rooms along with quick-select controls for bulk toggling session targets.
+export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
+  roomsLoading,
+  rooms,
+  selectedDeviceIds,
+  isSessionLocked,
+  onSelectAllRooms,
+  onClearRooms,
+  onToggleRoomTargets,
+}) => {
+  const roomCount = rooms.length;
+  const totalTargets = rooms.reduce((sum, room) => sum + room.targetCount, 0);
+
+  return (
+    <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
+      <CardContent className="p-4 md:p-5 space-y-3">
+        <div className="space-y-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="font-heading text-lg text-brand-dark">Room Selection</h2>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onSelectAllRooms}
+                disabled={isSessionLocked || roomsLoading}
+              >
+                Select all rooms
+              </Button>
+              <Button variant="ghost" size="sm" onClick={onClearRooms} disabled={isSessionLocked}>
+                Clear rooms
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-brand-dark/60">
+            {roomCount} rooms • {totalTargets} targets
+          </p>
+        </div>
+
+        {roomsLoading ? (
+          <div className="flex items-center justify-center py-10 text-sm text-brand-dark/60">
+            Loading rooms…
+          </div>
+        ) : roomCount === 0 ? (
+          <p className="text-sm text-brand-dark/60">No rooms with assigned targets available.</p>
+        ) : (
+          <ScrollArea className="h-[220px] pr-2">
+            <div className="space-y-2">
+              {rooms.map((room) => {
+                const isRoomSelected = room.deviceIds.every((id) => selectedDeviceIds.includes(id));
+                const partialSelection =
+                  !isRoomSelected && room.deviceIds.some((id) => selectedDeviceIds.includes(id));
+                const checkboxState = isRoomSelected ? true : partialSelection ? 'indeterminate' : false;
+                return (
+                  <div
+                    key={room.id}
+                    className={`flex items-center justify-between rounded-lg border px-3 py-2 transition-colors ${
+                      isRoomSelected ? 'border-brand-primary/40 bg-brand-primary/5' : 'border-gray-200 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Checkbox
+                        id={`room-${room.id}`}
+                        checked={checkboxState}
+                        onCheckedChange={(checked) => onToggleRoomTargets(room.id, Boolean(checked))}
+                        disabled={isSessionLocked}
+                      />
+                      <label htmlFor={`room-${room.id}`} className="cursor-pointer select-none space-y-0.5">
+                        <p className="font-medium text-sm text-brand-dark">{room.name}</p>
+                        <p className="text-xs text-brand-dark/60">
+                          {room.onlineCount}/{room.targetCount} online
+                        </p>
+                      </label>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onToggleRoomTargets(room.id, !isRoomSelected)}
+                      disabled={isSessionLocked}
+                    >
+                      {isRoomSelected ? 'Remove' : 'Select'}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </ScrollArea>
+        )}
+      </CardContent>
+    </Card>
+  );
+};

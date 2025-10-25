@@ -1,36 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Separator } from '@/components/ui/separator';
-import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Progress } from '@/components/ui/progress';
-import {
-  Gamepad2,
-  Play,
-  Square,
-  Wifi,
-  WifiOff,
-  AlertCircle,
-  Activity,
-  Trophy,
-  Timer,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  RotateCcw,
-} from 'lucide-react';
+import { Gamepad2, Play, AlertCircle } from 'lucide-react';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
@@ -53,8 +24,6 @@ import {
   ensureTbAuthToken,
   tbSetShared,
   tbSendOneway,
-  tbSubscribeTelemetry,
-  type TelemetryEnvelope,
 } from '@/services/thingsboard-client';
 import {
   fetchAllGameHistory as fetchPersistedGameHistory,
@@ -80,32 +49,23 @@ import {
   BarChart,
   Bar,
 } from 'recharts';
+import {
+  OperatorOverviewCard,
+  OperatorOverviewSkeleton,
+  LiveSessionCard,
+  LiveSessionCardSkeleton,
+  HitTimelineCard,
+  HitTimelineSkeleton,
+  HitDistributionCard,
+  HitDistributionSkeleton,
+  TargetSelectionCard,
+  TargetSelectionSkeleton,
+  RoomSelectionCard,
+  StartSessionDialog,
+} from '@/components/games';
+import type { LiveSessionSummary } from '@/components/games/types';
 
-type LiveSessionSummary = {
-  gameId: string;
-  gameName: string;
-  startedAt: number;
-  stoppedAt: number;
-  durationSeconds: number;
-  totalHits: number;
-  averageHitInterval: number;
-  deviceStats: GameHistory['targetStats'];
-  crossTargetStats: GameHistory['crossTargetStats'];
-  splits: SessionSplit[];
-  transitions: SessionTransition[];
-  targets: Array<{ deviceId: string; deviceName: string }>;
-  hitHistory: SessionHitRecord[];
-  historyEntry: GameHistory;
-};
-
-type SessionHitEntry = {
-  id: string;
-  deviceName: string;
-  timestamp: number;
-  sequence: number;
-  sinceStartSeconds: number;
-  splitSeconds: number | null;
-};
+import { useSessionTimer, type SessionLifecycle, type SessionHitEntry } from '@/components/game-session/sessionState';
 
 const DEVICE_COLOR_PALETTE = [
   '#6C5CE7',
@@ -169,61 +129,6 @@ const resolveHttpStatus = (error: unknown): number | undefined => {
   return undefined;
 };
 
-const resolveSeriesValue = (input: unknown): unknown => {
-  if (Array.isArray(input) && input.length > 0) {
-    const first = input[0];
-    if (Array.isArray(first) && first.length > 1) {
-      return first[1];
-    }
-    if (first && typeof first === 'object' && 'value' in (first as Record<string, unknown>)) {
-      return (first as { value: unknown }).value;
-    }
-    return first;
-  }
-  if (input && typeof input === 'object' && 'value' in (input as Record<string, unknown>)) {
-    return (input as { value: unknown }).value;
-  }
-  return input;
-};
-
-const resolveSeriesTimestamp = (input: unknown): number | null => {
-  if (Array.isArray(input) && input.length > 0) {
-    const first = input[0];
-    if (Array.isArray(first) && typeof first[0] === 'number') {
-      return first[0];
-    }
-    if (first && typeof first === 'object' && 'ts' in (first as Record<string, unknown>)) {
-      const ts = (first as { ts?: number }).ts;
-      if (typeof ts === 'number') {
-        return ts;
-      }
-    }
-  }
-  if (input && typeof input === 'object' && 'ts' in (input as Record<string, unknown>)) {
-    const ts = (input as { ts?: number }).ts;
-    if (typeof ts === 'number') {
-      return ts;
-    }
-  }
-  if (typeof input === 'number') {
-    return input;
-  }
-  return null;
-};
-
-const resolveSeriesString = (input: unknown): string | null => {
-  const value = resolveSeriesValue(input);
-  if (typeof value === 'string') {
-    return value;
-  }
-  if (typeof value === 'number') {
-    return String(value);
-  }
-  return null;
-};
-
-type SessionLifecycle = 'idle' | 'selecting' | 'launching' | 'running' | 'stopping' | 'finalizing';
-
 const DIRECT_TB_CONTROL_ENABLED = true;
 
 const resolveNumericTelemetryValue = (input: unknown): number | null => {
@@ -286,66 +191,6 @@ const getTargetBestScore = (target: Target): number | null => {
 
   return null;
 };
-
-// useSessionTimer centralises stopwatch control so the UI can react immediately to lifecycle transitions.
-function useSessionTimer() {
-  const [seconds, setSeconds] = useState(0);
-  const tickerRef = useRef<NodeJS.Timeout | null>(null);
-  const anchorRef = useRef<number | null>(null);
-
-  const stopTicker = useCallback(() => {
-    if (tickerRef.current) {
-      clearInterval(tickerRef.current);
-      tickerRef.current = null;
-    }
-  }, []);
-
-  const reset = useCallback(
-    (startTimestamp?: number | null) => {
-      stopTicker();
-      anchorRef.current = startTimestamp ?? null;
-      setSeconds(0);
-    },
-    [stopTicker],
-  );
-
-  const start = useCallback(
-    (startTimestamp: number) => {
-      stopTicker();
-      anchorRef.current = startTimestamp;
-      const update = () => {
-        setSeconds(Math.max(0, Math.floor((Date.now() - startTimestamp) / 1000)));
-      };
-      update();
-      tickerRef.current = setInterval(update, 1_000);
-    },
-    [stopTicker],
-  );
-
-  const freeze = useCallback(
-    (stopTimestamp: number) => {
-      stopTicker();
-      if (anchorRef.current === null) {
-        setSeconds(0);
-        return;
-      }
-      setSeconds(Math.max(0, Math.floor((stopTimestamp - anchorRef.current) / 1000)));
-    },
-    [stopTicker],
-  );
-
-  useEffect(() => () => stopTicker(), [stopTicker]);
-
-  return useMemo(
-    () => ({
-      seconds,
-      reset,
-      start,
-      freeze,
-    }),
-    [freeze, reset, seconds, start],
-  );
-}
 
 // Main Live Game Control page: orchestrates device state, telemetry streams, and session history for operator control.
 const Games: React.FC = () => {
@@ -908,6 +753,46 @@ const Games: React.FC = () => {
   }, [targetsSnapshot.length, targetsStoreLoading, refreshTargets]);
 
   useEffect(() => {
+    let cancelled = false;
+    let timeout: number | null = null;
+
+    const run = async () => {
+      if (cancelled) {
+        return;
+      }
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        schedule();
+        return;
+      }
+      try {
+        await refreshTargets();
+      } catch (err) {
+        console.warn('[Games] Periodic targets refresh failed', err);
+      } finally {
+        schedule();
+      }
+    };
+
+    function schedule() {
+      if (cancelled) {
+        return;
+      }
+      timeout = window.setTimeout(() => {
+        void run();
+      }, 60_000);
+    }
+
+    void run();
+
+    return () => {
+      cancelled = true;
+      if (timeout !== null) {
+        window.clearTimeout(timeout);
+      }
+    };
+  }, [refreshTargets]);
+
+  useEffect(() => {
     if (rooms.length === 0 && !roomsLoading) {
       void fetchRooms().catch((err) => {
         console.warn('[Games] Failed to fetch rooms for selection card', err);
@@ -1419,6 +1304,7 @@ const Games: React.FC = () => {
         historyEntry: sessionSummary.historyEntry,
       });
 
+      console.info('[Games] Persisting Supabase payload', sessionSummary.historyEntry);
       setRecentSessionSummary(sessionSummary);
       setGameHistory((prev) => [sessionSummary.historyEntry, ...prev]);
 
@@ -1895,46 +1781,6 @@ const Games: React.FC = () => {
     void handleStopGame();
   }, [handleStopGame]);
 
-  const getDeviceStatusBadge = (device: DeviceStatus) => {
-    const deviceOnline = deriveIsOnline(device);
-    if (!deviceOnline) {
-      return <Badge variant="destructive" className="text-xs">Offline</Badge>;
-    }
-
-    switch (device.gameStatus) {
-      case 'start':
-        return <Badge className="text-xs bg-green-100 text-green-700 border-green-200">Active</Badge>;
-      case 'stop':
-        return <Badge variant="secondary" className="text-xs">Stopped</Badge>;
-      default:
-        return <Badge variant="outline" className="text-xs">Idle</Badge>;
-    }
-  };
-
-  const getWifiIndicator = (
-    strength: number | null,
-    connectionStatus: 'online' | 'standby' | 'offline',
-  ) => {
-    if (connectionStatus === 'offline') {
-      return <WifiOff className="h-4 w-4 text-red-500" />;
-    }
-
-    return <Wifi className="h-4 w-4 text-green-500" />;
-  };
-
-  const getAmbientLightColor = (light: string) => {
-    switch (light) {
-      case 'good':
-        return 'text-green-500';
-      case 'average':
-        return 'text-yellow-500';
-      case 'poor':
-        return 'text-red-500';
-      default:
-        return 'text-gray-500';
-    }
-  };
-
   const formatLastSeen = (timestamp: number) => {
     if (!timestamp) return 'No activity';
     const diffMs = Date.now() - timestamp;
@@ -1993,6 +1839,15 @@ const Games: React.FC = () => {
 
   const { totalTargets: totalDevices, onlineTargets: onlineDevices, totalShots: resolvedTotalHits, bestScore } =
     operatorOverviewMetrics;
+
+  const operatorBestScore = useMemo(() => {
+    const latestSummaryScore =
+      typeof recentSessionSummary?.efficiencyScore === 'number' && Number.isFinite(recentSessionSummary.efficiencyScore)
+        ? recentSessionSummary.efficiencyScore
+        : 0;
+    const snapshotScore = typeof bestScore === 'number' && Number.isFinite(bestScore) ? bestScore : 0;
+    return Math.max(latestSummaryScore, snapshotScore);
+  }, [bestScore, recentSessionSummary?.efficiencyScore]);
   const activeSessionDevices = activeDeviceIds.length;
   const activeSessionHits = activeDeviceIds.reduce(
     (sum, id) => sum + (hitCounts[id] ?? 0),
@@ -2122,7 +1977,7 @@ const Games: React.FC = () => {
 
     const buckets = Array.from({ length: MAX_TIMELINE_POINTS }, (_, index) => {
       const bucketStart = windowStart + index * TIMELINE_BUCKET_MS;
-      const secondsSinceStart = Math.max(0, Math.floor((bucketStart - gameStartTime) / 1000));
+      const secondsSinceStart = Math.max(0, Math.floor((bucketStart - sourceStartTime) / 1000));
       const entry: Record<string, number | string> = {
         time: `${secondsSinceStart}s`,
       };
@@ -2321,42 +2176,14 @@ const Games: React.FC = () => {
                     {isPageLoading ? (
                       <OperatorOverviewSkeleton />
                     ) : (
-                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                        <CardContent className="p-4 md:p-5 space-y-4">
-                          <div className="flex items-center gap-3">
-                            <Avatar className="h-10 w-10 bg-brand-secondary/20 text-brand-primary">
-                              <AvatarFallback className="text-sm font-semibold text-brand-primary">
-                                {operatorInitials}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <p className="font-heading text-base text-brand-dark">{operatorName}</p>
-                              <p className="text-xs text-brand-dark/60">ThingsBoard session active</p>
-                            </div>
-                          </div>
-                          <Separator />
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs text-brand-dark/60">
-                            <div>
-                              <p className="uppercase tracking-wide">Targets Online</p>
-                              <p className="font-heading text-lg text-brand-dark">
-                                {onlineDevices}/{totalDevices}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="uppercase tracking-wide">Total Hits</p>
-                              <p className="font-heading text-lg text-brand-dark">
-                                {resolvedTotalHits}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="uppercase tracking-wide">Best Score</p>
-                              <p className="font-heading text-lg text-brand-dark">
-                                {bestScore}
-                              </p>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
+                      <OperatorOverviewCard
+                        operatorName={operatorName}
+                        operatorInitials={operatorInitials}
+                        onlineTargets={onlineDevices}
+                        totalTargets={totalDevices}
+                        totalHits={resolvedTotalHits}
+                        bestScore={operatorBestScore}
+                      />
                     )}
 
                     {/* Live session card visualises the active session timer, hit totals, and post-session summary fed by telemetry. */}
@@ -2379,128 +2206,17 @@ const Games: React.FC = () => {
                     {isPageLoading ? (
                       <HitDistributionSkeleton />
                     ) : (
-                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                        <CardContent className="p-4 md:p-5 space-y-4">
-                          <div className="flex items-center justify-between">
-                            <h2 className="font-heading text-lg text-brand-dark">Hit Distribution</h2>
-                            <Badge variant="outline" className="text-xs">
-                              {totalHitsLive} hits
-                            </Badge>
-                          </div>
-                          <div className="h-56">
-                            {deviceHitSummary.length === 0 ? (
-                              <div className="flex h-full items-center justify-center text-sm text-brand-dark/60 text-center">
-                                Start a game to see live hit distribution.
-                              </div>
-                            ) : (
-                              <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                  <Pie
-                                    data={pieChartData}
-                                    dataKey="value"
-                                    nameKey="name"
-                                    innerRadius="45%"
-                                    outerRadius="75%"
-                                    paddingAngle={2}
-                                  >
-                                    {pieChartData.map((entry, index) => (
-                                      <Cell
-                                        key={entry.name}
-                                        fill={DEVICE_COLOR_PALETTE[index % DEVICE_COLOR_PALETTE.length]}
-                                      />
-                                    ))}
-                                  </Pie>
-                                  <RechartsTooltip />
-                                </PieChart>
-                              </ResponsiveContainer>
-                            )}
-                          </div>
-                          <div className="space-y-3">
-                            {deviceHitSummary.length === 0 ? (
-                              <p className="text-xs text-brand-dark/60 text-center">
-                                No hits recorded yet.
-                              </p>
-                            ) : (
-                              deviceHitSummary.slice(0, 4).map((entry, index) => {
-                                const color = DEVICE_COLOR_PALETTE[index % DEVICE_COLOR_PALETTE.length];
-                                return (
-                                  <div key={entry.deviceId} className="space-y-1">
-                                    <div className="flex items-center justify-between text-xs text-brand-dark/60">
-                                      <span className="flex items-center gap-2 font-medium text-brand-dark">
-                                        <span
-                                          className="inline-block h-2.5 w-2.5 rounded-full"
-                                          style={{ backgroundColor: color }}
-                                        />
-                                        {entry.deviceName}
-                                      </span>
-                                      <span className="font-heading text-sm text-brand-dark">
-                                        {entry.hits}
-                                      </span>
-                                    </div>
-                                    <Progress
-                                      value={
-                                        totalHitsLive > 0
-                                          ? Math.min(100, (entry.hits / totalHitsLive) * 100)
-                                          : 0
-                                      }
-                                      className="h-2 bg-brand-secondary/10"
-                                    />
-                                  </div>
-                                );
-                              })
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
+                      <HitDistributionCard
+                        totalHits={totalHitsLive}
+                        deviceHitSummary={deviceHitSummary}
+                        pieChartData={pieChartData}
+                      />
                     )}
 
-                    {/* Hit timeline card plots hits over time per device to highlight activity spikes and target performance. */}
                     {isPageLoading ? (
                       <HitTimelineSkeleton />
                     ) : (
-                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                        <CardContent className="p-4 md:p-5 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <h2 className="font-heading text-lg text-brand-dark">Hit Timeline</h2>
-                            <Badge variant="outline" className="text-xs">
-                              {trackedDevices.length} devices
-                            </Badge>
-                          </div>
-                          <div className="h-56">
-                            {hitTimelineData.length === 0 ? (
-                              <div className="flex h-full items-center justify-center text-sm text-brand-dark/60 text-center">
-                                Start streaming hits to see the live timeline.
-                              </div>
-                            ) : (
-                              <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={hitTimelineData} margin={{ top: 8, right: 16, left: -12, bottom: 36 }}>
-                                  <CartesianGrid strokeDasharray="4 4" stroke="#E2E8F0" />
-                                  <XAxis dataKey="time" stroke="#64748B" fontSize={10} />
-                                  <YAxis stroke="#64748B" fontSize={10} allowDecimals={false} />
-                                  <RechartsTooltip />
-                                  <Legend
-                                    verticalAlign="bottom"
-                                    iconSize={8}
-                                    height={48}
-                                    wrapperStyle={{ paddingTop: 12, width: '100%', maxHeight: 56, overflowY: 'auto' }}
-                                  />
-                                  {trackedDevices.map((device, index) => (
-                                    <Line
-                                      key={device.deviceId}
-                                      type="monotone"
-                                      dataKey={device.deviceName}
-                                      stroke={DEVICE_COLOR_PALETTE[index % DEVICE_COLOR_PALETTE.length]}
-                                      strokeWidth={2}
-                                      dot={false}
-                                      isAnimationActive={false}
-                                    />
-                                  ))}
-                                </LineChart>
-                              </ResponsiveContainer>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
+                      <HitTimelineCard trackedDevices={trackedDevices} data={hitTimelineData} />
                     )}
 
                   </div>
@@ -2510,282 +2226,56 @@ const Games: React.FC = () => {
                     {isPageLoading ? (
                       <TargetSelectionSkeleton />
                     ) : (
-                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                        <CardContent className="p-4 md:p-5 space-y-3">
-                          <div className="space-y-2">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                              <h2 className="font-heading text-lg text-brand-dark">Room Selection</h2>
-                              <div className="flex items-center gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={handleSelectAllRooms}
-                                  disabled={isSessionLocked || roomsLoading}
-                                >
-                                  Select all rooms
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={handleClearRoomSelection}
-                                  disabled={isSessionLocked}
-                                >
-                                  Clear rooms
-                                </Button>
-                              </div>
-                            </div>
-                            <p className="text-xs text-brand-dark/60">
-                              {roomSelections.length} rooms • {roomSelections.reduce((sum, room) => sum + room.targetCount, 0)} targets
-                            </p>
-                          </div>
-
-                          {roomsLoading ? (
-                            <div className="flex items-center justify-center py-10 text-sm text-brand-dark/60">
-                              Loading rooms…
-                            </div>
-                          ) : roomSelections.length === 0 ? (
-                            <p className="text-sm text-brand-dark/60">No rooms with assigned targets available.</p>
-                          ) : (
-                            <ScrollArea className="h-[220px] pr-2">
-                              <div className="space-y-2">
-                                {roomSelections.map((room) => {
-                                  const isRoomSelected = room.deviceIds.every((id) => selectedDeviceIds.includes(id));
-                                  const partialSelection = !isRoomSelected && room.deviceIds.some((id) => selectedDeviceIds.includes(id));
-                                  const checkboxState = isRoomSelected ? true : partialSelection ? 'indeterminate' : false;
-                                  return (
-                                    <div
-                                      key={room.id}
-                                      className={`flex items-center justify-between rounded-lg border px-3 py-2 transition-colors ${
-                                        isRoomSelected
-                                          ? 'border-brand-primary/40 bg-brand-primary/5'
-                                          : 'border-gray-200 bg-white'
-                                      }`}
-                                    >
-                                      <div className="flex items-center gap-3">
-                                        <Checkbox
-                                          id={`room-${room.id}`}
-                                          checked={checkboxState}
-                                          onCheckedChange={(checked) =>
-                                            handleToggleRoomTargets(room.id, Boolean(checked))
-                                          }
-                                          disabled={isSessionLocked}
-                                        />
-                                        <label htmlFor={`room-${room.id}`} className="cursor-pointer select-none space-y-0.5">
-                                          <p className="font-medium text-sm text-brand-dark">{room.name}</p>
-                                          <p className="text-xs text-brand-dark/60">
-                                            {room.onlineCount}/{room.targetCount} online
-                                          </p>
-                                        </label>
-                                      </div>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => handleToggleRoomTargets(room.id, !isRoomSelected)}
-                                        disabled={isSessionLocked}
-                                      >
-                                        {isRoomSelected ? 'Remove' : 'Select'}
-                                      </Button>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </ScrollArea>
-                          )}
-                        </CardContent>
-                      </Card>
+                      <RoomSelectionCard
+                        roomsLoading={roomsLoading}
+                        rooms={roomSelections}
+                        selectedDeviceIds={selectedDeviceIds}
+                        isSessionLocked={isSessionLocked}
+                        onSelectAllRooms={handleSelectAllRooms}
+                        onClearRooms={handleClearRoomSelection}
+                        onToggleRoomTargets={handleToggleRoomTargets}
+                      />
                     )}
 
                     {/* Target selection card (with Start Game action) lists ThingsBoard devices with connection, hit counts, and lets operators assemble session rosters. */}
                     {isPageLoading ? (
                       <TargetSelectionSkeleton />
                     ) : (
-                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                        <CardContent className="p-4 md:p-5 space-y-3">
-                          <div className="space-y-2">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                              <h2 className="font-heading text-lg text-brand-dark">Target Selection</h2>
-                              <div className="flex items-center gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={handleSelectAllDevices}
-                                  disabled={isSessionLocked || loadingDevices}
-                                >
-                                  Select all
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={handleClearDeviceSelection}
-                                  disabled={isSessionLocked || (!loadingDevices && selectedDeviceIds.length === 0)}
-                                >
-                                  Clear
-                                </Button>
-                              </div>
-                            </div>
-                            <p className="text-xs text-brand-dark/60">
-                              {displayedSelectedCount} selected • {totalOnlineSelectableTargets} online
-                            </p>
-                          </div>
-
-                          {loadingDevices ? (
-                            <div className="flex items-center justify-center py-10 text-sm text-brand-dark/60">
-                              Refreshing device list...
-                            </div>
-                          ) : availableDevices.length === 0 ? (
-                            <p className="text-sm text-brand-dark/60">
-                              No ThingsBoard devices found for this tenant.
-                            </p>
-                          ) : (
-                            <ScrollArea className="h-[260px] pr-2">
-                              <div className="space-y-3">
-                                {availableDevices.map((device) => {
-                                  const checkboxId = `target-${device.deviceId}`;
-                                  const connectionStatus = deriveConnectionStatus(device);
-                                  const isOnline = connectionStatus !== 'offline';
-                                  const targetRecord = targetById.get(device.deviceId);
-                                  const wifiStrength = Math.max(
-                                    0,
-                                    Math.round(
-                                      (targetRecord?.wifiStrength ?? device.wifiStrength ?? 0) as number,
-                                    ),
-                                  );
-                                  const lastActivityTimestamp =
-                                    (typeof targetRecord?.lastActivityTime === 'number'
-                                      ? targetRecord.lastActivityTime
-                                      : null) ??
-                                    (typeof device.lastSeen === 'number' ? device.lastSeen : 0);
-                                  const connectionLabel =
-                                    connectionStatus === 'online'
-                                      ? 'Online'
-                                      : connectionStatus === 'standby'
-                                        ? 'Standby'
-                                        : 'Offline';
-                                  const connectionColor =
-                                    connectionStatus === 'online'
-                                      ? 'text-green-600'
-                                      : connectionStatus === 'standby'
-                                        ? 'text-amber-600'
-                                        : 'text-red-600';
-                                  const isChecked = selectedDeviceIds.includes(device.deviceId);
-                                  return (
-                                    <div
-                                      key={device.deviceId}
-                                      className={`flex items-start justify-between rounded-lg border px-3 py-2 transition-colors ${
-                                        isChecked
-                                          ? 'border-brand-primary/40 bg-brand-primary/5'
-                                          : 'border-gray-200 bg-white'
-                                      }`}
-                                    >
-                                      <div className="flex items-start gap-3">
-                                        <Checkbox
-                                          id={checkboxId}
-                                          checked={isChecked}
-                                          disabled={isSessionLocked || !isOnline}
-                                          onCheckedChange={(value) =>
-                                            handleToggleDeviceSelection(device.deviceId, Boolean(value))
-                                          }
-                                        />
-                                        <div className="space-y-1">
-                                          <label
-                                            htmlFor={checkboxId}
-                                            className="font-heading text-sm text-brand-dark leading-tight"
-                                          >
-                                            {device.name}
-                                          </label>
-                                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-brand-dark/60">
-                                            <span className={`flex items-center gap-1 font-medium ${connectionColor}`}>
-                                              <span className="inline-block h-2 w-2 rounded-full bg-current" />
-                                              {connectionLabel}
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                              {getWifiIndicator(wifiStrength, connectionStatus)}
-                                              {wifiStrength}%
-                                            </span>
-                                            <span>
-                                              Hits {hitCounts[device.deviceId] ?? device.hitCount ?? 0}
-                                            </span>
-                                            <span>{formatLastSeen(lastActivityTimestamp ?? 0)}</span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                      {getDeviceStatusBadge(device)}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </ScrollArea>
-                          )}
-                          <Button
-                            onClick={handleOpenStartDialog}
-                            disabled={isSessionLocked || isStarting || loadingDevices || selectedOnlineDevices === 0}
-                            className="w-full bg-green-600 hover:bg-green-700"
-                          >
-                            {isStarting ? (
-                              <>
-                                <Play className="h-4 w-4 mr-2 animate-spin" />
-                                Starting...
-                              </>
-                            ) : (
-                              <>
-                                <Play className="h-4 w-4 mr-2" />
-                                Start Game
-                              </>
-                            )}
-                          </Button>
-                        </CardContent>
-                      </Card>
+                      <TargetSelectionCard
+                        loadingDevices={loadingDevices}
+                        isSessionLocked={isSessionLocked}
+                        devices={availableDevices}
+                        targetDetails={targetById}
+                        selectedDeviceIds={selectedDeviceIds}
+                        hitCounts={hitCounts}
+                        deriveConnectionStatus={deriveConnectionStatus}
+                        deriveIsOnline={deriveIsOnline}
+                        formatLastSeen={formatLastSeen}
+                        onToggleDevice={handleToggleDeviceSelection}
+                        onSelectAll={handleSelectAllDevices}
+                        onClearSelection={handleClearDeviceSelection}
+                        selectedCount={displayedSelectedCount}
+                        totalOnlineSelectableTargets={totalOnlineSelectableTargets}
+                      />
                     )}
+                    <Button
+                      onClick={handleOpenStartDialog}
+                      disabled={isSessionLocked || isStarting || loadingDevices || selectedOnlineDevices === 0}
+                      className="w-full bg-green-600 hover:bg-green-700"
+                    >
+                      {isStarting ? (
+                        <>
+                          <Play className="h-4 w-4 mr-2 animate-spin" />
+                          Starting...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="h-4 w-4 mr-2" />
+                          Start Game
+                        </>
+                      )}
+                    </Button>
 
-                    {/* Target transitions card charts cross-target movement latency using transition telemetry. */}
-                    {isPageLoading ? (
-                      <RecentTransitionsSkeleton />
-                    ) : (
-                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                        <CardContent className="p-4 md:p-5 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <h2 className="font-heading text-lg text-brand-dark">Target Transitions</h2>
-                            <Badge variant="outline" className="text-xs">
-                              {recentTransitions.length}
-                            </Badge>
-                          </div>
-                          <div className="h-48">
-                            {recentTransitions.length === 0 ? (
-                              <div className="flex h-full items-center justify-center text-sm text-brand-dark/60 text-center">
-                                Target transitions will display once multiple devices register hits.
-                              </div>
-                            ) : (
-                              <ResponsiveContainer width="100%" height="100%">
-                                <BarChart
-                                  data={recentTransitions}
-                                  layout="vertical"
-                                  margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
-                                >
-                                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                                  <XAxis type="number" stroke="#64748B" fontSize={10} unit="s" />
-                                  <YAxis
-                                    dataKey="label"
-                                    type="category"
-                                    stroke="#64748B"
-                                    fontSize={10}
-                                    width={150}
-                                  />
-                                  <RechartsTooltip formatter={(value) => [`${value} s`, 'Transition']} />
-                                  <Bar dataKey="time" radius={[4, 4, 4, 4]}>
-                                    {recentTransitions.map((entry, index) => (
-                                      <Cell
-                                        key={entry.id}
-                                        fill={DEVICE_COLOR_PALETTE[index % DEVICE_COLOR_PALETTE.length]}
-                                      />
-                                    ))}
-                                  </Bar>
-                                </BarChart>
-                              </ResponsiveContainer>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )}
                   </div>
               </div>
             </div>
@@ -2877,6 +2367,21 @@ function convertHistoryEntryToLiveSummary(entry: GameHistory): LiveSessionSummar
 
   const startTime = Number.isFinite(entry.startTime) ? entry.startTime : firstHitTimestamp ?? Date.now();
   const endTime = Number.isFinite(entry.endTime) ? entry.endTime : lastHitTimestamp ?? startTime;
+  const derivedFirstHitTimestamp = sortedHitHistory.length > 0 ? sortedHitHistory[0].timestamp : startTime;
+  const derivedLastHitTimestamp = sortedHitHistory.length > 0
+    ? sortedHitHistory[sortedHitHistory.length - 1].timestamp
+    : derivedFirstHitTimestamp;
+  const totalSessionSpan = Math.max(1, endTime - startTime);
+  const activeSpanRaw = derivedLastHitTimestamp - derivedFirstHitTimestamp;
+  const normalizedActiveSpan =
+    totalHits < 2 || !Number.isFinite(activeSpanRaw) || activeSpanRaw <= 0 ? totalSessionSpan : activeSpanRaw;
+  const efficiencyScoreFromHistory =
+    totalHits > 0 ? Math.round((totalHits * (totalSessionSpan / Math.max(1, normalizedActiveSpan))) * 100) / 100 : 0;
+  const efficiencyScore = Number.isFinite(efficiencyScoreFromHistory)
+    ? efficiencyScoreFromHistory
+    : typeof entry.score === 'number' && Number.isFinite(entry.score)
+      ? entry.score
+      : 0;
   const computedDurationSeconds = Math.max(0, Math.round((endTime - startTime) / 1000));
   const durationSeconds = Number.isFinite(entry.actualDuration) && entry.actualDuration > 0
     ? Math.round(entry.actualDuration)
@@ -2922,6 +2427,7 @@ function convertHistoryEntryToLiveSummary(entry: GameHistory): LiveSessionSummar
     targets,
     hitHistory: sortedHitHistory,
     historyEntry: entry,
+    efficiencyScore,
   };
 }
 
@@ -2955,6 +2461,16 @@ function buildLiveSessionSummary({
   const sortedHits = [...hitHistory]
     .filter((hit) => deviceIdSet.size === 0 || deviceIdSet.has(hit.deviceId))
     .sort((a, b) => a.timestamp - b.timestamp);
+  const totalHits = sortedHits.length;
+
+  const firstHitTimestamp = sortedHits.length > 0 ? sortedHits[0].timestamp : safeStart;
+  const lastHitTimestamp = sortedHits.length > 0 ? sortedHits[sortedHits.length - 1].timestamp : firstHitTimestamp;
+  const totalSessionSpan = Math.max(1, stopTime - safeStart);
+  const activeSpanRaw = lastHitTimestamp - firstHitTimestamp;
+  const normalizedActiveSpan =
+    totalHits < 2 || !Number.isFinite(activeSpanRaw) || activeSpanRaw <= 0 ? totalSessionSpan : activeSpanRaw;
+  const efficiencyScore =
+    totalHits > 0 ? Math.round((totalHits * (totalSessionSpan / Math.max(1, normalizedActiveSpan))) * 100) / 100 : 0;
 
   const deviceStats = devices.map((device) => {
     const hitsForDevice = sortedHits.filter((hit) => hit.deviceId === device.deviceId);
@@ -2975,7 +2491,6 @@ function buildLiveSessionSummary({
     };
   });
 
-  const totalHits = deviceStats.reduce((sum, stat) => sum + stat.hitCount, 0);
   const overallIntervals = sortedHits.slice(1).map((hit, idx) => (hit.timestamp - sortedHits[idx].timestamp) / 1000);
   const averageHitInterval = overallIntervals.length
     ? overallIntervals.reduce((sum, value) => sum + value, 0) / overallIntervals.length
@@ -3028,7 +2543,7 @@ function buildLiveSessionSummary({
     duration: Math.max(1, Math.ceil(durationSeconds / 60)),
     startTime: safeStart,
     endTime: stopTime,
-    score: totalHits,
+    score: efficiencyScore,
     deviceResults: deviceStats.map(({ deviceId, deviceName, hitCount }) => ({
       deviceId,
       deviceName,
@@ -3059,999 +2574,9 @@ function buildLiveSessionSummary({
     targets,
     hitHistory: historyEntry.hitHistory ?? [],
     historyEntry,
+    efficiencyScore,
   };
 }
 
-// Formats a raw second count into mm:ss for the stopwatch display.
-function formatSessionDuration(totalSeconds: number): string {
-  const safeSeconds = Math.max(0, totalSeconds);
-  const minutes = Math.floor(safeSeconds / 60);
-  const seconds = safeSeconds % 60;
-  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-}
-
-function formatSecondsWithMillis(totalSeconds: number): string {
-  if (!Number.isFinite(totalSeconds)) {
-    return '0.00s';
-  }
-  const rounded = Math.max(0, totalSeconds);
-  const minutes = Math.floor(rounded / 60);
-  const seconds = rounded - minutes * 60;
-  const secondsString = seconds.toFixed(2).padStart(5, '0');
-  return minutes > 0 ? `${minutes.toString().padStart(2, '0')}:${secondsString}` : `${seconds.toFixed(2)}s`;
-}
-
-interface StartSessionDialogProps {
-  open: boolean;
-  lifecycle: SessionLifecycle;
-  onClose: () => void;
-  onConfirm: () => void;
-  onStop: () => void;
-  isStarting: boolean;
-  isStopping: boolean;
-  canClose: boolean;
-  sessionSeconds: number;
-  targets: NormalizedGameDevice[];
-  sessionHits: SessionHitEntry[];
-  currentGameId: string | null;
-  directControlEnabled: boolean;
-  directToken: string | null;
-  directAuthError: string | null;
-  isDirectAuthLoading: boolean;
-  directTargets: Array<{ deviceId: string; name: string }>;
-  directGameId: string | null;
-  directStartStates: Record<string, 'idle' | 'pending' | 'success' | 'error'>;
-  directFlowActive: boolean;
-  onRetryFailed: () => void;
-  isRetryingFailedDevices: boolean;
-}
-
-const SessionStopwatchCard: React.FC<{
-  seconds: number;
-  accent: 'default' | 'live';
-  statusText: string;
-  showSpinner?: boolean;
-}> = ({ seconds, accent, statusText, showSpinner = false }) => {
-  const isLive = accent === 'live';
-  const containerClasses = [
-    'flex flex-col items-center justify-center rounded-2xl px-6 py-8 text-center',
-    isLive ? 'bg-white/10 border border-white/15 shadow-lg' : 'bg-brand-secondary/10 border border-brand-secondary/30',
-  ].join(' ');
-
-  return (
-    <div className={containerClasses}>
-      <Timer className={`mb-4 h-10 w-10 ${isLive ? 'text-white/80' : 'text-brand-primary'}`} />
-      <div className={`text-[11px] uppercase tracking-[0.4em] font-semibold ${isLive ? 'text-white/70' : 'text-brand-dark/60'}`}>
-        Stopwatch
-      </div>
-      <div className={`mt-4 font-heading ${isLive ? 'text-white text-5xl sm:text-6xl' : 'text-brand-dark text-4xl sm:text-5xl'}`}>
-        {formatSessionDuration(seconds)}
-      </div>
-      <p className={`mt-3 text-xs font-medium ${isLive ? 'text-white/70' : 'text-brand-dark/60'}`}>
-        {statusText}
-      </p>
-      {showSpinner && (
-        <Loader2 className={`mt-3 h-5 w-5 animate-spin ${isLive ? 'text-white/70' : 'text-brand-primary'}`} />
-      )}
-    </div>
-  );
-};
-
-const SessionTargetList: React.FC<{ targets: NormalizedGameDevice[] }> = ({ targets }) => {
-  if (targets.length === 0) {
-    return (
-      <p className="rounded-lg border border-dashed border-brand-secondary/40 bg-brand-secondary/10 px-3 py-4 text-sm text-brand-dark/60 text-center">
-        Select at least one online target to begin a live session.
-      </p>
-    );
-  }
-
-  return (
-    <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-      {targets.map((target) => (
-        <div
-          key={target.deviceId}
-          className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
-        >
-          <div>
-            <p className="font-medium text-brand-dark">{target.name ?? target.deviceId}</p>
-            <p className="text-xs text-brand-dark/60">{target.deviceId}</p>
-          </div>
-          <Badge
-            variant="outline"
-            className={
-              target.isOnline === false
-                ? 'text-brand-dark/60'
-                : 'bg-green-100 text-green-700 border-green-200'
-            }
-          >
-            {target.isOnline === false ? 'Offline' : 'Online'}
-          </Badge>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-const SessionProgressMessage: React.FC<{
-  tone: 'default' | 'live';
-  message: string;
-  subtext?: string;
-}> = ({ tone, message, subtext }) => {
-  const isLive = tone === 'live';
-  return (
-    <div
-      className={[
-        'rounded-xl border px-4 py-6 text-center text-sm flex flex-col items-center gap-3',
-        isLive ? 'border-white/15 bg-white/10 text-white/80' : 'border-brand-secondary/20 bg-brand-secondary/10 text-brand-dark/70',
-      ].join(' ')}
-    >
-      <Loader2 className={`h-5 w-5 animate-spin ${isLive ? 'text-white/80' : 'text-brand-primary'}`} />
-      <p>{message}</p>
-      {subtext && <p className="text-xs opacity-75">{subtext}</p>}
-    </div>
-  );
-};
-
-const SessionHitFeedList: React.FC<{
-  hits: SessionHitEntry[];
-  variant: 'live' | 'finalizing';
-  emptyLabel: string;
-  limit?: number;
-}> = ({ hits, variant, emptyLabel, limit = 12 }) => {
-  if (hits.length === 0) {
-    return (
-      <div
-        className={
-          variant === 'live'
-            ? 'rounded-xl border border-white/15 bg-white/10 px-4 py-6 text-center text-sm text-white/70'
-            : 'rounded-xl border border-white/15 bg-white/10 px-4 py-6 text-center text-sm text-white/70'
-        }
-      >
-        {emptyLabel}
-      </div>
-    );
-  }
-
-  const sliced = hits.slice(-limit).reverse();
-
-  return (
-    <div
-      className={
-        variant === 'live'
-          ? 'max-h-60 overflow-y-auto rounded-xl border border-white/15 bg-white/10 divide-y divide-white/10'
-          : 'max-h-52 overflow-y-auto rounded-xl border border-white/15 bg-white/10 divide-y divide-white/10'
-      }
-    >
-      {sliced.map((hit) => (
-        <div
-          key={hit.id}
-          className={
-            variant === 'live'
-              ? 'flex items-center justify-between px-4 py-3 text-xs sm:text-sm text-white'
-              : 'flex items-center justify-between px-4 py-3 text-xs sm:text-sm text-white/80'
-          }
-        >
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-[11px] sm:text-xs text-white/60">
-              #{hit.sequence}
-            </span>
-            <span className="font-semibold">{hit.deviceName}</span>
-          </div>
-          <div className="flex items-center gap-4 font-mono text-[11px] sm:text-xs uppercase tracking-wide">
-            <span>{formatSecondsWithMillis(hit.sinceStartSeconds)}</span>
-            <span className="text-white/70">
-              {hit.splitSeconds !== null ? `+${formatSecondsWithMillis(hit.splitSeconds)}` : '—'}
-            </span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-// Renders the confirmation dialog that summarises the session setup before issuing RPC commands.
-const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
-  open,
-  lifecycle,
-  onClose,
-  onConfirm,
-  onStop,
-  isStarting,
-  isStopping,
-  canClose,
-  sessionSeconds,
-  targets,
-  sessionHits,
-  currentGameId,
-  directControlEnabled,
-  directToken,
-  directAuthError,
-  isDirectAuthLoading,
-  directTargets,
-  directGameId,
-  directStartStates,
-  directFlowActive,
-  onRetryFailed,
-  isRetryingFailedDevices,
-}) => {
-  const [dialogHitHistory, setDialogHitHistory] = useState<SessionHitRecord[]>([]);
-
-  const dialogDeviceIds = useMemo(() => targets.map((target) => target.deviceId), [targets]);
-  const dialogDeviceIdSet = useMemo(() => new Set(dialogDeviceIds), [dialogDeviceIds]);
-  const targetNameMap = useMemo(() => {
-    const map = new Map<string, string>();
-    targets.forEach((target) => {
-      map.set(target.deviceId, target.name ?? target.deviceId);
-    });
-    return map;
-  }, [targets]);
-
-  const dialogStreamingLifecycle = lifecycle === 'launching' || lifecycle === 'running' || lifecycle === 'stopping' || lifecycle === 'finalizing';
-  const shouldStreamDialogTelemetry = Boolean(
-    open &&
-    dialogStreamingLifecycle &&
-    directControlEnabled &&
-    directFlowActive &&
-    directToken &&
-    directGameId &&
-    dialogDeviceIds.length > 0,
-  );
-
-  // Clears the dialog-scoped telemetry buffers whenever the popup closes or resubscribes.
-  const resetDialogTelemetry = useCallback(() => {
-    setDialogHitHistory([]);
-  }, []);
-
-  useEffect(() => {
-    if (!shouldStreamDialogTelemetry || !directToken || !directGameId) {
-      resetDialogTelemetry();
-      return;
-    }
-
-    resetDialogTelemetry();
-
-    const unsubscribe = tbSubscribeTelemetry(
-      dialogDeviceIds,
-      directToken,
-      (payload: TelemetryEnvelope) => {
-        const telemetryData = payload.data;
-        if (!telemetryData) {
-          return;
-        }
-
-        const eventValue = resolveSeriesString(telemetryData.event);
-        const gameIdValue = resolveSeriesString(telemetryData.gameId);
-        const deviceId = payload.entityId;
-
-        if (!deviceId || !dialogDeviceIdSet.has(deviceId)) {
-          return;
-        }
-
-        if (eventValue !== 'hit' || gameIdValue !== directGameId) {
-          return;
-        }
-
-        const now = Date.now();
-        const timestamp = resolveSeriesTimestamp(telemetryData.event, now) ?? now;
-        const deviceName = targetNameMap.get(deviceId) ?? deviceId;
-
-        setDialogHitHistory((prev) => ([
-          ...prev,
-          {
-            deviceId,
-            deviceName,
-            timestamp,
-            gameId: directGameId,
-          },
-        ]));
-      },
-      {
-        realtime: true,
-        onError: (reason) => {
-          console.warn('[StartSessionDialog] Telemetry degraded, relying on fallback state', reason);
-        },
-      },
-    );
-
-    return () => {
-      unsubscribe();
-    };
-  }, [
-    directGameId,
-    directToken,
-    dialogDeviceIdSet,
-    dialogDeviceIds,
-    resetDialogTelemetry,
-    shouldStreamDialogTelemetry,
-    targetNameMap,
-  ]);
-
-  const dialogSessionHits = useMemo<SessionHitEntry[]>(() => {
-    if (dialogHitHistory.length === 0) {
-      return [];
-    }
-
-    const baseTime = dialogHitHistory[0]?.timestamp ?? Date.now();
-
-    return dialogHitHistory.map((hit, index) => {
-      const previous = index > 0 ? dialogHitHistory[index - 1] : null;
-      const sinceStartSeconds = Math.max(0, (hit.timestamp - baseTime) / 1000);
-      const splitSeconds = previous ? Math.max(0, (hit.timestamp - previous.timestamp) / 1000) : null;
-
-      return {
-        id: `${hit.deviceId}-${hit.timestamp}-${index}`,
-        deviceName: hit.deviceName,
-        timestamp: hit.timestamp,
-        sequence: index + 1,
-        sinceStartSeconds,
-        splitSeconds,
-      };
-    });
-  }, [dialogHitHistory]);
-
-  const displayedSessionHits = dialogSessionHits.length > 0 ? dialogSessionHits : sessionHits;
-
-  const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen) {
-      onClose();
-    }
-  };
-
-  const isSelectingPhase = lifecycle === 'selecting';
-  const isLaunchingPhase = lifecycle === 'launching';
-  const isRunningPhase = lifecycle === 'running';
-  const isStoppingPhase = lifecycle === 'stopping';
-  const isFinalizingPhase = lifecycle === 'finalizing';
-  const usesLivePalette = isLaunchingPhase || isRunningPhase || isStoppingPhase || isFinalizingPhase;
-  const resolvedGameId = currentGameId ?? directGameId;
-  const directControlStatus = (() => {
-    if (!directControlEnabled) {
-      return null;
-    }
-    if (isDirectAuthLoading) {
-      return { message: 'Authenticating with ThingsBoard…', intent: 'info' as const };
-    }
-    if (directAuthError) {
-      return { message: directAuthError, intent: 'error' as const };
-    }
-    if (directFlowActive && directToken) {
-      return {
-        message: 'Live ThingsBoard control is active for this session.',
-        intent: 'success' as const,
-      };
-    }
-    if (directToken) {
-      return {
-        message: 'Connected to ThingsBoard. Commands will execute directly against live targets.',
-        intent: 'success' as const,
-      };
-    }
-    return { message: 'Awaiting ThingsBoard authentication…', intent: 'info' as const };
-  })();
-
-  const startStateValues = directTargets.map((target) => directStartStates[target.deviceId] ?? 'idle');
-  const failedCount = startStateValues.filter((state) => state === 'error').length;
-  const pendingCount = startStateValues.filter((state) => state === 'pending').length;
-  const successCount = startStateValues.filter((state) => state === 'success').length;
-  const hasFailedTargets = failedCount > 0;
-  const hasPendingTargets = pendingCount > 0;
-  const hasSuccessTargets = successCount > 0;
-
-  const renderDirectTargetStatuses = () => {
-    if (!directControlEnabled || directTargets.length === 0) {
-      return null;
-    }
-
-    return (
-      <div className="space-y-2">
-        <h4 className="text-xs uppercase tracking-wide text-brand-dark/60">
-          ThingsBoard Device IDs
-        </h4>
-        {(hasSuccessTargets || hasPendingTargets || hasFailedTargets) && (
-          <p className="text-xs text-brand-dark/60">
-            {hasSuccessTargets && (
-              <span>{successCount} device{successCount === 1 ? '' : 's'} acknowledged the start command. </span>
-            )}
-            {hasPendingTargets && (
-              <span>Waiting for {pendingCount} device{pendingCount === 1 ? '' : 's'} to acknowledge.</span>
-            )}
-            {hasFailedTargets && !hasPendingTargets && (
-              <span>Some devices failed to start. Retry the failed devices below.</span>
-            )}
-          </p>
-        )}
-        <div className="space-y-1 rounded-lg border border-dashed border-brand-secondary/30 bg-brand-secondary/5 px-3 py-3">
-          {directTargets.map((target) => {
-            const state = directStartStates[target.deviceId] ?? 'idle';
-            const label = (() => {
-              if (state === 'pending') {
-                return lifecycle === 'running' ? 'Sending start command…' : 'Stopping…';
-              }
-              if (state === 'success') {
-                return lifecycle === 'running' ? 'Ready' : 'Stopped';
-              }
-              if (state === 'error') {
-                return 'Error';
-              }
-              return 'Pending';
-            })();
-            const tone =
-              state === 'success'
-                ? 'text-green-700'
-                : state === 'error'
-                  ? 'text-red-600'
-                  : 'text-brand-dark/70';
-            const icon = (() => {
-              if (state === 'success') {
-                return <CheckCircle2 className="h-4 w-4 text-green-600" aria-hidden="true" />;
-              }
-              if (state === 'error') {
-                return <XCircle className="h-4 w-4 text-red-500" aria-hidden="true" />;
-              }
-              return (
-                <Loader2 className={`h-4 w-4 ${state === 'pending' ? 'animate-spin text-brand-dark/70' : 'text-brand-dark/40'}`} aria-hidden="true" />
-              );
-            })();
-            return (
-              <div key={target.deviceId} className="flex items-center justify-between gap-3 text-xs">
-                <span className="font-mono text-[11px] text-brand-dark/80">{target.deviceId}</span>
-                <div className="flex items-center gap-2">
-                  {icon}
-                  <span className={tone}>{label}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {hasFailedTargets && (
-          <Button
-            variant="outline"
-            onClick={onRetryFailed}
-            disabled={isRetryingFailedDevices}
-            className="w-full sm:w-auto"
-          >
-            {isRetryingFailedDevices ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RotateCcw className="mr-2 h-4 w-4" />
-            )}
-            Retry failed devices
-          </Button>
-        )}
-      </div>
-    );
-  };
-
-  const dialogDescription = (() => {
-    if (isFinalizingPhase) {
-      return 'Wrapping up telemetry and saving the session summary.';
-    }
-    if (isStoppingPhase) {
-      return 'Stopping the live session and notifying all selected targets.';
-    }
-    if (isRunningPhase) {
-      return 'Session is live—watch the stopwatch and shot feed update as hits come in.';
-    }
-    if (isLaunchingPhase) {
-      return 'Starting the session on your selected targets. Hang tight—this usually takes a moment.';
-    }
-    return 'Review your target list and get ready to launch this live session.';
-  })();
-
-  const stopwatchStatus = (() => {
-    if (isFinalizingPhase) {
-      return 'Saving session results...';
-    }
-    if (isStoppingPhase) {
-      return 'Stopping session...';
-    }
-    if (isRunningPhase) {
-      return 'Session is live';
-    }
-    if (isLaunchingPhase) {
-      return 'Launching session...';
-    }
-    return 'Review selected targets before starting.';
-  })();
-
-  const showStopwatchSpinner = isLaunchingPhase || isStoppingPhase || isFinalizingPhase;
-  const canTriggerStart = isSelectingPhase && !isStarting && targets.length > 0;
-  const showCloseButton = isSelectingPhase || isLaunchingPhase;
-  const showStartButton = isSelectingPhase;
-  const showStopButton = isRunningPhase;
-  const canCancelSetup = isSelectingPhase && canClose;
-  const isDismissDisabled = canCancelSetup && isStarting;
-  const closeButtonLabel = canCancelSetup ? 'Cancel' : 'Close';
-  const directControlNotice =
-    directControlStatus && isSelectingPhase ? (
-      <div
-        className={
-          directControlStatus.intent === 'error'
-            ? 'rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700'
-            : directControlStatus.intent === 'success'
-              ? 'rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700'
-              : 'rounded-lg border border-brand-secondary/30 bg-brand-secondary/10 px-3 py-2 text-sm text-brand-dark/70'
-        }
-      >
-        {directControlStatus.message}
-      </div>
-    ) : null;
-
-  let bodyContent: React.ReactNode;
-  if (isRunningPhase) {
-    bodyContent = (
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <Badge className="bg-white/15 text-white border-white/20 text-xs px-3 py-1">
-            {`${targets.length} target${targets.length === 1 ? '' : 's'} armed`}
-          </Badge>
-        </div>
-        <h3 className="text-sm uppercase tracking-wide text-white/80">Live shot feed</h3>
-        <SessionHitFeedList
-          hits={displayedSessionHits}
-          variant="live"
-          emptyLabel="Waiting for the first hit..."
-          limit={12}
-        />
-      </div>
-    );
-  } else if (isStoppingPhase || isFinalizingPhase) {
-    const message = isFinalizingPhase
-      ? 'Persisting session summary...'
-      : 'Sending stop command to all targets...';
-    bodyContent = (
-      <div className="space-y-3">
-        <SessionProgressMessage tone="live" message={message} />
-        {renderDirectTargetStatuses()}
-        {displayedSessionHits.length > 0 && (
-          <>
-            <h3 className="text-sm uppercase tracking-wide text-white/80">Recent hits</h3>
-            <SessionHitFeedList
-              hits={displayedSessionHits}
-              variant="finalizing"
-              emptyLabel="Waiting for hits..."
-              limit={6}
-            />
-          </>
-        )}
-      </div>
-    );
-  } else if (isLaunchingPhase) {
-    bodyContent = (
-      <div className="space-y-3">
-        <SessionProgressMessage
-          tone="default"
-          message="Starting session on selected targets..."
-          subtext="Waiting for ThingsBoard to confirm the game is live."
-        />
-        {renderDirectTargetStatuses()}
-      </div>
-    );
-  } else {
-    bodyContent = (
-      <div className="space-y-3">
-        {directControlNotice}
-        <h3 className="font-heading text-sm uppercase tracking-wide text-brand-dark/70">
-          Targets ({targets.length})
-        </h3>
-        <SessionTargetList targets={targets} />
-        {renderDirectTargetStatuses()}
-      </div>
-    );
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent
-        className={[
-          'w-full',
-          'max-w-xl',
-          'ml-5',
-          'mr-8',
-          'sm:mx-auto',
-          'transition-colors',
-          'duration-300',
-          'shadow-xl',
-          'px-4',
-          'py-5',
-          'sm:px-6',
-          'sm:py-6',
-          usesLivePalette ? 'bg-brand-secondary text-white border-brand-secondary/50' : 'bg-white text-brand-dark border-gray-200',
-        ].join(' ')}
-      >
-        <DialogHeader className="space-y-1.5 sm:space-y-2">
-          <DialogTitle className="text-xl sm:text-2xl font-heading">Current Session</DialogTitle>
-          <DialogDescription className={usesLivePalette ? 'text-white/80' : 'text-brand-dark/70'}>
-            {dialogDescription}
-          </DialogDescription>
-          {resolvedGameId && (
-            <p className={`text-xs sm:text-[13px] font-mono ${usesLivePalette ? 'text-white/65' : 'text-brand-dark/50'}`}>Game ID: {resolvedGameId}</p>
-          )}
-        </DialogHeader>
-
-        <div className="space-y-4 sm:space-y-6">
-          <SessionStopwatchCard
-            seconds={sessionSeconds}
-            accent={usesLivePalette ? 'live' : 'default'}
-            statusText={stopwatchStatus}
-            showSpinner={showStopwatchSpinner}
-          />
-
-          {bodyContent}
-        </div>
-
-        <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-          {showCloseButton ? (
-            <Button
-              variant="outline"
-              onClick={onClose}
-              disabled={isDismissDisabled}
-              className={usesLivePalette ? 'border-white/35 text-white hover:bg-white/10 hidden' : undefined}
-            >
-              {closeButtonLabel}
-            </Button>
-          ) : (
-            <span className="hidden sm:block" aria-hidden="true" />
-          )}
-          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-            {showStopButton && (
-              <Button
-                variant="destructive"
-                onClick={onStop}
-                disabled={isStoppingPhase || isStopping}
-                className="sm:min-w-[140px]"
-              >
-                {isStopping ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Stopping...
-                  </>
-                ) : (
-                  <>
-                    <Square className="h-4 w-4 mr-2" />
-                    Stop Session
-                  </>
-                )}
-              </Button>
-            )}
-            {showStartButton && (
-              <Button
-                onClick={onConfirm}
-                disabled={!canTriggerStart}
-                className={
-                  canTriggerStart
-                    ? 'sm:min-w-[140px] bg-green-600 hover:bg-green-700'
-                    : 'sm:min-w-[140px] bg-green-600/40 text-green-900/60 cursor-not-allowed'
-                }
-              >
-                {isStarting ? (
-                  <>
-                    <Play className="h-4 w-4 mr-2 animate-spin" />
-                    Starting...
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4 mr-2" />
-                    Begin Session
-                  </>
-                )}
-              </Button>
-            )}
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-};
-
-// Displays placeholder content while the operator overview card loads.
-const OperatorOverviewSkeleton: React.FC = () => (
-  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-4">
-      <div className="flex items-center gap-3">
-        <Skeleton className="h-10 w-10 rounded-full bg-gray-200" />
-        <div className="space-y-2">
-          <Skeleton className="h-4 w-32 bg-gray-200" />
-          <Skeleton className="h-3 w-24 bg-gray-200" />
-        </div>
-      </div>
-      <Separator />
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {Array.from({ length: 3 }).map((_, index) => (
-          <div key={index} className="space-y-2">
-            <Skeleton className="h-3 w-20 bg-gray-200" />
-            <Skeleton className="h-5 w-12 bg-gray-200" />
-          </div>
-        ))}
-      </div>
-    </CardContent>
-  </Card>
-);
-
-// Provides a loading state for the live session card while telemetry initialises.
-const LiveSessionCardSkeleton: React.FC = () => (
-  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-5 w-32 bg-gray-200" />
-        <Skeleton className="h-6 w-16 bg-gray-200" />
-      </div>
-      <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-8 text-center space-y-3">
-        <Skeleton className="mx-auto h-10 w-10 rounded-full bg-gray-200" />
-        <Skeleton className="mx-auto h-4 w-20 bg-gray-200" />
-        <Skeleton className="mx-auto h-10 w-40 bg-gray-200" />
-      </div>
-      <div className="space-y-2">
-        {Array.from({ length: 3 }).map((_, index) => (
-          <div key={index} className="flex items-center justify-between">
-            <Skeleton className="h-3 w-28 bg-gray-200" />
-            <Skeleton className="h-3 w-16 bg-gray-200" />
-          </div>
-        ))}
-      </div>
-    </CardContent>
-  </Card>
-);
-
-// Renders the device selection placeholder until ThingsBoard devices are ready.
-const TargetSelectionSkeleton: React.FC = () => (
-  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-32 bg-gray-200" />
-          <Skeleton className="h-3 w-44 bg-gray-200" />
-        </div>
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-9 w-20 bg-gray-200 rounded-md" />
-          <Skeleton className="h-9 w-16 bg-gray-200 rounded-md" />
-        </div>
-      </div>
-      <div className="space-y-3">
-        {Array.from({ length: 5 }).map((_, index) => (
-          <div
-            key={index}
-            className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
-          >
-            <div className="flex items-center gap-3">
-              <Skeleton className="h-4 w-4 bg-gray-200 rounded-sm" />
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-32 bg-gray-200" />
-                <Skeleton className="h-3 w-40 bg-gray-200" />
-              </div>
-            </div>
-            <Skeleton className="h-5 w-16 bg-gray-200 rounded-full" />
-          </div>
-        ))}
-      </div>
-    </CardContent>
-  </Card>
-);
-
-// Shows a placeholder chart while hit distribution data streams in.
-const HitDistributionSkeleton: React.FC = () => (
-  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-5 w-28 bg-gray-200" />
-        <Skeleton className="h-4 w-12 bg-gray-200" />
-      </div>
-      <Skeleton className="h-56 w-full bg-gray-100 rounded-lg" />
-      <div className="space-y-2">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Skeleton className="h-3 w-32 bg-gray-200" />
-              <Skeleton className="h-3 w-8 bg-gray-200" />
-            </div>
-            <Skeleton className="h-2 w-full bg-gray-200 rounded" />
-          </div>
-        ))}
-      </div>
-    </CardContent>
-  </Card>
-);
-
-// Covers the hit timeline chart while telemetry history is loading.
-const HitTimelineSkeleton: React.FC = () => (
-  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-3">
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-5 w-28 bg-gray-200" />
-        <Skeleton className="h-4 w-20 bg-gray-200" />
-      </div>
-      <Skeleton className="h-56 w-full bg-gray-100 rounded-lg" />
-    </CardContent>
-  </Card>
-);
-
-// Mimics the target transition bar chart while the data is coming in.
-const RecentTransitionsSkeleton: React.FC = () => (
-  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-3">
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-5 w-32 bg-gray-200" />
-        <Skeleton className="h-4 w-12 bg-gray-200" />
-      </div>
-      <Skeleton className="h-48 w-full bg-gray-100 rounded-lg" />
-    </CardContent>
-  </Card>
-);
-
-interface LiveSessionCardProps {
-  isRunning: boolean;
-  timerSeconds: number;
-  activeTargets: NormalizedGameDevice[];
-  activeHits: number;
-  hitCounts: Record<string, number>;
-  recentSummary: LiveSessionSummary | null;
-}
-
-// Displays either the live session telemetry or the latest summary once the game ends.
-const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
-  isRunning,
-  timerSeconds,
-  activeTargets,
-  activeHits,
-  hitCounts,
-  recentSummary,
-}) => {
-  if (isRunning) {
-    return (
-      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-        <CardContent className="p-4 md:p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-heading text-lg text-brand-dark">Live Session</h2>
-              <p className="text-xs text-brand-dark/60">Tracking {activeTargets.length} targets in real time</p>
-            </div>
-            <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">Active</Badge>
-          </div>
-          <div className="flex items-center justify-between rounded-md border border-brand-secondary/40 bg-brand-secondary/10 px-4 py-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Stopwatch</p>
-              <p className="font-heading text-2xl text-brand-dark">{formatSessionDuration(timerSeconds)}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Session Hits</p>
-              <p className="font-heading text-2xl text-brand-dark">{activeHits}</p>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Targets</p>
-            {activeTargets.length === 0 ? (
-              <p className="rounded-md border border-dashed border-brand-secondary/40 bg-brand-secondary/10 px-3 py-4 text-sm text-brand-dark/60 text-center">
-                Select one or more online targets to stream live stats.
-              </p>
-            ) : (
-              <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
-                {activeTargets.map((target) => {
-                  const hits = hitCounts[target.deviceId] ?? target.hitCount ?? 0;
-                  return (
-                    <div
-                      key={target.deviceId}
-                      className="flex items-center justify-between rounded-md border border-gray-100 bg-gray-50 px-3 py-2"
-                    >
-                      <div>
-                        <p className="font-medium text-brand-dark leading-tight">{target.name ?? target.deviceId}</p>
-                        <p className="text-[11px] text-brand-dark/60">{target.deviceId}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[11px] text-brand-dark/60 uppercase tracking-wide">Hits</p>
-                        <p className="font-heading text-base text-brand-dark">{hits}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (recentSummary) {
-    const topResults = [...(recentSummary.historyEntry.deviceResults ?? [])]
-      .sort((a, b) => (b.hitCount ?? 0) - (a.hitCount ?? 0))
-      .slice(0, 3);
-    const recentSplits = (recentSummary.splits ?? []).slice(0, 4);
-
-    return (
-      <Card className="rounded-md md:rounded-lg border border-brand-primary/20 bg-gradient-to-br from-white via-brand-primary/5 to-brand-secondary/10 shadow-lg">
-        <CardContent className="p-4 md:p-5 space-y-5">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.2em] text-brand-primary font-semibold">Last Session</p>
-              <h2 className="font-heading text-xl text-brand-dark">Summary</h2>
-              <p className="text-xs text-brand-dark/70">
-                {new Date(recentSummary.startedAt).toLocaleTimeString()} • {recentSummary.targets.length} targets
-              </p>
-            </div>
-            <Badge className="bg-brand-primary/10 text-brand-primary border-brand-primary/40">
-              {formatSessionDuration(recentSummary.durationSeconds)}
-            </Badge>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
-              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Total Hits</p>
-              <p className="font-heading text-2xl text-brand-primary">{recentSummary.totalHits}</p>
-            </div>
-            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
-              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Avg Split</p>
-              <p className="font-heading text-2xl text-brand-primary">
-                {recentSummary.averageHitInterval > 0 ? `${recentSummary.averageHitInterval.toFixed(2)}s` : '—'}
-              </p>
-            </div>
-            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
-              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Switches</p>
-              <p className="font-heading text-2xl text-brand-primary">
-                {recentSummary.crossTargetStats?.totalSwitches ?? 0}
-              </p>
-            </div>
-            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
-              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Game ID</p>
-              <p className="font-heading text-base text-brand-dark truncate max-w-[200px]" title={recentSummary.gameId}>
-                {recentSummary.gameId}
-              </p>
-            </div>
-          </div>
-          <Separator />
-          <div className="space-y-3">
-            <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Top Targets</p>
-            {topResults.length === 0 ? (
-              <p className="text-sm text-brand-dark/60">No target activity captured for this session.</p>
-            ) : (
-              <div className="space-y-2">
-                {topResults.map((result) => (
-                  <div
-                    key={result.deviceId}
-                    className="flex items-center justify-between rounded-lg border border-brand-secondary/20 bg-white/80 px-3 py-2"
-                  >
-                    <span className="font-medium text-brand-dark">{result.deviceName}</span>
-                    <span className="font-heading text-lg text-brand-primary">{result.hitCount}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          {recentSplits.length > 0 && (
-            <>
-              <Separator />
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-brand-dark/60">
-                  <span>Recent Splits</span>
-                  <span className="text-brand-primary text-[10px] font-semibold">Hit number + Time Split</span>
-                </div>
-                <div className="space-y-1.5">
-                  {recentSplits.map((split) => (
-                    <div
-                      key={`${split.deviceId}-${split.splitNumber}`}
-                      className="flex items-center justify-between rounded-lg border border-brand-primary/20 bg-brand-primary/5 px-3 py-2 text-xs text-brand-dark"
-                    >
-                      <span className="font-medium text-brand-dark">
-                        {split.deviceName} #{split.splitNumber}
-                      </span>
-                      <span className="font-heading text-sm text-brand-primary">{split.time.toFixed(2)}s</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-      <CardContent className="p-4 md:p-5 text-sm text-brand-dark/60">
-        Launch a live session to capture real-time stats and view the summary here.
-      </CardContent>
-    </Card>
-  );
-};
 
 export default Games;

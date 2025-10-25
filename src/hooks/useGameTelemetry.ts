@@ -193,9 +193,12 @@ export const useGameTelemetry = ({
       const gameIdValue = resolveTelemetryValue(telemetryData.gameId);
       const eventTimestamp = resolveTelemetryTimestamp(telemetryData.event, Date.now());
 
+      const telemetryDeviceId = resolveTelemetryValue(telemetryData.deviceId) as string | undefined;
+      const fallbackEntityId = typeof message.entityId === 'string' ? message.entityId : '';
       const resolvedDeviceId =
-        message.entityId ||
-        (resolveTelemetryValue(telemetryData.deviceId) as string | undefined);
+        typeof telemetryDeviceId === 'string' && telemetryDeviceId.trim().length > 0
+          ? telemetryDeviceId
+          : fallbackEntityId;
 
       if (
         gameIdValue === gameId &&
@@ -221,6 +224,14 @@ export const useGameTelemetry = ({
       const deviceId = resolvedDeviceId;
       const deviceName = deviceNameMap.get(deviceId) ?? deviceId;
       const currentTimestamp = eventTimestamp || Date.now();
+
+      console.info('[useGameTelemetry] Hit received', {
+        deviceId,
+        deviceName,
+        timestamp: currentTimestamp,
+        gameId,
+        raw: telemetryData,
+      });
 
       setHitCounts((prev) => ({
         ...prev,
@@ -251,6 +262,12 @@ export const useGameTelemetry = ({
         if (typeof previousTimestamp === 'number') {
           const splitTime = (currentTimestamp - previousTimestamp) / 1000;
           if (splitTime > 0) {
+            console.info('[useGameTelemetry] Split computed', {
+              deviceId,
+              deviceName,
+              splitTimeSeconds: splitTime,
+              timestamp: currentTimestamp,
+            });
             setSplits((prevSplits) => ([
               ...prevSplits,
               {

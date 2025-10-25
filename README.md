@@ -8,6 +8,14 @@ A modern React dashboard application for managing shooting range scenarios, targ
 - **Live game sessions** target a ≤1 s SLA: the client upgrades to a dedicated Supabase `device-telemetry` edge WebSocket bridge during active play and falls back to polling otherwise.
 - Heartbeat and slow-cycle logging provide early warnings if either SLA is breached.
 
+### 🎯 Session Popup Flow (Games Page)
+
+- The **Start Session** dialog reuses the operator’s target selection (`src/pages/Games.tsx`) to build a ThingsBoard subscription list—no device IDs are hardcoded.
+- When the dialog enters launching/running states and a direct ThingsBoard token is available, it opens a scoped WebSocket via `tbSubscribeTelemetry` that streams only the selected targets’ telemetry.
+- Incoming `event: "hit"` records that match the active `gameId` are buffered locally inside the popup so the live feed reflects the exact stream that powered the Expo dashboard flow.
+- If the dialog closes or the target selection changes, the popup tears down the subscription and resets its local buffers to avoid replaying stale hits.
+- Supabase/edge snapshots for the cards and Target Selection panel are pulled once on first load and once after each game is finalized; everything in between is driven by cached device state plus direct ThingsBoard telemetry.
+
 ## 🚀 Features
 
 ### Core Functionality

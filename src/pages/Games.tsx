@@ -45,6 +45,7 @@ import type {
 } from '@/services/device-game-flow';
 import { useGameDevices, type NormalizedGameDevice, DEVICE_ONLINE_STALE_THRESHOLD_MS } from '@/hooks/useGameDevices';
 import { useTargets, type Target } from '@/store/useTargets';
+import { useRooms } from '@/store/useRooms';
 import { useGameTelemetry, type SplitRecord, type TransitionRecord } from '@/hooks/useGameTelemetry';
 import { useThingsboardToken } from '@/hooks/useThingsboardToken';
 import { useDirectTbTelemetry } from '@/hooks/useDirectTbTelemetry';
@@ -52,6 +53,8 @@ import {
   ensureTbAuthToken,
   tbSetShared,
   tbSendOneway,
+  tbSubscribeTelemetry,
+  type TelemetryEnvelope,
 } from '@/services/thingsboard-client';
 import {
   fetchAllGameHistory as fetchPersistedGameHistory,
@@ -348,39 +351,65 @@ function useSessionTimer() {
 const Games: React.FC = () => {
   const isMobile = useIsMobile();
   const { user } = useAuth();
+  // Tracks the shadcn sidebar state so we know whether to render the drawer on small screens.
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  // Holds the persisted session summaries displayed in the Session History card.
   const [gameHistory, setGameHistory] = useState<GameHistory[]>([]);
+  // Mirrors the fetch lifecycle so the history section can show skeletons/spinners.
   const [isHistoryLoading, setIsHistoryLoading] = useState(true);
-  const { isLoading: loadingDevices, refresh: refreshGameDevices, pollInfo: pollGameControlInfo } =
-    useGameDevices({ immediate: false });
+  const { isLoading: loadingDevices, refresh: refreshGameDevices } = useGameDevices({ immediate: false });
   const targetsSnapshot = useTargets((state) => state.targets);
   const targetsStoreLoading = useTargets((state) => state.isLoading);
   const targetDetailsLoading = useTargets((state) => state.detailsLoading);
   const refreshTargets = useTargets((state) => state.refresh);
   const targetsLastFetched = useTargets((state) => state.lastFetched);
+  const rooms = useRooms((state) => state.rooms);
+  const roomsLoading = useRooms((state) => state.isLoading);
+  const fetchRooms = useRooms((state) => state.fetchRooms);
+  // Canonical list of targets decorated with live telemetry that powers the tables and selectors.
   const [availableDevices, setAvailableDevices] = useState<NormalizedGameDevice[]>([]);
+  // Surface-level error banner for operator actions (start/stop failures, auth issues).
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Single source of truth for the popup lifecycle (selecting → launching → running → stopping → finalizing).
   const [sessionLifecycle, setSessionLifecycle] = useState<SessionLifecycle>('idle');
+  // Prevents the dialog from re-opening automatically when an operator intentionally dismisses it mid-idle.
   const [isSessionDialogDismissed, setIsSessionDialogDismissed] = useState(false);
   const sessionLifecycleRef = useRef<SessionLifecycle>('idle');
+  // Start/stop timestamps anchor timer displays and summary persistence payloads.
   const [gameStartTime, setGameStartTime] = useState<number | null>(null);
   const [gameStopTime, setGameStopTime] = useState<number | null>(null);
+  // Live counters and history feed the hit charts plus the popup shot list.
   const [hitCounts, setHitCounts] = useState<Record<string, number>>({});
+  const [historicalHitCounts, setHistoricalHitCounts] = useState<Record<string, number>>({});
   const [hitHistory, setHitHistory] = useState<SessionHitRecord[]>([]);
+  // Active devices represent the targets we actually armed for the in-progress session.
   const [activeDeviceIds, setActiveDeviceIds] = useState<string[]>([]);
+  // Selected devices reflect the operator's current choices in the Target Selection card.
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
+  // Pending targets are staged in the dialog before the operator confirms Begin Session.
   const [pendingSessionTargets, setPendingSessionTargets] = useState<NormalizedGameDevice[]>([]);
+  // Current session targets are locked once the session is running, informing UI badges and telemetry subscriptions.
   const [currentSessionTargets, setCurrentSessionTargets] = useState<NormalizedGameDevice[]>([]);
+  // Snapshot of the most recent completed game, displayed in the post-session summary card.
   const [recentSessionSummary, setRecentSessionSummary] = useState<LiveSessionSummary | null>(null);
+  // directSessionGameId mirrors the ThingsBoard `gameId` string used by the RPC start/stop commands.
   const [directSessionGameId, setDirectSessionGameId] = useState<string | null>(null);
+  // directSessionTargets stores `{deviceId, name}` pairs used by the popup telemetry stream and status pills.
   const [directSessionTargets, setDirectSessionTargets] = useState<Array<{ deviceId: string; name: string }>>([]);
+  // Indicates whether the direct TB control path is active (needed to gate realtime commands and UI copy).
   const [directFlowActive, setDirectFlowActive] = useState(false);
+  // Tracks the per-device RPC start acknowledgement so the dialog can render success/pending/error badges.
   const [directStartStates, setDirectStartStates] = useState<Record<string, 'idle' | 'pending' | 'success' | 'error'>>({});
+  // Flag toggled after commands are issued so the dialog knows it can subscribe directly to ThingsBoard.
   const [directTelemetryEnabled, setDirectTelemetryEnabled] = useState(false);
+  // Stores the JWT returned by `ensureTbAuthToken` for RPCs and direct WebSocket subscriptions.
   const [directControlToken, setDirectControlToken] = useState<string | null>(null);
+  // Populates the dialog error banner whenever the ThingsBoard auth handshake fails.
   const [directControlError, setDirectControlError] = useState<string | null>(null);
+  // Spinner state for the authentication request shown while the dialog prepares direct control.
   const [isDirectAuthLoading, setIsDirectAuthLoading] = useState(false);
+  // Toggles the retry button state while we resend start commands to failed devices.
   const [isRetryingFailedDevices, setIsRetryingFailedDevices] = useState(false);
   const directStartStatesRef = useRef<Record<string, 'idle' | 'pending' | 'success' | 'error'>>({});
   const updateDirectStartStates = useCallback((
@@ -398,12 +427,14 @@ const Games: React.FC = () => {
     });
   }, []);
 
+  // Session timer powers the stopwatch in the popup and elapsed time block in the dashboard cards.
   const {
     seconds: sessionTimerSeconds,
     reset: resetSessionTimer,
     start: startSessionTimer,
     freeze: freezeSessionTimer,
   } = useSessionTimer();
+  // Activation metadata helps correlate when we fired the ThingsBoard start command vs. when telemetry confirmed it.
   const {
     triggeredAt: startTriggeredAt,
     confirmedAt: telemetryConfirmedAt,
@@ -413,12 +444,17 @@ const Games: React.FC = () => {
     resetActivation: resetSessionActivation,
     activationParams,
   } = useSessionActivation();
+  // Lets async callbacks check the latest confirmation state without waiting for React re-render.
   const sessionConfirmedRef = useRef<boolean>(false);
 
+  // currentGameDevicesRef keeps a stable list of armed targets so stop/finalize logic can reference them after state resets.
   const currentGameDevicesRef = useRef<string[]>([]);
+  // We mutate the cached devices in effects; this ref ensures selectors don't fight with React batching.
   const availableDevicesRef = useRef<NormalizedGameDevice[]>([]);
+  // Indicates whether the operator manually toggled checkboxes (prevents auto-selecting devices mid-refresh).
   const selectionManuallyModifiedRef = useRef(false);
-  const lastTargetsRefreshRef = useRef<number>(0);
+  // Tracks whether the initial ThingsBoard device snapshot has been loaded.
+  const hasLoadedDevicesRef = useRef(false);
   // Centralised token manager so the Games page always has a fresh ThingsBoard JWT for sockets/RPCs.
   const { session: tbSession, refresh: refreshThingsboardSession } = useThingsboardToken();
 
@@ -778,7 +814,11 @@ const Games: React.FC = () => {
 
   // Loads the latest edge snapshot and keeps local mirrors (state + refs) in sync so downstream hooks can reuse the same data.
   const loadLiveDevices = useCallback(
-    async ({ silent = false, showToast = false }: { silent?: boolean; showToast?: boolean } = {}) => {
+    async ({
+      silent = false,
+      showToast = false,
+      reason = 'manual',
+    }: { silent?: boolean; showToast?: boolean; reason?: 'initial' | 'postStop' | 'manual' } = {}) => {
       try {
         const result = await refreshGameDevices({ silent });
         if (!result) {
@@ -808,9 +848,9 @@ const Games: React.FC = () => {
           });
         }
 
-        const now = Date.now();
-        if (now - lastTargetsRefreshRef.current > 30_000) {
-          lastTargetsRefreshRef.current = now;
+        hasLoadedDevicesRef.current = true;
+
+        if (reason === 'initial' || reason === 'postStop') {
           void refreshTargets().catch((err) => {
             console.warn('[Games] Failed to refresh targets snapshot after device sync', err);
           });
@@ -848,72 +888,16 @@ const Games: React.FC = () => {
     [isRunningLifecycle, refreshGameDevices, refreshTargets],
   );
 
-  // Periodically calls the info RPC while a game is running to keep local device cards in sync with ThingsBoard telemetry.
-  const pollDeviceInfo = useCallback(
-    async (deviceIds: string[]) => {
-      if (deviceIds.length === 0) {
-        return;
-      }
-      try {
-        const result = await pollGameControlInfo(deviceIds);
-        if (result) {
-          setAvailableDevices(result.devices);
-          availableDevicesRef.current = result.devices;
-          setErrorMessage(null);
-          const now = Date.now();
-          if (now - lastTargetsRefreshRef.current > 30_000) {
-            lastTargetsRefreshRef.current = now;
-            void refreshTargets().catch((err) => {
-              console.warn('[Games] Failed to refresh targets snapshot after info poll', err);
-            });
-          }
-        }
-      } catch (error) {
-        console.warn('⚠️ Failed to poll device info via RPC', error);
-      }
-    },
-    [pollGameControlInfo, refreshTargets],
-  );
-
   useEffect(() => {
     availableDevicesRef.current = availableDevices;
   }, [availableDevices]);
 
   useEffect(() => {
-    void loadLiveDevices();
+    if (hasLoadedDevicesRef.current) {
+      return;
+    }
+    void loadLiveDevices({ showToast: true, reason: 'initial' });
   }, [loadLiveDevices]);
-
-  // Background poll loop keeps device health (wifi/ambient) fresh via the lightweight info RPC while games run.
-  useEffect(() => {
-    const intervalMs = isRunningLifecycle ? 5_000 : 10_000;
-    const interval = setInterval(() => {
-      if (isRunningLifecycle) {
-        const activeIds = activeDeviceIds.length > 0
-          ? [...activeDeviceIds]
-          : availableDevicesRef.current
-              .filter((device) => {
-                if (device.isOnline) {
-                  return true;
-                }
-                if (typeof device.lastSeen === 'number' && device.lastSeen > 0) {
-                  return Date.now() - device.lastSeen <= DEVICE_ONLINE_STALE_THRESHOLD_MS;
-                }
-                return false;
-              })
-              .map((device) => device.deviceId);
-
-        if (activeIds.length === 0) {
-          void loadLiveDevices({ silent: true });
-        } else {
-          void pollDeviceInfo(activeIds);
-        }
-      } else {
-        void loadLiveDevices({ silent: true });
-      }
-    }, intervalMs);
-
-    return () => clearInterval(interval);
-  }, [activeDeviceIds, isRunningLifecycle, loadLiveDevices, pollDeviceInfo]);
 
   useEffect(() => {
     if (targetsSnapshot.length === 0 && !targetsStoreLoading) {
@@ -922,6 +906,14 @@ const Games: React.FC = () => {
       });
     }
   }, [targetsSnapshot.length, targetsStoreLoading, refreshTargets]);
+
+  useEffect(() => {
+    if (rooms.length === 0 && !roomsLoading) {
+      void fetchRooms().catch((err) => {
+        console.warn('[Games] Failed to fetch rooms for selection card', err);
+      });
+    }
+  }, [rooms.length, roomsLoading, fetchRooms]);
 
   const targetById = useMemo(() => {
     const map = new Map<string, Target>();
@@ -935,6 +927,14 @@ const Games: React.FC = () => {
     const map = new Map<string, string>();
     availableDevices.forEach((device) => {
       map.set(device.deviceId, device.name);
+    });
+    return map;
+  }, [availableDevices]);
+
+  const availableDeviceMap = useMemo(() => {
+    const map = new Map<string, NormalizedGameDevice>();
+    availableDevices.forEach((device) => {
+      map.set(device.deviceId, device);
     });
     return map;
   }, [availableDevices]);
@@ -997,6 +997,41 @@ const Games: React.FC = () => {
     [targetById],
   );
 
+  const roomSelections = useMemo(() => {
+    return rooms
+      .map((room) => {
+        const targets = Array.isArray(room.targets) ? room.targets : [];
+        const deviceIds = targets
+          .map((target) => target.id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0);
+        if (deviceIds.length === 0) {
+          return null;
+        }
+        let onlineCount = 0;
+        deviceIds.forEach((deviceId) => {
+          const device = availableDeviceMap.get(deviceId);
+          if (device && deriveConnectionStatus(device) !== 'offline') {
+            onlineCount += 1;
+          }
+        });
+        return {
+          id: room.id,
+          name: room.name,
+          deviceIds,
+          targetCount: deviceIds.length,
+          onlineCount,
+        };
+      })
+      .filter((room): room is {
+        id: string;
+        name: string;
+        deviceIds: string[];
+        targetCount: number;
+        onlineCount: number;
+      } => room !== null)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [rooms, availableDeviceMap, deriveConnectionStatus]);
+
   const deriveIsOnline = useCallback(
     (device: NormalizedGameDevice) => deriveConnectionStatus(device) !== 'offline',
     [deriveConnectionStatus],
@@ -1005,6 +1040,40 @@ const Games: React.FC = () => {
   const getOnlineDevices = useCallback(() => {
     return availableDevicesRef.current.filter((device) => deriveIsOnline(device));
   }, [deriveIsOnline]);
+
+  const buildHitCountsFromSummary = useCallback((summary: LiveSessionSummary | null) => {
+    if (!summary) {
+      return {};
+    }
+    const deviceResults = Array.isArray(summary.historyEntry?.deviceResults)
+      ? summary.historyEntry.deviceResults
+      : [];
+    const fallbackStats = Array.isArray(summary.deviceStats) ? summary.deviceStats : [];
+    const source = deviceResults.length > 0 ? deviceResults : fallbackStats;
+    if (source.length === 0) {
+      return {};
+    }
+    return source.reduce<Record<string, number>>((acc, entry) => {
+      if (entry && typeof entry.deviceId === 'string' && entry.deviceId.length > 0) {
+        const hits =
+          typeof entry.hitCount === 'number' ? entry.hitCount : Number(entry.hitCount) || 0;
+        acc[entry.deviceId] = hits;
+      }
+      return acc;
+    }, {});
+  }, []);
+
+  useEffect(() => {
+    if (isRunningLifecycle) {
+      setHistoricalHitCounts({});
+      return;
+    }
+    if (recentSessionSummary) {
+      setHistoricalHitCounts(buildHitCountsFromSummary(recentSessionSummary));
+    } else {
+      setHistoricalHitCounts({});
+    }
+  }, [buildHitCountsFromSummary, isRunningLifecycle, recentSessionSummary]);
 
   useEffect(() => {
     if (isSessionLocked) {
@@ -1053,6 +1122,49 @@ const Games: React.FC = () => {
     selectionManuallyModifiedRef.current = true;
     setSelectedDeviceIds([]);
   }, []);
+
+  const handleToggleRoomTargets = useCallback(
+    (roomId: string, checked: boolean) => {
+      selectionManuallyModifiedRef.current = true;
+      const room = roomSelections.find((entry) => entry.id === roomId);
+      if (!room) {
+        return;
+      }
+      const roomDeviceIds = room.deviceIds;
+      if (roomDeviceIds.length === 0) {
+        return;
+      }
+      setSelectedDeviceIds((prev) => {
+        if (checked) {
+          const merged = new Set(prev);
+          roomDeviceIds.forEach((id) => merged.add(id));
+          return Array.from(merged);
+        }
+        const deviceIdsToRemove = new Set(roomDeviceIds);
+        return prev.filter((id) => !deviceIdsToRemove.has(id));
+      });
+    },
+    [roomSelections],
+  );
+
+  const handleSelectAllRooms = useCallback(() => {
+    selectionManuallyModifiedRef.current = true;
+    const roomDeviceIds = roomSelections.flatMap((room) => room.deviceIds);
+    if (roomDeviceIds.length === 0) {
+      return;
+    }
+    setSelectedDeviceIds((prev) => Array.from(new Set([...prev, ...roomDeviceIds])));
+  }, [roomSelections]);
+
+  const handleClearRoomSelection = useCallback(() => {
+    selectionManuallyModifiedRef.current = true;
+    const roomDeviceIds = roomSelections.flatMap((room) => room.deviceIds);
+    if (roomDeviceIds.length === 0) {
+      return;
+    }
+    const deviceIdsToRemove = new Set(roomDeviceIds);
+    setSelectedDeviceIds((prev) => prev.filter((id) => !deviceIdsToRemove.has(id)));
+  }, [roomSelections]);
 
   // Presents the confirmation dialog so operators can review selected devices before starting.
   const handleOpenStartDialog = useCallback(async () => {
@@ -1295,6 +1407,18 @@ const Games: React.FC = () => {
         devices: targetDevices,
       });
 
+      console.info('[Games] Session summary prepared', {
+        gameId: sessionSummary.gameId,
+        totalHits: sessionSummary.totalHits,
+        durationSeconds: sessionSummary.durationSeconds,
+        deviceStats: sessionSummary.deviceStats,
+        splits: sessionSummary.splits,
+        transitions: sessionSummary.transitions,
+        targets: sessionSummary.targets,
+        hitHistory: sessionSummary.hitHistory,
+        historyEntry: sessionSummary.historyEntry,
+      });
+
       setRecentSessionSummary(sessionSummary);
       setGameHistory((prev) => [sessionSummary.historyEntry, ...prev]);
 
@@ -1310,21 +1434,9 @@ const Games: React.FC = () => {
         toast.error('Failed to persist game history. Please check your connection.');
       }
 
-      try {
-        await loadGameHistory();
-      } catch (historyError) {
-        console.warn('[Games] Failed to refresh game history after stop', historyError);
-      }
-
-      try {
-        await loadLiveDevices({ silent: true });
-      } catch (refreshError) {
-        console.warn('[Games] Failed to refresh live devices after stop', refreshError);
-      }
-
       return sessionSummary;
     },
-    [loadGameHistory, loadLiveDevices, toast],
+    [toast],
   );
 
   // Coordinates stop lifecycle: calls direct ThingsBoard RPCs, aggregates telemetry into a summary, persists history, and refreshes UI.
@@ -1478,7 +1590,7 @@ const Games: React.FC = () => {
     updateDirectStartStates({});
     setDirectSessionTargets([]);
     setDirectSessionGameId(null);
-    void loadLiveDevices({ silent: true });
+    void loadLiveDevices({ silent: true, showToast: true, reason: 'postStop' });
   }, [
     directSessionGameId,
     directSessionTargets,
@@ -1646,10 +1758,6 @@ const Games: React.FC = () => {
         toast.success(`Start commands dispatched to ${successIds.length} device${successIds.length === 1 ? '' : 's'}.`);
       }
 
-      if (successIds.length > 0) {
-        void loadLiveDevices({ silent: true });
-      }
-
       return { successIds, errorIds };
     },
     [
@@ -1668,7 +1776,6 @@ const Games: React.FC = () => {
       setHitHistory,
       setDirectControlError,
       markTelemetryConfirmed,
-      loadLiveDevices,
     ],
   );
 
@@ -1893,20 +2000,33 @@ const Games: React.FC = () => {
   );
   const trackedDevices = useMemo(() => {
     const map = new Map<string, string>();
-    const seedIds =
-      activeDeviceIds.length > 0
-        ? activeDeviceIds
-        : selectedDeviceIds.length > 0
-          ? selectedDeviceIds
-          : availableDevices.map((device) => device.deviceId);
+    const summaryTargets = recentSessionSummary?.targets ?? [];
+
+    const seedIds = (() => {
+      if (isRunningLifecycle) {
+        if (activeDeviceIds.length > 0) {
+          return activeDeviceIds;
+        }
+        if (selectedDeviceIds.length > 0) {
+          return selectedDeviceIds;
+        }
+        return availableDevices.map((device) => device.deviceId);
+      }
+      if (summaryTargets.length > 0) {
+        return summaryTargets.map((target) => target.deviceId);
+      }
+      return availableDevices.map((device) => device.deviceId);
+    })();
 
     seedIds.forEach((deviceId) => {
       if (!map.has(deviceId)) {
-        map.set(deviceId, deviceNameById.get(deviceId) ?? deviceId);
+        const summaryName = summaryTargets.find((target) => target.deviceId === deviceId)?.deviceName;
+        map.set(deviceId, summaryName ?? deviceNameById.get(deviceId) ?? deviceId);
       }
     });
 
-    hitHistory.forEach((record) => {
+    const sourceHitHistory = isRunningLifecycle ? hitHistory : recentSessionSummary?.hitHistory ?? [];
+    sourceHitHistory.forEach((record) => {
       if (!map.has(record.deviceId)) {
         map.set(record.deviceId, record.deviceName ?? deviceNameById.get(record.deviceId) ?? record.deviceId);
       }
@@ -1916,7 +2036,20 @@ const Games: React.FC = () => {
       deviceId,
       deviceName,
     }));
-  }, [activeDeviceIds, availableDevices, deviceNameById, hitHistory, selectedDeviceIds]);
+  }, [
+    activeDeviceIds,
+    availableDevices,
+    deviceNameById,
+    hitHistory,
+    isRunningLifecycle,
+    recentSessionSummary,
+    selectedDeviceIds,
+  ]);
+
+  const resolvedHitCounts = useMemo(
+    () => (isRunningLifecycle ? hitCounts : historicalHitCounts),
+    [historicalHitCounts, hitCounts, isRunningLifecycle],
+  );
 
   const deviceHitSummary = useMemo(() => {
     if (trackedDevices.length === 0) {
@@ -1930,7 +2063,7 @@ const Games: React.FC = () => {
 
     return trackedDevices
       .map(({ deviceId, deviceName }) => {
-        const liveHits = hitCounts[deviceId];
+        const liveHits = resolvedHitCounts[deviceId];
         const baseline = fallbackHits.get(deviceId) ?? 0;
         return {
           deviceId,
@@ -1939,7 +2072,7 @@ const Games: React.FC = () => {
         };
       })
       .sort((a, b) => b.hits - a.hits);
-  }, [availableDevices, hitCounts, trackedDevices]);
+  }, [availableDevices, resolvedHitCounts, trackedDevices]);
 
   const totalHitsLive = useMemo(
     () => deviceHitSummary.reduce((sum, entry) => sum + entry.hits, 0),
@@ -1965,13 +2098,25 @@ const Games: React.FC = () => {
   }, [deviceHitSummary]);
 
   const hitTimelineData = useMemo(() => {
-    if (!gameStartTime || trackedDevices.length === 0) {
+    const sourceHitHistory = isRunningLifecycle
+      ? hitHistory
+      : recentSessionSummary?.hitHistory ?? [];
+
+    const sourceStartTime = isRunningLifecycle
+      ? gameStartTime
+      : recentSessionSummary?.startedAt ?? gameStartTime;
+
+    const sourceStopTime = isRunningLifecycle
+      ? gameStopTime ?? Date.now()
+      : recentSessionSummary?.stoppedAt ?? recentSessionSummary?.startedAt ?? Date.now();
+
+    if (!sourceStartTime || trackedDevices.length === 0 || sourceHitHistory.length === 0) {
       return [];
     }
 
-    const timelineEnd = isRunningLifecycle ? Date.now() : gameStopTime ?? Date.now();
+    const timelineEnd = isRunningLifecycle ? Date.now() : sourceStopTime;
     const windowStart = Math.max(
-      gameStartTime,
+      sourceStartTime,
       timelineEnd - MAX_TIMELINE_POINTS * TIMELINE_BUCKET_MS,
     );
 
@@ -1987,7 +2132,7 @@ const Games: React.FC = () => {
       return entry;
     });
 
-    hitHistory.forEach((record) => {
+    sourceHitHistory.forEach((record) => {
       if (record.timestamp < windowStart) {
         return;
       }
@@ -2011,26 +2156,15 @@ const Games: React.FC = () => {
     });
 
     return buckets;
-  }, [deviceNameById, gameStartTime, gameStopTime, hitHistory, isRunningLifecycle, trackedDevices]);
-
-  const recentSplits = useMemo(() => {
-    if (splitRecords.length === 0) {
-      return [];
-    }
-    return splitRecords
-      .slice(-8)
-      .map((split, index) => ({
-        id: `${split.deviceId}-${split.timestamp ?? index}`,
-        deviceId: split.deviceId,
-        deviceName: split.deviceName ?? deviceNameById.get(split.deviceId) ?? split.deviceId,
-        label: `${
-          split.deviceName ?? deviceNameById.get(split.deviceId) ?? split.deviceId
-        } #${split.splitNumber ?? index + 1}`,
-        time: typeof split.time === 'number' ? split.time : Number(split.time) || 0,
-        splitNumber: split.splitNumber ?? index + 1,
-      }))
-      .reverse();
-  }, [deviceNameById, splitRecords]);
+  }, [
+    deviceNameById,
+    gameStartTime,
+    gameStopTime,
+    hitHistory,
+    isRunningLifecycle,
+    recentSessionSummary,
+    trackedDevices,
+  ]);
 
   const recentTransitions = useMemo(() => {
     if (transitionRecords.length === 0) {
@@ -2098,7 +2232,7 @@ const Games: React.FC = () => {
           : null;
 
       return {
-        id: `${hit.deviceId}-${hit.timestamp}`,
+        id: `${hit.deviceId}-${hit.timestamp}-${index}`,
         deviceName: hit.deviceName,
         timestamp: hit.timestamp,
         sequence: index + 1,
@@ -2238,56 +2372,6 @@ const Games: React.FC = () => {
                         recentSummary={recentSessionSummary}
                       />
                     )}
-
-                    {/* Hit timeline card plots hits over time per device to highlight activity spikes and target performance. */}
-                    {isPageLoading ? (
-                      <HitTimelineSkeleton />
-                    ) : (
-                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                        <CardContent className="p-4 md:p-5 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <h2 className="font-heading text-lg text-brand-dark">Hit Timeline</h2>
-                            <Badge variant="outline" className="text-xs">
-                              {trackedDevices.length} devices
-                            </Badge>
-                          </div>
-                          <div className="h-56">
-                            {hitTimelineData.length === 0 ? (
-                              <div className="flex h-full items-center justify-center text-sm text-brand-dark/60 text-center">
-                                Start streaming hits to see the live timeline.
-                              </div>
-                            ) : (
-                              <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={hitTimelineData} margin={{ top: 8, right: 16, left: -12, bottom: 36 }}>
-                                  <CartesianGrid strokeDasharray="4 4" stroke="#E2E8F0" />
-                                  <XAxis dataKey="time" stroke="#64748B" fontSize={10} />
-                                  <YAxis stroke="#64748B" fontSize={10} allowDecimals={false} />
-                                  <RechartsTooltip />
-                                  <Legend
-                                    verticalAlign="bottom"
-                                    iconSize={8}
-                                    height={48}
-                                    wrapperStyle={{ paddingTop: 12, width: '100%', maxHeight: 56, overflowY: 'auto' }}
-                                  />
-                                  {trackedDevices.map((device, index) => (
-                                    <Line
-                                      key={device.deviceId}
-                                      type="monotone"
-                                      dataKey={device.deviceName}
-                                      stroke={DEVICE_COLOR_PALETTE[index % DEVICE_COLOR_PALETTE.length]}
-                                      strokeWidth={2}
-                                      dot={false}
-                                      isAnimationActive={false}
-                                    />
-                                  ))}
-                                </LineChart>
-                              </ResponsiveContainer>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )}
-
                   </div>
 
                   <div className="space-y-4">
@@ -2370,45 +2454,147 @@ const Games: React.FC = () => {
                       </Card>
                     )}
 
-                    {/* Recent hits card streams the latest telemetry events so operators can audit per-hit chronology. */}
+                    {/* Hit timeline card plots hits over time per device to highlight activity spikes and target performance. */}
                     {isPageLoading ? (
-                      <RecentHitsSkeleton />
+                      <HitTimelineSkeleton />
                     ) : (
                       <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
                         <CardContent className="p-4 md:p-5 space-y-3">
                           <div className="flex items-center justify-between">
-                            <h2 className="font-heading text-lg text-brand-dark">Recent Hits</h2>
+                            <h2 className="font-heading text-lg text-brand-dark">Hit Timeline</h2>
                             <Badge variant="outline" className="text-xs">
-                              {hitHistory.length}
+                              {trackedDevices.length} devices
                             </Badge>
                           </div>
-                          {hitHistory.length === 0 ? (
-                            <p className="text-sm text-brand-dark/60 text-center py-6">
-                              {isRunningLifecycle ? 'Waiting for hits...' : 'No hits recorded yet.'}
+                          <div className="h-56">
+                            {hitTimelineData.length === 0 ? (
+                              <div className="flex h-full items-center justify-center text-sm text-brand-dark/60 text-center">
+                                Start streaming hits to see the live timeline.
+                              </div>
+                            ) : (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={hitTimelineData} margin={{ top: 8, right: 16, left: -12, bottom: 36 }}>
+                                  <CartesianGrid strokeDasharray="4 4" stroke="#E2E8F0" />
+                                  <XAxis dataKey="time" stroke="#64748B" fontSize={10} />
+                                  <YAxis stroke="#64748B" fontSize={10} allowDecimals={false} />
+                                  <RechartsTooltip />
+                                  <Legend
+                                    verticalAlign="bottom"
+                                    iconSize={8}
+                                    height={48}
+                                    wrapperStyle={{ paddingTop: 12, width: '100%', maxHeight: 56, overflowY: 'auto' }}
+                                  />
+                                  {trackedDevices.map((device, index) => (
+                                    <Line
+                                      key={device.deviceId}
+                                      type="monotone"
+                                      dataKey={device.deviceName}
+                                      stroke={DEVICE_COLOR_PALETTE[index % DEVICE_COLOR_PALETTE.length]}
+                                      strokeWidth={2}
+                                      dot={false}
+                                      isAnimationActive={false}
+                                    />
+                                  ))}
+                                </LineChart>
+                              </ResponsiveContainer>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                  </div>
+
+                  <div className="space-y-4">
+                    {/* Room selection card allows quick selection by pre-defined room groupings. */}
+                    {isPageLoading ? (
+                      <TargetSelectionSkeleton />
+                    ) : (
+                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
+                        <CardContent className="p-4 md:p-5 space-y-3">
+                          <div className="space-y-2">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <h2 className="font-heading text-lg text-brand-dark">Room Selection</h2>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={handleSelectAllRooms}
+                                  disabled={isSessionLocked || roomsLoading}
+                                >
+                                  Select all rooms
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={handleClearRoomSelection}
+                                  disabled={isSessionLocked}
+                                >
+                                  Clear rooms
+                                </Button>
+                              </div>
+                            </div>
+                            <p className="text-xs text-brand-dark/60">
+                              {roomSelections.length} rooms • {roomSelections.reduce((sum, room) => sum + room.targetCount, 0)} targets
                             </p>
+                          </div>
+
+                          {roomsLoading ? (
+                            <div className="flex items-center justify-center py-10 text-sm text-brand-dark/60">
+                              Loading rooms…
+                            </div>
+                          ) : roomSelections.length === 0 ? (
+                            <p className="text-sm text-brand-dark/60">No rooms with assigned targets available.</p>
                           ) : (
-                            <ScrollArea className="max-h-64 pr-2">
+                            <ScrollArea className="h-[220px] pr-2">
                               <div className="space-y-2">
-                                {[...hitHistory].reverse().slice(0, 60).map((hit) => (
-                                  <div
-                                    key={`${hit.deviceId}-${hit.timestamp}`}
-                                    className="flex items-center justify-between rounded-md border border-gray-100 bg-gray-50 px-3 py-2 text-xs"
-                                  >
-                                    <span className="font-medium text-brand-dark">{hit.deviceName}</span>
-                                    <span className="text-brand-dark/60">
-                                      {new Date(hit.timestamp).toLocaleTimeString()}
-                                    </span>
-                                  </div>
-                                ))}
+                                {roomSelections.map((room) => {
+                                  const isRoomSelected = room.deviceIds.every((id) => selectedDeviceIds.includes(id));
+                                  const partialSelection = !isRoomSelected && room.deviceIds.some((id) => selectedDeviceIds.includes(id));
+                                  const checkboxState = isRoomSelected ? true : partialSelection ? 'indeterminate' : false;
+                                  return (
+                                    <div
+                                      key={room.id}
+                                      className={`flex items-center justify-between rounded-lg border px-3 py-2 transition-colors ${
+                                        isRoomSelected
+                                          ? 'border-brand-primary/40 bg-brand-primary/5'
+                                          : 'border-gray-200 bg-white'
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <Checkbox
+                                          id={`room-${room.id}`}
+                                          checked={checkboxState}
+                                          onCheckedChange={(checked) =>
+                                            handleToggleRoomTargets(room.id, Boolean(checked))
+                                          }
+                                          disabled={isSessionLocked}
+                                        />
+                                        <label htmlFor={`room-${room.id}`} className="cursor-pointer select-none space-y-0.5">
+                                          <p className="font-medium text-sm text-brand-dark">{room.name}</p>
+                                          <p className="text-xs text-brand-dark/60">
+                                            {room.onlineCount}/{room.targetCount} online
+                                          </p>
+                                        </label>
+                                      </div>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handleToggleRoomTargets(room.id, !isRoomSelected)}
+                                        disabled={isSessionLocked}
+                                      >
+                                        {isRoomSelected ? 'Remove' : 'Select'}
+                                      </Button>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </ScrollArea>
                           )}
                         </CardContent>
                       </Card>
                     )}
-                  </div>
 
-                  <div className="space-y-4">
                     {/* Target selection card (with Start Game action) lists ThingsBoard devices with connection, hit counts, and lets operators assemble session rosters. */}
                     {isPageLoading ? (
                       <TargetSelectionSkeleton />
@@ -2547,56 +2733,6 @@ const Games: React.FC = () => {
                               </>
                             )}
                           </Button>
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    {/* Split times card visualises recent per-device split durations calculated from telemetry split records. */}
-                    {isPageLoading ? (
-                      <RecentSplitsSkeleton />
-                    ) : (
-                      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                        <CardContent className="p-4 md:p-5 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <h2 className="font-heading text-lg text-brand-dark">Split Times</h2>
-                            <Badge variant="outline" className="text-xs">
-                              {recentSplits.length}
-                            </Badge>
-                          </div>
-                          <div className="h-48">
-                            {recentSplits.length === 0 ? (
-                              <div className="flex h-full items-center justify-center text-sm text-brand-dark/60 text-center">
-                                Splits will appear once hits are recorded.
-                              </div>
-                            ) : (
-                              <ResponsiveContainer width="100%" height="100%">
-                                <BarChart
-                                  data={recentSplits}
-                                  layout="vertical"
-                                  margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
-                                >
-                                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                                  <XAxis type="number" stroke="#64748B" fontSize={10} unit="s" />
-                                  <YAxis
-                                    dataKey="label"
-                                    type="category"
-                                    stroke="#64748B"
-                                    fontSize={10}
-                                    width={140}
-                                  />
-                                  <RechartsTooltip formatter={(value) => [`${value} s`, 'Split']} />
-                                  <Bar dataKey="time" radius={[4, 4, 4, 4]}>
-                                    {recentSplits.map((entry, index) => (
-                                      <Cell
-                                        key={entry.id}
-                                        fill={DEVICE_COLOR_PALETTE[index % DEVICE_COLOR_PALETTE.length]}
-                                      />
-                                    ))}
-                                  </Bar>
-                                </BarChart>
-                              </ResponsiveContainer>
-                            )}
-                          </div>
                         </CardContent>
                       </Card>
                     )}
@@ -3139,6 +3275,123 @@ const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   onRetryFailed,
   isRetryingFailedDevices,
 }) => {
+  const [dialogHitHistory, setDialogHitHistory] = useState<SessionHitRecord[]>([]);
+
+  const dialogDeviceIds = useMemo(() => targets.map((target) => target.deviceId), [targets]);
+  const dialogDeviceIdSet = useMemo(() => new Set(dialogDeviceIds), [dialogDeviceIds]);
+  const targetNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    targets.forEach((target) => {
+      map.set(target.deviceId, target.name ?? target.deviceId);
+    });
+    return map;
+  }, [targets]);
+
+  const dialogStreamingLifecycle = lifecycle === 'launching' || lifecycle === 'running' || lifecycle === 'stopping' || lifecycle === 'finalizing';
+  const shouldStreamDialogTelemetry = Boolean(
+    open &&
+    dialogStreamingLifecycle &&
+    directControlEnabled &&
+    directFlowActive &&
+    directToken &&
+    directGameId &&
+    dialogDeviceIds.length > 0,
+  );
+
+  // Clears the dialog-scoped telemetry buffers whenever the popup closes or resubscribes.
+  const resetDialogTelemetry = useCallback(() => {
+    setDialogHitHistory([]);
+  }, []);
+
+  useEffect(() => {
+    if (!shouldStreamDialogTelemetry || !directToken || !directGameId) {
+      resetDialogTelemetry();
+      return;
+    }
+
+    resetDialogTelemetry();
+
+    const unsubscribe = tbSubscribeTelemetry(
+      dialogDeviceIds,
+      directToken,
+      (payload: TelemetryEnvelope) => {
+        const telemetryData = payload.data;
+        if (!telemetryData) {
+          return;
+        }
+
+        const eventValue = resolveSeriesString(telemetryData.event);
+        const gameIdValue = resolveSeriesString(telemetryData.gameId);
+        const deviceId = payload.entityId;
+
+        if (!deviceId || !dialogDeviceIdSet.has(deviceId)) {
+          return;
+        }
+
+        if (eventValue !== 'hit' || gameIdValue !== directGameId) {
+          return;
+        }
+
+        const now = Date.now();
+        const timestamp = resolveSeriesTimestamp(telemetryData.event, now) ?? now;
+        const deviceName = targetNameMap.get(deviceId) ?? deviceId;
+
+        setDialogHitHistory((prev) => ([
+          ...prev,
+          {
+            deviceId,
+            deviceName,
+            timestamp,
+            gameId: directGameId,
+          },
+        ]));
+      },
+      {
+        realtime: true,
+        onError: (reason) => {
+          console.warn('[StartSessionDialog] Telemetry degraded, relying on fallback state', reason);
+        },
+      },
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [
+    directGameId,
+    directToken,
+    dialogDeviceIdSet,
+    dialogDeviceIds,
+    resetDialogTelemetry,
+    shouldStreamDialogTelemetry,
+    targetNameMap,
+  ]);
+
+  const dialogSessionHits = useMemo<SessionHitEntry[]>(() => {
+    if (dialogHitHistory.length === 0) {
+      return [];
+    }
+
+    const baseTime = dialogHitHistory[0]?.timestamp ?? Date.now();
+
+    return dialogHitHistory.map((hit, index) => {
+      const previous = index > 0 ? dialogHitHistory[index - 1] : null;
+      const sinceStartSeconds = Math.max(0, (hit.timestamp - baseTime) / 1000);
+      const splitSeconds = previous ? Math.max(0, (hit.timestamp - previous.timestamp) / 1000) : null;
+
+      return {
+        id: `${hit.deviceId}-${hit.timestamp}-${index}`,
+        deviceName: hit.deviceName,
+        timestamp: hit.timestamp,
+        sequence: index + 1,
+        sinceStartSeconds,
+        splitSeconds,
+      };
+    });
+  }, [dialogHitHistory]);
+
+  const displayedSessionHits = dialogSessionHits.length > 0 ? dialogSessionHits : sessionHits;
+
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
       onClose();
@@ -3336,7 +3589,7 @@ const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
         </div>
         <h3 className="text-sm uppercase tracking-wide text-white/80">Live shot feed</h3>
         <SessionHitFeedList
-          hits={sessionHits}
+          hits={displayedSessionHits}
           variant="live"
           emptyLabel="Waiting for the first hit..."
           limit={12}
@@ -3351,11 +3604,11 @@ const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
       <div className="space-y-3">
         <SessionProgressMessage tone="live" message={message} />
         {renderDirectTargetStatuses()}
-        {sessionHits.length > 0 && (
+        {displayedSessionHits.length > 0 && (
           <>
             <h3 className="text-sm uppercase tracking-wide text-white/80">Recent hits</h3>
             <SessionHitFeedList
-              hits={sessionHits}
+              hits={displayedSessionHits}
               variant="finalizing"
               emptyLabel="Waiting for hits..."
               limit={6}
@@ -3600,29 +3853,6 @@ const HitDistributionSkeleton: React.FC = () => (
   </Card>
 );
 
-// Provides a placeholder feed for the recent hits card.
-const RecentHitsSkeleton: React.FC = () => (
-  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-3">
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-5 w-28 bg-gray-200" />
-        <Skeleton className="h-4 w-10 bg-gray-200" />
-      </div>
-      <div className="space-y-2">
-        {Array.from({ length: 6 }).map((_, index) => (
-          <div
-            key={index}
-            className="flex items-center justify-between rounded-md border border-gray-100 bg-gray-50 px-3 py-2"
-          >
-            <Skeleton className="h-3 w-32 bg-gray-200" />
-            <Skeleton className="h-3 w-16 bg-gray-200" />
-          </div>
-        ))}
-      </div>
-    </CardContent>
-  </Card>
-);
-
 // Covers the hit timeline chart while telemetry history is loading.
 const HitTimelineSkeleton: React.FC = () => (
   <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
@@ -3632,19 +3862,6 @@ const HitTimelineSkeleton: React.FC = () => (
         <Skeleton className="h-4 w-20 bg-gray-200" />
       </div>
       <Skeleton className="h-56 w-full bg-gray-100 rounded-lg" />
-    </CardContent>
-  </Card>
-);
-
-// Shows split-time placeholders before the bar chart renders.
-const RecentSplitsSkeleton: React.FC = () => (
-  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-3">
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-5 w-24 bg-gray-200" />
-        <Skeleton className="h-4 w-10 bg-gray-200" />
-      </div>
-      <Skeleton className="h-48 w-full bg-gray-100 rounded-lg" />
     </CardContent>
   </Card>
 );
@@ -3742,54 +3959,58 @@ const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
     const recentSplits = (recentSummary.splits ?? []).slice(0, 4);
 
     return (
-      <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-        <CardContent className="p-4 md:p-5 space-y-4">
+      <Card className="rounded-md md:rounded-lg border border-brand-primary/20 bg-gradient-to-br from-white via-brand-primary/5 to-brand-secondary/10 shadow-lg">
+        <CardContent className="p-4 md:p-5 space-y-5">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <h2 className="font-heading text-lg text-brand-dark">Last Session Summary</h2>
-              <p className="text-xs text-brand-dark/60">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-brand-primary font-semibold">Last Session</p>
+              <h2 className="font-heading text-xl text-brand-dark">Summary</h2>
+              <p className="text-xs text-brand-dark/70">
                 {new Date(recentSummary.startedAt).toLocaleTimeString()} • {recentSummary.targets.length} targets
               </p>
             </div>
-            <Badge variant="outline" className="text-xs text-brand-dark/70">
+            <Badge className="bg-brand-primary/10 text-brand-primary border-brand-primary/40">
               {formatSessionDuration(recentSummary.durationSeconds)}
             </Badge>
           </div>
-          <div className="grid grid-cols-2 gap-3 text-xs text-brand-dark/60">
-            <div>
-              <p className="uppercase tracking-wide">Total Hits</p>
-              <p className="font-heading text-lg text-brand-dark">{recentSummary.totalHits}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
+              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Total Hits</p>
+              <p className="font-heading text-2xl text-brand-primary">{recentSummary.totalHits}</p>
             </div>
-            <div>
-              <p className="uppercase tracking-wide">Avg Split</p>
-              <p className="font-heading text-lg text-brand-dark">
+            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
+              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Avg Split</p>
+              <p className="font-heading text-2xl text-brand-primary">
                 {recentSummary.averageHitInterval > 0 ? `${recentSummary.averageHitInterval.toFixed(2)}s` : '—'}
               </p>
             </div>
-            <div>
-              <p className="uppercase tracking-wide">Switches</p>
-              <p className="font-heading text-lg text-brand-dark">
+            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
+              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Switches</p>
+              <p className="font-heading text-2xl text-brand-primary">
                 {recentSummary.crossTargetStats?.totalSwitches ?? 0}
               </p>
             </div>
-            <div>
-              <p className="uppercase tracking-wide">Game ID</p>
-              <p className="font-heading text-sm text-brand-dark truncate max-w-[180px]" title={recentSummary.gameId}>
+            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
+              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Game ID</p>
+              <p className="font-heading text-base text-brand-dark truncate max-w-[200px]" title={recentSummary.gameId}>
                 {recentSummary.gameId}
               </p>
             </div>
           </div>
           <Separator />
-          <div className="space-y-2">
+          <div className="space-y-3">
             <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Top Targets</p>
             {topResults.length === 0 ? (
               <p className="text-sm text-brand-dark/60">No target activity captured for this session.</p>
             ) : (
               <div className="space-y-2">
                 {topResults.map((result) => (
-                  <div key={result.deviceId} className="flex items-center justify-between">
+                  <div
+                    key={result.deviceId}
+                    className="flex items-center justify-between rounded-lg border border-brand-secondary/20 bg-white/80 px-3 py-2"
+                  >
                     <span className="font-medium text-brand-dark">{result.deviceName}</span>
-                    <span className="font-heading text-sm text-brand-dark">{result.hitCount}</span>
+                    <span className="font-heading text-lg text-brand-primary">{result.hitCount}</span>
                   </div>
                 ))}
               </div>
@@ -3798,15 +4019,21 @@ const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
           {recentSplits.length > 0 && (
             <>
               <Separator />
-              <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Recent Splits</p>
-                <div className="space-y-1">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-brand-dark/60">
+                  <span>Recent Splits</span>
+                  <span className="text-brand-primary text-[10px] font-semibold">Hit number + Time Split</span>
+                </div>
+                <div className="space-y-1.5">
                   {recentSplits.map((split) => (
-                    <div key={`${split.deviceId}-${split.splitNumber}`} className="flex items-center justify-between text-xs">
-                      <span className="text-brand-dark/70">
+                    <div
+                      key={`${split.deviceId}-${split.splitNumber}`}
+                      className="flex items-center justify-between rounded-lg border border-brand-primary/20 bg-brand-primary/5 px-3 py-2 text-xs text-brand-dark"
+                    >
+                      <span className="font-medium text-brand-dark">
                         {split.deviceName} #{split.splitNumber}
                       </span>
-                      <span className="font-heading text-brand-dark">{split.time.toFixed(2)}s</span>
+                      <span className="font-heading text-sm text-brand-primary">{split.time.toFixed(2)}s</span>
                     </div>
                   ))}
                 </div>

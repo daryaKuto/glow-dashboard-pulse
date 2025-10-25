@@ -159,10 +159,28 @@ export const useDirectTbTelemetry = ({
         const deviceIdValue = resolveValue(telemetry.deviceId) as string | undefined;
         const eventTimestamp = resolveTimestamp(telemetry.event, Date.now());
 
-        const deviceId = deviceIdValue ?? payload.entityId;
+        const fallbackEntityId = typeof payload.entityId === 'string' ? payload.entityId : '';
+        const deviceId =
+          typeof deviceIdValue === 'string' && deviceIdValue.trim().length > 0
+            ? deviceIdValue
+            : fallbackEntityId;
+        if (!deviceId || deviceId.trim().length === 0) {
+          console.warn('[DirectTelemetry] Dropping telemetry without deviceId', {
+            entityId: payload.entityId,
+            telemetry,
+          });
+          return;
+        }
         const deviceName = deviceNameMap.get(deviceId) ?? deviceId;
 
-        if (!deviceId || gameIdValue !== gameId) {
+        console.info('[DirectTelemetry] Raw telemetry received', {
+          entityId: payload.entityId,
+          deviceId,
+          gameIdValue,
+          telemetry,
+        });
+
+        if (gameIdValue !== gameId) {
           return;
         }
 
@@ -185,7 +203,13 @@ export const useDirectTbTelemetry = ({
           return;
         }
 
-        console.info('[DirectTelemetry] Hit event received', { deviceId, eventTimestamp });
+        console.info('[DirectTelemetry] Hit event received', {
+          deviceId,
+          deviceName,
+          eventTimestamp,
+          gameId,
+          raw: telemetry,
+        });
 
         setHitCounts((prev) => ({
           ...prev,
@@ -214,6 +238,12 @@ export const useDirectTbTelemetry = ({
         if (typeof previousTimestamp === 'number') {
           const splitTime = (eventTimestamp - previousTimestamp) / 1000;
           if (splitTime > 0) {
+            console.info('[DirectTelemetry] Split computed', {
+              deviceId,
+              deviceName,
+              splitTimeSeconds: splitTime,
+              timestamp: eventTimestamp,
+            });
             setSplits((prevSplits) => ([
               ...prevSplits,
               {

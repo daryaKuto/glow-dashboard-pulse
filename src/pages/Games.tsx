@@ -793,12 +793,24 @@ const Games: React.FC = () => {
   }, [refreshTargets]);
 
   useEffect(() => {
-    if (rooms.length === 0 && !roomsLoading) {
-      void fetchRooms().catch((err) => {
-        console.warn('[Games] Failed to fetch rooms for selection card', err);
-      });
-    }
-  }, [rooms.length, roomsLoading, fetchRooms]);
+    let cancelled = false;
+
+    const loadRooms = async () => {
+      try {
+        await fetchRooms();
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[Games] Failed to fetch rooms for selection card', err);
+        }
+      }
+    };
+
+    void loadRooms();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchRooms]);
 
   const targetById = useMemo(() => {
     const map = new Map<string, Target>();

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Target as TargetIcon, Users, Calendar, Bell, Clock, Zap, Trophy, TrendingUp, Activity, BarChart3, Play, User, X, Gamepad2, BarChart, Award, RefreshCcw } from 'lucide-react';
+import { Target as TargetIcon, Users, Calendar, Bell, Clock, Zap, Trophy, TrendingUp, Activity, Play, User, X, Gamepad2, BarChart, Award, CheckCircle } from 'lucide-react';
 import { useStats } from '@/store/useStats';
 import { useTargets } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
@@ -11,10 +11,7 @@ import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useShootingActivityPolling } from '@/hooks/useShootingActivityPolling';
 import { useInitialSync } from '@/hooks/useInitialSync';
-import { useHistoricalActivity } from '@/hooks/useHistoricalActivity';
-import type { TargetShootingActivity } from '@/hooks/useShootingActivityPolling';
 import type { TargetsSummary } from '@/lib/edge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -65,30 +62,184 @@ const StatCard: React.FC<{
   </Card>
 );
 
-// Activity Chart Component - Real Target Activity
-const ActivityChart: React.FC<{
-  targetActivity: TargetShootingActivity[];
-  hitTrend: Array<{ date: string; hits: number }>;
-  isLoading: boolean;
-  historicalData: Array<{ date: string; hits: number; timestamp: number }>;
-  timeRange: 'day' | 'week' | '3m' | '6m' | 'all';
-  onTimeRangeChange: (range: 'day' | 'week' | '3m' | '6m' | 'all') => void;
-  historicalLoading: boolean;
+const formatScoreValue = (value: number | null | undefined): string => {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return 'N/A';
+  }
+  return value % 1 === 0 ? value.toString() : value.toFixed(2);
+};
+
+const formatDurationValue = (durationMs: number | null | undefined): string => {
+  if (durationMs === null || durationMs === undefined || Number.isNaN(durationMs)) {
+    return '—';
+  }
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+};
+
+type TimeRange = 'day' | 'week' | 'month' | 'all';
+
+type RangeSummary = {
+  chartData: Array<{ label: string; hits: number }>;
   averageScore: number | null;
   bestScore: number | null;
-  lastShotsFired: number | null;
+  totalShots: number;
+  sessionCount: number;
+};
+
+const RANGE_ORDER: TimeRange[] = ['day', 'week', 'month', 'all'];
+
+const RANGE_CONFIG: Record<TimeRange, { windowMs: number | null; bucketMs: number; bucketCount: number; label: string }> = {
+  day: { windowMs: 24 * 60 * 60 * 1000, bucketMs: 60 * 60 * 1000, bucketCount: 24, label: 'ha' },
+  week: { windowMs: 7 * 24 * 60 * 60 * 1000, bucketMs: 24 * 60 * 60 * 1000, bucketCount: 7, label: 'ddd' },
+  month: { windowMs: 30 * 24 * 60 * 60 * 1000, bucketMs: 24 * 60 * 60 * 1000, bucketCount: 30, label: 'MMM D' },
+  all: { windowMs: null, bucketMs: 30 * 24 * 60 * 60 * 1000, bucketCount: 18, label: 'MMM YY' },
+};
+
+const buildRangeSummaries = (sessions: Session[]): Record<TimeRange, RangeSummary> => {
+  const now = Date.now();
+  const summaries: Record<TimeRange, RangeSummary> = {} as Record<TimeRange, RangeSummary>;
+
+  RANGE_ORDER.forEach((range) => {
+    const config = RANGE_CONFIG[range];
+    const windowStart =
+      config.windowMs === null
+        ? (() => {
+            const earliest = sessions.reduce<number | null>((min, session) => {
+              const ts = Date.parse(session.startedAt);
+              if (Number.isNaN(ts)) return min;
+              if (min === null || ts < min) {
+                return ts;
+              }
+              return min;
+            }, null);
+            return earliest ?? now - config.bucketMs * config.bucketCount;
+          })()
+        : now - config.windowMs;
+
+    const filteredSessions = sessions.filter((session) => {
+      const ts = Date.parse(session.startedAt);
+      if (Number.isNaN(ts)) return false;
+      if (config.windowMs === null) {
+        return ts <= now;
+      }
+      return ts >= windowStart && ts <= now;
+    });
+
+    const bucketStart = config.windowMs === null ? windowStart : windowStart;
+    const buckets: Array<{ start: number; label: string; hits: number }> = [];
+    for (let i = 0; i < config.bucketCount; i += 1) {
+      const start = bucketStart + i * config.bucketMs;
+      const label = dayjs(start).format(config.label);
+      buckets.push({ start, label, hits: 0 });
+    }
+
+    filteredSessions.forEach((session) => {
+      const ts = Date.parse(session.startedAt);
+      if (Number.isNaN(ts)) {
+        return;
+      }
+      const index = Math.min(
+        buckets.length - 1,
+        Math.max(0, Math.floor((ts - bucketStart) / config.bucketMs)),
+      );
+      buckets[index].hits += Number.isFinite(session.hitCount) ? session.hitCount : 0;
+    });
+
+    const totalShots = filteredSessions.reduce(
+      (sum, session) => sum + (Number.isFinite(session.hitCount) ? (session.hitCount ?? 0) : 0),
+      0,
+    );
+    const scoreValues = filteredSessions
+      .map((session) => (Number.isFinite(session.score) ? session.score ?? 0 : null))
+      .filter((value): value is number => value !== null);
+
+    const averageScore =
+      scoreValues.length > 0
+        ? Number((scoreValues.reduce((sum, value) => sum + value, 0) / scoreValues.length).toFixed(2))
+        : null;
+    const bestScore =
+      scoreValues.length > 0 ? Math.max(...scoreValues) : null;
+
+    summaries[range] = {
+      chartData: buckets.map((bucket) => ({ label: bucket.label, hits: bucket.hits })),
+      averageScore,
+      bestScore,
+      totalShots,
+      sessionCount: filteredSessions.length,
+    };
+  });
+
+  return summaries;
+};
+
+// Activity Chart Component - Supabase-powered Target Activity
+const ActivityChart: React.FC<{
+  summaries: Record<TimeRange, RangeSummary>;
+  availableRanges: TimeRange[];
+  activeRange: TimeRange;
+  onRangeChange: (range: TimeRange) => void;
+  isLoading: boolean;
 }> = ({
-  targetActivity,
-  hitTrend,
+  summaries,
+  availableRanges,
+  activeRange,
+  onRangeChange,
   isLoading,
-  historicalData,
-  timeRange,
-  onTimeRangeChange,
-  historicalLoading,
-  averageScore,
-  bestScore,
-  lastShotsFired,
 }) => {
+  const summary = summaries[activeRange];
+  const chartData = summary?.chartData ?? [];
+  const hasData = summary && summary.sessionCount > 0;
+  const filteredChartData = useMemo(() => {
+    const shouldTrim = activeRange === 'day' || activeRange === 'month' || activeRange === 'all';
+    if (!shouldTrim) {
+      return chartData;
+    }
+
+    const activeIndexes = chartData.reduce<number[]>((indices, bucket, index) => {
+      if (bucket.hits > 0) {
+        indices.push(index);
+      }
+      return indices;
+    }, []);
+
+    if (activeIndexes.length === 0) {
+      const fallbackWindow = activeRange === 'day' ? 8 : 12;
+      return chartData.slice(-fallbackWindow);
+    }
+
+    const padding =
+      activeRange === 'day'
+        ? 1
+        : activeRange === 'month'
+          ? 2
+          : 1;
+
+    const firstIndex = Math.max(0, activeIndexes[0] - padding);
+    const lastIndex = Math.min(chartData.length - 1, activeIndexes[activeIndexes.length - 1] + padding);
+    return chartData.slice(firstIndex, lastIndex + 1);
+  }, [chartData, activeRange]);
+
+  const activityBuckets = useMemo(() => {
+    if (activeRange !== 'day') {
+      return filteredChartData.map((bucket) => ({ ...bucket, metric: bucket.hits }));
+    }
+
+    let cumulativeHits = 0;
+    return filteredChartData.map((bucket) => {
+      cumulativeHits += bucket.hits;
+      return {
+        ...bucket,
+        metric: cumulativeHits,
+        incrementalHits: bucket.hits,
+      };
+    });
+  }, [filteredChartData, activeRange]);
 
   if (isLoading) {
     return (
@@ -108,247 +259,122 @@ const ActivityChart: React.FC<{
 
   // Calculate real activity metrics
   
-  // Use historical data for the chart, fallback to hitTrend, then empty data
-  const chartData = historicalData.length > 0 ? historicalData : 
-    (hitTrend.length > 0 ? hitTrend : 
-      Array.from({ length: 7 }, (_, i) => {
-        const date = new Date();
-        date.setDate(date.getDate() - (6 - i));
-        return { 
-          date: date.toISOString().split('T')[0], 
-          hits: 0 
-        };
-      })
-    );
-
-  const maxHits = Math.max(...chartData.map(d => d.hits), 1);
-  const averageScoreDisplay = averageScore !== null ? `${averageScore}%` : 'N/A';
-  const bestScoreDisplay = bestScore !== null ? `${bestScore}%` : 'N/A';
-  const lastShotsDisplay = lastShotsFired !== null ? lastShotsFired.toLocaleString() : 'N/A';
+  const maxHits = Math.max(...activityBuckets.map((d) => d.metric), 1);
+  const averageScoreDisplay = formatScoreValue(summary?.averageScore ?? null);
+  const bestScoreDisplay = formatScoreValue(summary?.bestScore ?? null);
+  const totalShotsDisplay = summary ? summary.totalShots.toLocaleString() : '—';
   
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-brand-dark">Session Metrics</h3>
-        <Badge className="bg-green-500 text-white border-green-500">
-          Real-time
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-primary/10 text-brand-primary">
+            <TargetIcon className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-medium text-brand-dark">Target Activity</h3>
+            <p className="text-[11px] text-brand-dark/60">Supabase session telemetry</p>
+          </div>
+        </div>
+        <Badge className="bg-brand-primary/10 text-brand-primary border-brand-primary/20">
+          {summary?.sessionCount ?? 0} sessions
         </Badge>
       </div>
 
-      <div className="space-y-3">
-        {[{
-          label: 'Average Score',
-          value: averageScoreDisplay,
-          color: 'bg-brand-primary'
-        }, {
-          label: 'Best Score',
-          value: bestScoreDisplay,
-          color: 'bg-green-500'
-        }, {
-          label: 'Last Shots Fired',
-          value: lastShotsDisplay,
-          color: 'bg-purple-500'
-        }].map((metric) => (
-          <div key={metric.label} className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className={`w-3 h-3 rounded-full ${metric.color}`}></div>
-              <span className="text-sm text-brand-dark">{metric.label}</span>
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          {
+            label: 'Average Score',
+            value: averageScoreDisplay,
+            icon: <Trophy className="h-4 w-4" />,
+            bg: 'from-brand-primary/10 via-white to-brand-primary/5',
+          },
+          {
+            label: 'Best Score',
+            value: bestScoreDisplay,
+            icon: <Zap className="h-4 w-4" />,
+            bg: 'from-emerald-500/10 via-white to-emerald-500/5',
+          },
+          {
+            label: 'Shots Fired',
+            value: totalShotsDisplay,
+            icon: <TargetIcon className="h-4 w-4" />,
+            bg: 'from-brand-secondary/10 via-white to-brand-secondary/5',
+          },
+        ].map((metric) => (
+          <div
+            key={metric.label}
+            className={`rounded-lg border border-white/40 bg-gradient-to-br ${metric.bg} px-3 py-2 flex flex-col gap-1`}
+          >
+            <div className="flex items-center justify-between text-[11px] text-brand-dark/60">
+              <span>{metric.label}</span>
+              <span className="text-brand-primary/80">{metric.icon}</span>
             </div>
-            <span className="text-sm font-medium text-brand-dark">{metric.value}</span>
+            <p className="text-sm font-heading text-brand-dark">{metric.value}</p>
           </div>
         ))}
       </div>
 
-      {/* Time Range Tabs */}
       <div className="pt-4 border-t border-gray-200">
         <div className="flex items-center justify-between mb-3">
           <h4 className="text-sm font-medium text-brand-dark">
-            {timeRange === 'day' && '24-Hour Hit Activity'}
-            {timeRange === 'week' && '7-Day Hit Trend'}
-            {timeRange === '3m' && '3-Month Activity'}
-            {timeRange === '6m' && '6-Month Activity'}
-            {timeRange === 'all' && 'All-Time Activity'}
+            {activeRange === 'day' && '24-Hour Hit Activity'}
+            {activeRange === 'week' && '7-Day Hit Trend'}
+            {activeRange === 'month' && '30-Day Activity'}
+            {activeRange === 'all' && 'All-Time Activity'}
           </h4>
           <div className="flex space-x-1">
-            {(['day', 'week', '3m', '6m', 'all'] as const).map((range) => (
+            {availableRanges.map((range) => (
               <Button
                 key={range}
-                variant={timeRange === range ? 'default' : 'ghost'}
+                variant={activeRange === range ? 'default' : 'ghost'}
                 size="sm"
-                onClick={() => onTimeRangeChange(range)}
+                onClick={() => onRangeChange(range)}
                 className="text-xs px-2 py-1 h-7"
-                disabled={historicalLoading}
               >
                 {range === 'day' && 'Day'}
                 {range === 'week' && 'Week'}
-                {range === '3m' && '3M'}
-                {range === '6m' && '6M'}
+                {range === 'month' && 'Month'}
                 {range === 'all' && 'All'}
               </Button>
             ))}
           </div>
         </div>
-        <div className="flex items-end justify-between gap-2 h-20">
-          {historicalLoading ? (
-            // Show loading skeleton
-            [...Array(7)].map((_, i) => (
-              <div key={i} className="flex-1 bg-gray-200 animate-pulse rounded-t-lg h-16"></div>
-            ))
-          ) : (
-            chartData.map((item, index) => {
-              const isLatest = index === chartData.length - 1;
-              let timeLabel: string;
-              
-              // Format time label based on selected range
-              switch (timeRange) {
-                case 'day':
-                  timeLabel = dayjs(item.date).format('HH:mm');
-                  break;
-                case 'week':
-                  timeLabel = dayjs(item.date).format('ddd');
-                  break;
-                case '3m':
-                case '6m':
-                  timeLabel = dayjs(item.date).format('MMM DD');
-                  break;
-                case 'all':
-                  timeLabel = dayjs(item.date).format('MMM YY');
-                  break;
-                default:
-                  timeLabel = dayjs(item.date).format('ddd');
-              }
-              
+        {hasData ? (
+          <div className="flex items-end justify-between gap-2 h-20">
+            {activityBuckets.map((item, index) => {
+              const isLatest = index === activityBuckets.length - 1;
+              const barHeight = (item.metric / maxHits) * 100;
               return (
-                <div key={index} className="flex flex-col items-center gap-2 flex-1">
+                <div key={`${item.label}-${index}`} className="flex flex-col items-center gap-2 flex-1">
                   <div className="flex-1 flex items-end w-full">
                     <div
                       className={`w-full rounded-t-lg transition-all duration-300 ${
-                        isLatest 
-                          ? 'bg-brand-primary' 
+                        isLatest
+                          ? 'bg-brand-primary'
                           : 'bg-brand-secondary/30 hover:bg-brand-secondary/50'
                       }`}
                       style={{
-                        height: `${(item.hits / maxHits) * 100}%`,
-                        minHeight: '4px'
+                        height: `${Math.max(6, barHeight)}%`,
+                        minHeight: '4px',
                       }}
-                      title={`${timeLabel}: ${item.hits} hits`}
+                      title={
+                        activeRange === 'day'
+                          ? `${item.label}: ${item.incrementalHits ?? item.hits} hits this hour · ${item.metric} cumulative`
+                          : `${item.label}: ${item.hits} hits`
+                      }
                     />
                   </div>
-                  <span className="text-xs text-brand-dark/50 font-body">{timeLabel}</span>
+                  <span className="text-xs text-brand-dark/50 font-body">{item.label}</span>
                 </div>
               );
-            })
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// System Overview using simple metric display
-const SystemOverview: React.FC<{
-  targets: Target[];
-  sessions: Session[];
-  isLoading: boolean;
-  summary?: TargetsSummary | null;
-  summaryLoading?: boolean;
-}> = ({ targets, sessions, isLoading, summary, summaryLoading }) => {
-  const summaryReady = Boolean(summary) || targets.length > 0;
-  const isSkeleton = isLoading || summaryLoading || !summaryReady;
-
-  if (isSkeleton) {
-    return (
-      <div className="space-y-2 md:space-y-3">
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="flex items-center justify-between p-2 md:p-3 bg-gray-50 rounded-sm md:rounded-lg animate-pulse">
-            <div className="h-3 md:h-4 w-20 md:w-24 bg-gray-200 rounded-sm md:rounded"></div>
-            <div className="h-4 md:h-5 w-10 md:w-12 bg-gray-200 rounded-sm md:rounded"></div>
+            })}
           </div>
-        ))}
-      </div>
-    );
-  }
-
-  const hasTargetDetails = targets.length > 0;
-  const totalTargets = hasTargetDetails ? targets.length : summary?.totalTargets ?? 0;
-  const onlineTargets = hasTargetDetails
-    ? targets.filter(t => t.status === 'online' || t.status === 'standby').length
-    : summary?.onlineTargets ?? 0;
-  const offlineTargets = hasTargetDetails
-    ? targets.filter(t => t.status === 'offline').length
-    : summary?.offlineTargets ?? Math.max(totalTargets - onlineTargets, 0);
-  const completedSessions = sessions.filter(s => s.score > 0).length;
-  const totalSessions = sessions.length;
-  
-  // If no targets available, show N/A
-  const hasTargets = totalTargets > 0;
-
-  const metrics = [
-    { 
-      label: 'Online Targets', 
-      value: hasTargets ? onlineTargets : 'N/A', 
-      total: hasTargets ? totalTargets : null,
-      color: hasTargets ? 'text-green-600' : 'text-gray-400',
-      bgColor: hasTargets ? 'bg-green-50' : 'bg-gray-50'
-    },
-    { 
-      label: 'Offline Targets', 
-      value: hasTargets ? offlineTargets : 'N/A', 
-      total: hasTargets ? totalTargets : null,
-      color: hasTargets ? 'text-gray-600' : 'text-gray-400',
-      bgColor: hasTargets ? 'bg-gray-50' : 'bg-gray-50'
-    },
-    { 
-      label: 'Completed Sessions', 
-      value: completedSessions, 
-      total: totalSessions,
-      color: 'text-brand-primary',
-      bgColor: 'bg-orange-50'
-    },
-    { 
-      label: 'Total Sessions', 
-      value: totalSessions, 
-      total: null,
-      color: 'text-brand-secondary',
-      bgColor: 'bg-purple-50'
-    },
-  ];
-
-  return (
-    <div className="space-y-2 md:space-y-3">
-      {metrics.map((metric, index) => (
-        <div key={index} className={`flex items-center justify-between p-2 md:p-3 ${metric.bgColor} rounded-sm md:rounded-lg`}>
-          <div className="flex items-center gap-2 md:gap-3">
-            <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${metric.color.replace('text-', 'bg-')}`}></div>
-            <span className="text-xs md:text-sm font-medium text-brand-dark">{metric.label}</span>
+        ) : (
+          <div className="rounded-lg border border-dashed border-brand-secondary/40 bg-brand-secondary/5 px-4 py-6 text-center text-sm text-brand-dark/60">
+            No Supabase sessions found for this range.
           </div>
-          <div className="flex items-center gap-1 md:gap-2">
-            <span className={`text-sm md:text-base lg:text-lg font-bold ${metric.color}`}>{metric.value}</span>
-            {metric.total !== null && (
-              <span className="text-xs md:text-sm text-brand-dark/50">/ {metric.total}</span>
-            )}
-          </div>
-        </div>
-      ))}
-      
-      {/* Quick Actions */}
-      <div className="pt-2 md:pt-3 border-t border-gray-200">
-        <div className="grid grid-cols-2 gap-1.5 md:gap-2">
-          <Button 
-            size="sm" 
-            className="bg-brand-primary text-white hover:bg-brand-primary/90 text-[10px] h-7 !px-2 w-full whitespace-nowrap overflow-hidden"
-            onClick={() => window.location.href = '/dashboard/targets'}
-          >
-            <span className="truncate">Manage Targets</span>
-          </Button>
-          <Button 
-            size="sm" 
-            className="bg-brand-purple text-white hover:bg-brand-purple/90 text-[10px] h-7 !px-2 w-full whitespace-nowrap overflow-hidden"
-            onClick={() => window.location.href = '/dashboard/scenarios'}
-          >
-            <span className="truncate">View Sessions</span>
-          </Button>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -477,34 +503,29 @@ const ComingSoonCard: React.FC<{
   );
 };
 
+const SESSION_HISTORY_LIMIT = 250;
+
 const Dashboard: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [dismissedCards, setDismissedCards] = useState<string[]>([]);
   const [targetsLoading, setTargetsLoading] = useState(false);
-  const [timeRange, setTimeRange] = useState<'day' | 'week' | '3m' | '6m' | 'all'>('week');
   const isFetchingRef = useRef(false);
   const lastFetchTimeRef = useRef(0);
   const telemetryFetchedRef = useRef(false);
   const telemetryInitializedRef = useRef(false);
-  const [manualRefreshState, setManualRefreshState] = useState<'idle' | 'refreshing' | 'success' | 'error'>('idle');
-  const [manualRefreshMessage, setManualRefreshMessage] = useState<string | null>(null);
   const FETCH_DEBOUNCE_MS = 2000; // 2 seconds debounce
   
   // Real data from stores
   const { 
     metrics,
-    metricsCached,
     activeTargets, 
     roomsCreated, 
     lastScenarioScore, 
     pendingInvites, 
-    hitTrend,
     isLoading: statsLoading, 
-    fetchStats, 
-    updateHit, 
-    setWsConnected 
+    fetchStats
   } = useStats();
   
   const { targets: rawTargets, fetchTargetsFromEdge, fetchTargetDetails } = useTargets();
@@ -516,14 +537,6 @@ const Dashboard: React.FC = () => {
 
   // Initial sync with ThingsBoard (only on dashboard)
   const { syncStatus, isReady } = useInitialSync();
-
-  useEffect(() => {
-    if (!user?.id) {
-      return;
-    }
-
-    void fetchSessions(user.id, 10);
-  }, [user?.id, fetchSessions]);
 
   // Fetch merged targets with room assignments and telemetry
   const fetchMergedTargets = useCallback(async () => {
@@ -560,17 +573,14 @@ const Dashboard: React.FC = () => {
     }
     return rawTargets.length > 0;
   }, [summary, summaryLoading, rawTargets.length]);
+  const summaryPending = summaryLoading || (statsLoading && !summaryReady);
+  const shouldShowSkeleton = summaryPending || sessionsLoading || targetsLoading;
+  const telemetryLoading = targetsLoading && rawTargets.length === 0;
 
   const telemetryEnabled = summaryReady;
+  const currentTargets = rawTargets;
 
-  const handleManualRefresh = useCallback(async () => {
-    if (manualRefreshState === 'refreshing') {
-      return;
-    }
-
-    setManualRefreshState('refreshing');
-    setManualRefreshMessage(null);
-
+  const refreshAllData = useCallback(async () => {
     try {
       const refreshPromises: Array<Promise<unknown>> = [
         fetchStats({ force: true }),
@@ -580,42 +590,22 @@ const Dashboard: React.FC = () => {
       ];
 
       if (user?.id) {
-        refreshPromises.push(fetchSessions(user.id, 10));
+        refreshPromises.push(fetchSessions(user.id, { includeFullHistory: true, limit: SESSION_HISTORY_LIMIT }));
       }
 
       await Promise.all(refreshPromises);
-
-      setManualRefreshState('success');
-      setManualRefreshMessage('Dashboard data refreshed. Latest data is now cached.');
     } catch (error) {
-      console.error('[Dashboard] Manual data refresh failed', error);
-      const message = error instanceof Error ? error.message : 'Failed to refresh dashboard data';
-      setManualRefreshState('error');
-      setManualRefreshMessage(message);
+      console.error('[Dashboard] Failed to refresh dashboard data', error);
     }
-  }, [manualRefreshState, fetchStats, fetchMergedTargets, fetchScenarios, fetchRooms, user?.id, fetchSessions]);
-
-  useEffect(() => {
-    if (manualRefreshState === 'success' || manualRefreshState === 'error') {
-      const timeout = setTimeout(() => {
-        setManualRefreshState('idle');
-        setManualRefreshMessage(null);
-      }, 4000);
-
-      return () => clearTimeout(timeout);
-    }
-    return undefined;
-  }, [manualRefreshState]);
+  }, [fetchStats, fetchMergedTargets, fetchScenarios, fetchRooms, fetchSessions, user?.id]);
 
   useEffect(() => {
     if (authLoading || !user?.id) {
       return;
     }
 
-    fetchStats().catch((error) => {
-      console.error('[Dashboard] Failed to fetch dashboard metrics', error);
-    });
-  }, [authLoading, user?.id, fetchStats]);
+    refreshAllData();
+  }, [authLoading, user?.id, refreshAllData]);
 
   // Smart polling system with heartbeat detection - optimized for parallel execution
   const fetchAllData = useCallback(async () => {
@@ -648,174 +638,119 @@ const Dashboard: React.FC = () => {
     }
   }, [telemetryEnabled, fetchStats, fetchScenarios, fetchMergedTargets]);
 
-  // Lightweight update function for shooting activity polling
-  // Only refreshes essential data, not full dashboard data
-  const updateShootingData = useCallback(async () => {
-    if (!telemetryEnabled) {
-      return;
-    }
-    if (rawTargets.length === 0) {
-      try {
-        await fetchTargetsFromEdge();
-      } catch (error) {
-        console.error('[Dashboard] Failed to refresh targets for shooting data', error);
-      }
-    }
-  }, [telemetryEnabled, rawTargets.length, fetchTargetsFromEdge]);
-
-  const { 
-    currentInterval, 
-    currentMode, 
-    hasActiveShooters,
-    hasRecentActivity,
-    isStandbyMode,
-    targetActivity,
-    activeShotsCount,
-    recentShotsCount,
-    forceUpdate 
-  } = useShootingActivityPolling(updateShootingData, {
-    activeInterval: 10000,     // 10 seconds during active shooting
-    recentInterval: 30000,     // 30 seconds if shot within last 30s but not active
-    standbyInterval: 60000,    // 60 seconds if no shots for 10+ minutes
-    activeThreshold: 30000,    // 30 seconds - active shooting threshold
-    standbyThreshold: 600000   // 10 minutes - standby mode threshold
-  }, telemetryEnabled);
-
-  // Historical activity data for time range charts
-  const { 
-    historicalData, 
-    isLoading: historicalLoading, 
-    error: historicalError 
-  } = useHistoricalActivity(rawTargets, timeRange, telemetryEnabled);
-
-  // Use Zustand store directly as single source of truth
-  const currentTargets = rawTargets;
-  
-  // Check if ThingsBoard data is available (moved up to avoid hoisting issues)
-  const hasThingsBoardData = currentTargets.length > 0 || rooms.length > 0;
-
-  // Fetch telemetry for status display when data is available
-  useEffect(() => {
-    if (!telemetryEnabled) {
-      return;
-    }
-
-    if (telemetryInitializedRef.current) {
-      return;
-    }
-
-    telemetryInitializedRef.current = true;
-    fetchAllData();
-  }, [telemetryEnabled, fetchAllData]);
-
-  // Fetch telemetry for status display when data is available
-  useEffect(() => {
-    if (!telemetryEnabled) {
-      return;
-    }
-
-    if (isReady && syncStatus.isComplete && !telemetryFetchedRef.current && rawTargets.length > 0) {
-      telemetryFetchedRef.current = true; // Mark as fetched BEFORE the call
-
-      fetchMergedTargets().catch(error => {
-        console.error('[Dashboard] Telemetry fetch failed', error);
-        telemetryFetchedRef.current = false; // Allow retry on error
-      });
-    }
-  }, [telemetryEnabled, isReady, syncStatus.isComplete, rawTargets.length, fetchMergedTargets]);
-
-  // Fallback: if sync fails or no data, fetch manually
-  useEffect(() => {
-    if (!telemetryEnabled) {
-      return;
-    }
-
-    if (isReady && syncStatus.error && !hasThingsBoardData) {
-      fetchAllData();
-    }
-  }, [telemetryEnabled, isReady, syncStatus.error, hasThingsBoardData, fetchAllData]);
-  
-  // Determine when summary data is available and when to show placeholders
-  const hasSummaryData = currentTargets.length > 0 || Boolean(summary);
-  const summaryPending = summaryLoading && !hasSummaryData;
-  const shouldShowTargetsLoading = (targetsLoading || summaryLoading) && currentTargets.length === 0 && !hasSummaryData;
-  const shouldShowSkeleton = (!hasSummaryData) || summaryPending || (sessionsLoading && sessions.length === 0);
-  const telemetryLoading = !hasSummaryData || targetsLoading || summaryLoading || historicalLoading;
-  const isManualRefreshing = manualRefreshState === 'refreshing';
-  const isManualRefreshError = manualRefreshState === 'error';
-  const showManualRefreshBanner = telemetryEnabled || metricsCached || manualRefreshState !== 'idle';
-  const metricsGeneratedAt = metrics?.generatedAt ? dayjs(metrics.generatedAt) : null;
-
   const stats = useMemo(() => {
     const usingDetailedTargets = currentTargets.length > 0;
-    const totalTargets = usingDetailedTargets
+    const totalTargetsValue = usingDetailedTargets
       ? currentTargets.length
       : summary?.totalTargets ?? 0;
-    const onlineTargets = usingDetailedTargets
-      ? currentTargets.filter(target => target.status === 'online' || target.status === 'standby').length
+    const onlineTargetsValue = usingDetailedTargets
+      ? currentTargets.filter((target) => target.status === 'online' || target.status === 'standby').length
       : summary?.onlineTargets ?? 0;
-    const assignedTargets = usingDetailedTargets
-      ? currentTargets.filter(target => target.roomId).length
-      : summary?.assignedTargets ?? 0;
-    const totalRooms = rooms.length > 0
-      ? rooms.length
-      : summary?.totalRooms ?? 0;
-
-    const roomUtilization = totalTargets > 0
-      ? Math.round((assignedTargets / totalTargets) * 100)
-      : 0;
+    const totalRoomsValue = rooms.length > 0 ? rooms.length : summary?.totalRooms ?? 0;
 
     const recentScenarios = sessions.slice(0, 3);
-    const avgScore = recentScenarios.length > 0 
-      ? Math.round(recentScenarios.reduce((sum, s) => sum + (s.score || 0), 0) / recentScenarios.length)
-      : (lastScenarioScore || 0);
+    const fallbackScore = typeof lastScenarioScore === 'number' ? lastScenarioScore : 0;
+    const avgScoreValue =
+      recentScenarios.length > 0
+        ? Number(
+            (
+              recentScenarios.reduce(
+                (sum, session) => sum + (Number.isFinite(session.score) ? session.score ?? 0 : 0),
+                0,
+              ) / recentScenarios.length
+            ).toFixed(2),
+          )
+        : Number(fallbackScore.toFixed(2));
 
     return {
-      onlineTargets,
-      totalTargets,
-      assignedTargets,
-      roomUtilization,
-      avgScore,
-      totalRooms
+      onlineTargets: onlineTargetsValue,
+      totalTargets: totalTargetsValue,
+      avgScore: avgScoreValue,
+      totalRooms: totalRoomsValue,
     };
   }, [currentTargets, rooms.length, sessions, lastScenarioScore, summary]);
 
-  // Destructure for use in JSX
-  const { onlineTargets, totalTargets, assignedTargets, roomUtilization, avgScore, totalRooms } = stats;
+  const { onlineTargets, totalTargets, avgScore, totalRooms } = stats;
   
   // Calculate recentScenarios for use in JSX (moved from useMemo for easier access)
   const recentScenarios = sessions.slice(0, 3);
+  const completedSessionsCount = useMemo(
+    () => sessions.filter((session) => (session.score ?? 0) > 0).length,
+    [sessions],
+  );
+  const totalSessionsCount = sessions.length;
 
-  const sessionScores = useMemo(() => (
-    sessions
-      .map((session) => session.score)
-      .filter((score): score is number => typeof score === 'number' && !Number.isNaN(score))
-  ), [sessions]);
+  const earliestSessionTimestamp = useMemo(() => {
+    return sessions.reduce<number | null>((min, session) => {
+      const ts = Date.parse(session.startedAt);
+      if (Number.isNaN(ts)) {
+        return min;
+      }
+      if (min === null || ts < min) {
+        return ts;
+      }
+      return min;
+    }, null);
+  }, [sessions]);
+
+  const rangeSummaries = useMemo(() => buildRangeSummaries(sessions), [sessions]);
+
+  const availableRanges = useMemo(() => {
+    const coverage = earliestSessionTimestamp
+      ? Date.now() - earliestSessionTimestamp
+      : 0;
+    const ranges = RANGE_ORDER.filter((range) => {
+      const summary = rangeSummaries[range];
+      if (!summary || summary.sessionCount === 0) {
+        return false;
+      }
+      if (range === 'day') {
+        return true;
+      }
+      const windowMs = RANGE_CONFIG[range].windowMs;
+      if (windowMs === null) {
+        return true;
+      }
+      return coverage >= windowMs;
+    });
+    return ranges.length > 0 ? ranges : ['day'];
+  }, [rangeSummaries, earliestSessionTimestamp]);
+
+  const [activeRange, setActiveRange] = useState<TimeRange>(availableRanges[0] ?? 'day');
+
+  useEffect(() => {
+    if (!availableRanges.includes(activeRange)) {
+      setActiveRange(availableRanges[0]);
+    }
+  }, [availableRanges, activeRange]);
+
+  const sessionScores = useMemo(
+    () =>
+      sessions
+        .map((session) => session.score)
+        .filter((score): score is number => typeof score === 'number' && Number.isFinite(score)),
+    [sessions],
+  );
 
   const totals = metrics?.totals ?? null;
 
-  const averageScoreMetric = totals?.avgScore !== null && totals?.avgScore !== undefined
-    ? Math.round(totals.avgScore ?? 0)
-    : (sessionScores.length > 0
-      ? Math.round(sessionScores.reduce((sum, score) => sum + score, 0) / sessionScores.length)
-      : null);
+  const averageScoreMetric = sessionScores.length > 0
+    ? Number(
+        (sessionScores.reduce((sum, score) => sum + score, 0) / sessionScores.length).toFixed(2),
+      )
+    : (
+        typeof totals?.avgScore === 'number' && Number.isFinite(totals.avgScore)
+          ? Number(totals.avgScore.toFixed(2))
+          : null
+      );
 
-  const bestScore = totals?.bestScore ?? (sessionScores.length > 0
+  const bestScoreMetric = sessionScores.length > 0
     ? Math.max(...sessionScores)
-    : null);
-
-  const latestSession = sessions[0];
-  const lastShotsFired = latestSession
-    ? (() => {
-        const value = latestSession.totalShots ?? latestSession.hitCount;
-        if (typeof value === 'number' && !Number.isNaN(value)) {
-          return value;
-        }
-        const metricsValue = metrics?.recentSessions?.[0]?.hit_count;
-        return typeof metricsValue === 'number' && !Number.isNaN(metricsValue) ? metricsValue : null;
-      })()
-    : (metrics?.recentSessions?.[0]?.hit_count ?? null);
-
+    : (
+        typeof totals?.bestScore === 'number' && Number.isFinite(totals.bestScore)
+          ? totals.bestScore
+          : null
+      );
 
   // Note: Authentication is handled at the route level in App.tsx
   // If we reach this component, the user is already authenticated
@@ -848,54 +783,7 @@ const Dashboard: React.FC = () => {
                 </p>
               </div>
             )}
-
-            {showManualRefreshBanner && (
-              <Card className="bg-white border border-brand-secondary/20 shadow-sm rounded-md md:rounded-lg mb-2 md:mb-3">
-                <CardContent className="p-3 md:p-4 flex flex-col gap-3 md:flex-row items-center md:items-center md:justify-between">
-                  <div className="flex items-center gap-3 w-full">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-secondary/10 text-brand-secondary">
-                      <RefreshCcw className="w-4 h-4" />
-                    </div>
-                    <div className="w-full space-y-1 text-left">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs md:text-sm font-medium text-brand-dark">
-                          {metricsCached ? 'Dashboard data may be cached.' : 'Need the latest dashboard data?'}
-                        </span>
-                        <span className="text-xs text-brand-dark/60 md:text-sm">
-                          {metricsCached && metricsGeneratedAt
-                            ? `Last generated ${metricsGeneratedAt.format('MMM D, HH:mm')} · Refresh to pull the newest telemetry and sessions.`
-                            : 'Refresh targets, rooms, scenarios, and sessions from Supabase now.'}
-                        </span>
-                      </div>
-                      {manualRefreshMessage && (
-                        <p className={`text-xs leading-relaxed ${isManualRefreshing ? 'text-brand-dark/60' : isManualRefreshError ? 'text-red-600' : 'text-green-600'}`}>
-                          {manualRefreshMessage}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <Button
-                    onClick={handleManualRefresh}
-                    disabled={isManualRefreshing}
-                    className="self-start md:self-auto rounded-md text-xs h-8 px-4 min-w-[120px] bg-brand-purple text-white transition-colors hover:bg-brand-red disabled:bg-brand-purple/70 disabled:hover:bg-brand-purple/70 disabled:cursor-not-allowed"
-                  >
-                    {isManualRefreshing ? (
-                      <span className="flex items-center gap-2">
-                        <span className="w-3 h-3 border-2 border-brand-secondary border-t-transparent rounded-full animate-spin" />
-                        Refreshing…
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-2">
-                        <RefreshCcw className="w-3 h-3" />
-                        Sync now
-                      </span>
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-
-            
+           
 
             {/* Stats Cards Grid - Using Real Data */}
             <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
@@ -929,17 +817,25 @@ const Dashboard: React.FC = () => {
                   />
                   <StatCard
                     title="Average Score"
-                    value={summaryReady ? (avgScore ? `${avgScore}%` : 'N/A') : '—'}
+                    value={summaryReady ? formatScoreValue(avgScore) : '—'}
                     subtitle={summaryReady ? 'Recent sessions' : ''}
                     icon={<Trophy className="w-6 h-6 -ml-1.5 md:ml-0" />}
                     isLoading={sessionsLoading}
                   />
                   <StatCard
-                    title="Target Assignment"
-                    value={summaryReady ? `${roomUtilization}%` : '—'}
-                    subtitle={summaryReady ? `${assignedTargets}/${totalTargets} targets assigned` : ''}
-                    icon={<BarChart3 className="w-6 h-6 -ml-1.5 md:ml-0" />}
-                    isLoading={summaryPending || !summaryReady}
+                    title="Completed Sessions"
+                    value={
+                      sessionsLoading && completedSessionsCount === 0
+                        ? '—'
+                        : completedSessionsCount
+                    }
+                    subtitle={
+                      totalSessionsCount > 0
+                        ? `${completedSessionsCount}/${totalSessionsCount} finished`
+                        : 'No sessions yet'
+                    }
+                    icon={<CheckCircle className="w-6 h-6 -ml-1.5 md:ml-0" />}
+                    isLoading={sessionsLoading}
                   />
                 </>
               )}
@@ -947,7 +843,7 @@ const Dashboard: React.FC = () => {
             
 
             {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 md:gap-4 lg:gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-4 lg:gap-5">
               
               {/* Activity Chart - Real Target Activity */}
               <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
@@ -976,59 +872,15 @@ const Dashboard: React.FC = () => {
                     </div>
                   ) : (
                   <ActivityChart 
-                    targetActivity={targetActivity} 
-                    hitTrend={hitTrend} 
+                    summaries={rangeSummaries}
+                    availableRanges={availableRanges}
+                    activeRange={activeRange}
+                    onRangeChange={setActiveRange}
                     isLoading={telemetryLoading}
-                    historicalData={historicalData}
-                    timeRange={timeRange}
-                    onTimeRangeChange={setTimeRange}
-                    historicalLoading={historicalLoading}
-                    averageScore={averageScoreMetric}
-                    bestScore={bestScore}
-                    lastShotsFired={lastShotsFired}
                   />
                   )}
                 </CardContent>
               </Card>
-
-              {/* System Overview - Real Target and Scenario Data */}
-              <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                <CardHeader className="pb-1 md:pb-3 p-2 md:p-4">
-                  <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">System Overview</CardTitle>
-                </CardHeader>
-                <CardContent className="p-2 md:p-4">
-                  {shouldShowSkeleton ? (
-                    <div className="space-y-3 animate-pulse">
-                      {[...Array(4)].map((_, i) => (
-                        <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div className="flex items-center gap-3">
-                            <div className="w-2 h-2 bg-gray-200 rounded-full"></div>
-                            <div className="h-4 w-24 bg-gray-200 rounded"></div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="h-5 w-8 bg-gray-200 rounded"></div>
-                            <div className="h-4 w-6 bg-gray-200 rounded"></div>
-                          </div>
-                        </div>
-                      ))}
-                      <div className="pt-3 border-t border-gray-200">
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="h-7 bg-gray-200 rounded"></div>
-                          <div className="h-7 bg-gray-200 rounded"></div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                  <SystemOverview 
-                    targets={currentTargets} 
-                    sessions={sessions} 
-                    isLoading={shouldShowTargetsLoading || sessionsLoading} 
-                    summary={summary}
-                    summaryLoading={summaryLoading}
-                  />
-                )}
-              </CardContent>
-            </Card>
 
               {/* Recent Sessions */}
               <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
@@ -1043,9 +895,17 @@ const Dashboard: React.FC = () => {
                     </div>
                   ) : (
                     <div className="flex items-center justify-between">
-                      <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">
-                        Recent Sessions
-                      </CardTitle>
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-primary/10 text-brand-primary">
+                          <Gamepad2 className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">
+                            Recent Sessions
+                          </CardTitle>
+                          <p className="text-[11px] text-brand-dark/60">Latest games synced from Supabase</p>
+                        </div>
+                      </div>
                       <Button 
                         variant="ghost" 
                         size="sm"
@@ -1073,36 +933,64 @@ const Dashboard: React.FC = () => {
                     </div>
                   ) : recentScenarios.length > 0 ? (
                     <div className="space-y-2 md:space-y-3">
-                      {recentScenarios.map((session) => (
-                        <Card key={session.id} className="border-gray-200 bg-gray-50 rounded-sm md:rounded-lg">
-                          <CardContent className="p-2 md:p-3 space-y-1 md:space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-medium text-brand-dark/70">
-                                {dayjs(session.startedAt).format('MMM D, HH:mm')}
-                              </span>
-                              <Badge 
-                                variant="outline" 
-                                className={`text-xs rounded-sm md:rounded ${
-                                  session.score > 0 ? 'border-green-600 text-green-600' : 'border-brand-secondary text-brand-secondary'
-                                }`}
-                              >
-                                {session.score > 0 ? 'Completed' : 'Pending'}
-                              </Badge>
-                            </div>
-                            <h4 className="font-medium text-brand-dark text-xs leading-tight">
-                              {session.gameName || session.scenarioName}
-                            </h4>
-                            {session.score !== undefined && (
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-brand-dark/70">Score:</span>
-                                <span className="font-bold text-brand-dark">
-                                  {session.score ? `${session.score}%` : 'N/A'}
-                                </span>
+                      {recentScenarios.map((session) => {
+                        const isCompleted = Number.isFinite(session.score) && (session.score ?? 0) > 0;
+                        const accent = isCompleted ? 'from-emerald-500/15 to-teal-500/10' : 'from-brand-secondary/20 to-brand-primary/10';
+                        const iconBg = isCompleted ? 'bg-emerald-500/20 text-emerald-600' : 'bg-brand-secondary/20 text-brand-secondary';
+                        const icon = isCompleted ? <Trophy className="h-4 w-4" /> : <Clock className="h-4 w-4" />;
+
+                        return (
+                          <Card
+                            key={session.id}
+                            className={`border border-transparent bg-gradient-to-r ${accent} rounded-sm md:rounded-lg shadow-sm`}
+                          >
+                            <CardContent className="p-3 md:p-4 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className={`flex h-8 w-8 items-center justify-center rounded-full ${iconBg}`}>
+                                    {icon}
+                                  </div>
+                                  <div>
+                                    <p className="text-[11px] font-medium text-brand-dark/60">
+                                      {dayjs(session.startedAt).format('MMM D, HH:mm')}
+                                    </p>
+                                    <h4 className="font-heading text-sm text-brand-dark">
+                                      {session.gameName || session.scenarioName || 'Custom Game'}
+                                    </h4>
+                                  </div>
+                                </div>
+                                <Badge
+                                  className={`text-[10px] md:text-xs border-none ${
+                                    isCompleted ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'
+                                  }`}
+                                >
+                                  {isCompleted ? 'Completed' : 'In Progress'}
+                                </Badge>
                               </div>
-                            )}
-                          </CardContent>
-                        </Card>
-                      ))}
+                              <div className="grid grid-cols-3 gap-2 text-[11px] md:text-xs text-brand-dark/70">
+                                <div className="rounded-md bg-white/50 px-2 py-1 border border-white/40">
+                                  <p className="uppercase tracking-wide text-[10px] text-brand-dark/50">Score</p>
+                                  <p className="font-heading text-sm text-brand-dark">
+                                    {Number.isFinite(session.score) ? formatScoreValue(session.score) : 'N/A'}
+                                  </p>
+                                </div>
+                                <div className="rounded-md bg-white/50 px-2 py-1 border border-white/40">
+                                  <p className="uppercase tracking-wide text-[10px] text-brand-dark/50">Hits</p>
+                                  <p className="font-heading text-sm text-brand-dark">
+                                    {Number.isFinite(session.hitCount) ? session.hitCount : '—'}
+                                  </p>
+                                </div>
+                                <div className="rounded-md bg-white/50 px-2 py-1 border border-white/40 text-right">
+                                  <p className="uppercase tracking-wide text-[10px] text-brand-dark/50">Duration</p>
+                                  <p className="font-heading text-sm text-brand-dark">
+                                    {formatDurationValue(session.duration)}
+                                  </p>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="text-center py-4">

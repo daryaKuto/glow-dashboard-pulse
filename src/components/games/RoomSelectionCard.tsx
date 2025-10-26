@@ -40,17 +40,24 @@ export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
       <CardContent className="p-4 md:p-5 space-y-3">
         <div className="space-y-2">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="font-heading text-lg text-brand-dark">Room Selection</h2>
-            <div className="flex items-center gap-2">
+            <h2 className="font-heading text-lg text-brand-dark truncate">Room Selection</h2>
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={onSelectAllRooms}
                 disabled={isSessionLocked || roomsLoading}
+                className="flex-1 min-w-[140px] sm:flex-none sm:min-w-[0]"
               >
                 Select all rooms
               </Button>
-              <Button variant="ghost" size="sm" onClick={onClearRooms} disabled={isSessionLocked}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onClearRooms}
+                disabled={isSessionLocked}
+                className="flex-1 min-w-[140px] sm:flex-none sm:min-w-[0]"
+              >
                 Clear rooms
               </Button>
             </div>

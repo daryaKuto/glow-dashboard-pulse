@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Target as TargetIcon, Users, Calendar, Bell, Clock, Zap, Trophy, TrendingUp, Activity, Play, User, X, Gamepad2, BarChart, Award, CheckCircle } from 'lucide-react';
+import { Target as TargetIcon, Users, Calendar, Bell, Clock, Zap, Trophy, TrendingUp, Activity, Play, User, X, Gamepad2, BarChart, Award, CheckCircle, Flame, Target, ShieldCheck } from 'lucide-react';
 import { useStats } from '@/store/useStats';
 import { useTargets } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
@@ -179,18 +179,26 @@ const buildRangeSummaries = (sessions: Session[]): Record<TimeRange, RangeSummar
 };
 
 // Activity Chart Component - Supabase-powered Target Activity
+const STREAK_TIERS = [
+  { label: '3 Day Spark', threshold: 3, Icon: Flame, description: 'Keep the momentum alive.' },
+  { label: '7 Day Groove', threshold: 7, Icon: Target, description: 'One week of laser focus.' },
+  { label: '30 Day Legend', threshold: 30, Icon: ShieldCheck, description: 'Elite performance unlocked.' },
+];
+
 const ActivityChart: React.FC<{
   summaries: Record<TimeRange, RangeSummary>;
   availableRanges: TimeRange[];
   activeRange: TimeRange;
   onRangeChange: (range: TimeRange) => void;
   isLoading: boolean;
+  currentStreakLength: number;
 }> = ({
   summaries,
   availableRanges,
   activeRange,
   onRangeChange,
   isLoading,
+  currentStreakLength,
 }) => {
   const summary = summaries[activeRange];
   const chartData = summary?.chartData ?? [];
@@ -260,6 +268,7 @@ const ActivityChart: React.FC<{
   // Calculate real activity metrics
   
   const maxHits = Math.max(...activityBuckets.map((d) => d.metric), 1);
+  const nextTier = STREAK_TIERS.find((tier) => currentStreakLength < tier.threshold) ?? STREAK_TIERS[STREAK_TIERS.length - 1];
   const averageScoreDisplay = formatScoreValue(summary?.averageScore ?? null);
   const bestScoreDisplay = formatScoreValue(summary?.bestScore ?? null);
   const totalShotsDisplay = summary ? summary.totalShots.toLocaleString() : '—';
@@ -341,35 +350,70 @@ const ActivityChart: React.FC<{
           </div>
         </div>
         {hasData ? (
-          <div className="flex items-end justify-between gap-2 h-20">
-            {activityBuckets.map((item, index) => {
-              const isLatest = index === activityBuckets.length - 1;
-              const barHeight = (item.metric / maxHits) * 100;
-              return (
-                <div key={`${item.label}-${index}`} className="flex flex-col items-center gap-2 flex-1">
-                  <div className="flex-1 flex items-end w-full">
-                    <div
-                      className={`w-full rounded-t-lg transition-all duration-300 ${
-                        isLatest
-                          ? 'bg-brand-primary'
-                          : 'bg-brand-secondary/30 hover:bg-brand-secondary/50'
-                      }`}
-                      style={{
-                        height: `${Math.max(6, barHeight)}%`,
-                        minHeight: '4px',
-                      }}
-                      title={
-                        activeRange === 'day'
-                          ? `${item.label}: ${item.incrementalHits ?? item.hits} hits this hour · ${item.metric} cumulative`
-                          : `${item.label}: ${item.hits} hits`
-                      }
-                    />
+          <>
+            <div className="flex items-end justify-between gap-2 h-20">
+              {activityBuckets.map((item, index) => {
+                const isLatest = index === activityBuckets.length - 1;
+                const barHeight = (item.metric / maxHits) * 100;
+                return (
+                  <div key={`${item.label}-${index}`} className="flex flex-col items-center gap-2 flex-1">
+                    <div className="flex-1 flex items-end w-full">
+                      <div
+                        className={`w-full rounded-t-lg transition-all duration-300 ${
+                          isLatest
+                            ? 'bg-brand-primary'
+                            : 'bg-brand-secondary/30 hover:bg-brand-secondary/50'
+                        }`}
+                        style={{
+                          height: `${Math.max(6, barHeight)}%`,
+                          minHeight: '4px',
+                        }}
+                        title={
+                          activeRange === 'day'
+                            ? `${item.label}: ${item.incrementalHits ?? item.hits} hits this hour · ${item.metric} cumulative`
+                            : `${item.label}: ${item.hits} hits`
+                        }
+                      />
+                    </div>
+                    <span className="text-xs text-brand-dark/50 font-body">{item.label}</span>
                   </div>
-                  <span className="text-xs text-brand-dark/50 font-body">{item.label}</span>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+            <div className="mt-4 rounded-lg border border-brand-primary/20 bg-brand-primary/5 p-3 space-y-3">
+              <div className="text-center space-y-1">
+                <p className="text-xs uppercase tracking-wide text-brand-primary/80 font-semibold">Don't break your streak</p>
+                <p className="text-sm text-brand-dark">
+                  {currentStreakLength > 0
+                    ? `You're on a ${currentStreakLength}-day streak. Keep it going!`
+                    : 'Play today to start your streak.'}
+                </p>
+              </div>
+              <div className="rounded-lg border p-2.5 bg-white flex flex-wrap items-center gap-2 justify-between">
+                {(() => {
+                  const Icon = nextTier.Icon;
+                  const daysRemaining = Math.max(nextTier.threshold - Math.min(currentStreakLength, nextTier.threshold), 0);
+                  const achieved = daysRemaining === 0;
+                  return (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <div className={`rounded-full p-2.5 ${achieved ? 'bg-green-100 text-green-700' : 'bg-brand-secondary/10 text-brand-secondary'}`}>
+                          <Icon className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-brand-dark">{nextTier.label}</p>
+                          <p className="text-xs text-brand-dark/60">{nextTier.description}</p>
+                        </div>
+                      </div>
+                      <p className="text-xs font-medium text-brand-primary text-left sm:text-right ml-auto">
+                        {achieved ? 'Milestone achieved — keep it rolling!' : `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} until unlock`}
+                      </p>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </>
         ) : (
           <div className="rounded-lg border border-dashed border-brand-secondary/40 bg-brand-secondary/5 px-4 py-6 text-center text-sm text-brand-dark/60">
             No Supabase sessions found for this range.
@@ -522,7 +566,6 @@ const Dashboard: React.FC = () => {
     metrics,
     activeTargets, 
     roomsCreated, 
-    lastScenarioScore, 
     pendingInvites, 
     isLoading: statsLoading, 
     fetchStats
@@ -613,12 +656,10 @@ const Dashboard: React.FC = () => {
       return;
     }
 
-    // Prevent multiple simultaneous fetches
     if (isFetchingRef.current) {
       return;
     }
 
-    // Debounce rapid successive calls
     const now = Date.now();
     if (now - lastFetchTimeRef.current < FETCH_DEBOUNCE_MS) {
       return;
@@ -628,15 +669,22 @@ const Dashboard: React.FC = () => {
     isFetchingRef.current = true;
     try {
       const metricsPromise = fetchStats({ force: true });
-      Promise.allSettled([fetchMergedTargets()]);
-      Promise.allSettled([fetchScenarios()]);
-      await metricsPromise;
+      const sessionsPromise = user?.id
+        ? fetchSessions(user.id, { limit: SESSION_HISTORY_LIMIT })
+        : Promise.resolve();
+
+      await Promise.all([
+        metricsPromise,
+        Promise.allSettled([fetchMergedTargets()]),
+        Promise.allSettled([fetchScenarios()]),
+        sessionsPromise,
+      ]);
     } catch (error) {
       console.error('[Dashboard] Error fetching data', error);
     } finally {
       isFetchingRef.current = false;
     }
-  }, [telemetryEnabled, fetchStats, fetchScenarios, fetchMergedTargets]);
+  }, [telemetryEnabled, fetchStats, fetchScenarios, fetchMergedTargets, fetchSessions, user?.id]);
 
   const stats = useMemo(() => {
     const usingDetailedTargets = currentTargets.length > 0;
@@ -649,7 +697,6 @@ const Dashboard: React.FC = () => {
     const totalRoomsValue = rooms.length > 0 ? rooms.length : summary?.totalRooms ?? 0;
 
     const recentScenarios = sessions.slice(0, 3);
-    const fallbackScore = typeof lastScenarioScore === 'number' ? lastScenarioScore : 0;
     const avgScoreValue =
       recentScenarios.length > 0
         ? Number(
@@ -660,7 +707,7 @@ const Dashboard: React.FC = () => {
               ) / recentScenarios.length
             ).toFixed(2),
           )
-        : Number(fallbackScore.toFixed(2));
+        : 0;
 
     return {
       onlineTargets: onlineTargetsValue,
@@ -668,7 +715,7 @@ const Dashboard: React.FC = () => {
       avgScore: avgScoreValue,
       totalRooms: totalRoomsValue,
     };
-  }, [currentTargets, rooms.length, sessions, lastScenarioScore, summary]);
+  }, [currentTargets, rooms.length, sessions, summary]);
 
   const { onlineTargets, totalTargets, avgScore, totalRooms } = stats;
   
@@ -694,6 +741,48 @@ const Dashboard: React.FC = () => {
   }, [sessions]);
 
   const rangeSummaries = useMemo(() => buildRangeSummaries(sessions), [sessions]);
+
+  const currentStreakLength = useMemo(() => {
+    if (sessions.length === 0) {
+      return 0;
+    }
+
+    const uniqueDays = Array.from(
+      new Set(
+        sessions
+          .map((session) => dayjs(session.startedAt).startOf('day'))
+          .filter((day) => day.isValid())
+          .map((day) => day.valueOf()),
+      ),
+    ).sort((a, b) => b - a);
+
+    if (uniqueDays.length === 0) {
+      return 0;
+    }
+
+    const today = dayjs().startOf('day');
+    const firstDay = dayjs(uniqueDays[0]);
+
+    if (today.diff(firstDay, 'day') > 1) {
+      return 0;
+    }
+
+    let streak = 1;
+    let previousDay = firstDay;
+
+    for (let i = 1; i < uniqueDays.length; i += 1) {
+      const currentDay = dayjs(uniqueDays[i]);
+      const diff = previousDay.diff(currentDay, 'day');
+      if (diff === 1) {
+        streak += 1;
+        previousDay = currentDay;
+      } else {
+        break;
+      }
+    }
+
+    return streak;
+  }, [sessions]);
 
   const availableRanges = useMemo(() => {
     const coverage = earliestSessionTimestamp
@@ -732,25 +821,15 @@ const Dashboard: React.FC = () => {
     [sessions],
   );
 
-  const totals = metrics?.totals ?? null;
-
   const averageScoreMetric = sessionScores.length > 0
     ? Number(
         (sessionScores.reduce((sum, score) => sum + score, 0) / sessionScores.length).toFixed(2),
       )
-    : (
-        typeof totals?.avgScore === 'number' && Number.isFinite(totals.avgScore)
-          ? Number(totals.avgScore.toFixed(2))
-          : null
-      );
+    : null;
 
   const bestScoreMetric = sessionScores.length > 0
     ? Math.max(...sessionScores)
-    : (
-        typeof totals?.bestScore === 'number' && Number.isFinite(totals.bestScore)
-          ? totals.bestScore
-          : null
-      );
+    : null;
 
   // Note: Authentication is handled at the route level in App.tsx
   // If we reach this component, the user is already authenticated
@@ -831,7 +910,7 @@ const Dashboard: React.FC = () => {
                     }
                     subtitle={
                       totalSessionsCount > 0
-                        ? `${completedSessionsCount}/${totalSessionsCount} finished`
+                        ? 'Keep the streak going!'
                         : 'No sessions yet'
                     }
                     icon={<CheckCircle className="w-6 h-6 -ml-1.5 md:ml-0" />}
@@ -854,21 +933,45 @@ const Dashboard: React.FC = () => {
                   {(targetsLoading && currentTargets.length === 0) ? (
                     <div className="space-y-4 animate-pulse">
                       <div className="flex items-center justify-between">
-                        <div className="h-6 w-32 bg-gray-200 rounded"></div>
-                        <div className="h-4 w-16 bg-gray-200 rounded"></div>
+                        <div className="h-4 w-28 bg-gray-200 rounded"></div>
+                        <div className="h-6 w-20 bg-gray-200 rounded"></div>
                       </div>
-                      <div className="space-y-3">
+                      <div className="grid grid-cols-3 gap-2">
                         {[...Array(3)].map((_, i) => (
-                          <div key={i} className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <div className="w-3 h-3 bg-gray-200 rounded-full"></div>
-                              <div className="h-4 w-24 bg-gray-200 rounded"></div>
+                          <div key={i} className="rounded-lg border border-gray-200 bg-white/70 px-3 py-2 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="h-3 w-12 bg-gray-200 rounded"></div>
+                              <div className="h-4 w-8 bg-gray-200 rounded"></div>
                             </div>
-                            <div className="h-4 w-8 bg-gray-200 rounded"></div>
+                            <div className="h-4 w-16 bg-gray-200 rounded"></div>
                           </div>
                         ))}
                       </div>
-                      <div className="h-32 bg-gray-200 rounded"></div>
+                      <div className="space-y-3 pt-2 border-t border-gray-100">
+                        <div className="flex items-end justify-between gap-2 h-20">
+                          {[...Array(8)].map((_, i) => (
+                            <div key={i} className="flex flex-col items-center gap-2 flex-1">
+                              <div className="flex-1 flex items-end w-full">
+                                <div className="w-full rounded-t-lg bg-gray-200" style={{ height: `${10 + i * 5}%` }}></div>
+                              </div>
+                              <div className="h-3 w-8 bg-gray-200 rounded"></div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="rounded-lg border border-gray-200 bg-white/80 p-3 space-y-2">
+                          <div className="h-3 w-32 bg-gray-200 rounded mx-auto"></div>
+                          <div className="rounded-lg border border-gray-200 bg-white p-2 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="w-10 h-10 rounded-full bg-gray-200"></div>
+                              <div className="space-y-1">
+                                <div className="h-3 w-16 bg-gray-200 rounded"></div>
+                                <div className="h-3 w-20 bg-gray-200 rounded"></div>
+                              </div>
+                            </div>
+                            <div className="h-3 w-14 bg-gray-200 rounded"></div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                   <ActivityChart 
@@ -876,7 +979,8 @@ const Dashboard: React.FC = () => {
                     availableRanges={availableRanges}
                     activeRange={activeRange}
                     onRangeChange={setActiveRange}
-                    isLoading={telemetryLoading}
+                    isLoading={telemetryLoading || sessionsLoading}
+                    currentStreakLength={currentStreakLength}
                   />
                   )}
                 </CardContent>
@@ -886,12 +990,15 @@ const Dashboard: React.FC = () => {
               <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
                 <CardHeader className="pb-1 md:pb-3 p-2 md:p-4">
                   {shouldShowSkeleton ? (
-                    <div className="animate-pulse space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="h-4 w-24 bg-gray-200 rounded"></div>
-                        <div className="h-4 w-16 bg-gray-200 rounded"></div>
+                    <div className="animate-pulse flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-full bg-gray-200"></div>
+                        <div className="space-y-2">
+                          <div className="h-4 w-24 bg-gray-200 rounded"></div>
+                          <div className="h-3 w-32 bg-gray-200 rounded"></div>
+                        </div>
                       </div>
-                      <div className="h-5 w-32 bg-gray-200 rounded"></div>
+                      <div className="h-6 w-16 bg-gray-200 rounded"></div>
                     </div>
                   ) : (
                     <div className="flex items-center justify-between">
@@ -921,13 +1028,25 @@ const Dashboard: React.FC = () => {
                   {shouldShowSkeleton ? (
                     <div className="space-y-2 md:space-y-3 animate-pulse">
                       {[...Array(3)].map((_, i) => (
-                        <div key={i} className="bg-gray-100 border border-gray-200 rounded-sm md:rounded-lg p-2">
-                          <div className="flex items-center justify-between mb-1">
-                            <div className="h-3 w-20 bg-gray-200 rounded"></div>
-                            <div className="h-3 w-12 bg-gray-200 rounded"></div>
+                        <div key={i} className="border border-gray-200 rounded-sm md:rounded-lg bg-gradient-to-r from-gray-50 to-gray-100 p-3 md:p-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="h-8 w-8 rounded-full bg-gray-200"></div>
+                              <div className="space-y-1">
+                                <div className="h-3 w-24 bg-gray-200 rounded"></div>
+                                <div className="h-4 w-32 bg-gray-200 rounded"></div>
+                              </div>
+                            </div>
+                            <div className="h-5 w-16 bg-gray-200 rounded-full"></div>
                           </div>
-                          <div className="h-4 w-28 bg-gray-200 rounded mb-1"></div>
-                          <div className="h-2 w-full bg-gray-200 rounded"></div>
+                          <div className="grid grid-cols-3 gap-2 text-xs">
+                            {[...Array(3)].map((_, statIndex) => (
+                              <div key={statIndex} className="rounded-md bg-white/70 px-2 py-2 border border-white/60 space-y-2">
+                                <div className="h-2 w-12 bg-gray-200 rounded"></div>
+                                <div className="h-4 w-10 bg-gray-200 rounded"></div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       ))}
                     </div>

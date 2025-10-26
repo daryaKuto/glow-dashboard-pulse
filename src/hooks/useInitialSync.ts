@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/providers/AuthProvider';
 import { fetchRoomsData, fetchTargetsWithTelemetry } from '@/lib/edge';
-import { fetchGameHistory } from '@/services/game-history';
 import { useTargets } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
-import { useSessions, mapGameHistoryToSession } from '@/store/useSessions';
+import { useSessions } from '@/store/useSessions';
 
 export interface InitialSyncStatus {
   isComplete: boolean;
@@ -56,10 +55,9 @@ export const useInitialSync = () => {
     });
 
     try {
-      const [targetsResult, roomsResult, gameHistory] = await Promise.all([
+      const [targetsResult, roomsResult] = await Promise.all([
         fetchTargetsWithTelemetry(true),
         fetchRoomsData(true),
-        fetchGameHistory({ limit: 10 }),
       ]);
 
       const targetStore = useTargets.getState();
@@ -87,7 +85,8 @@ export const useInitialSync = () => {
       }));
       useRooms.getState().setRooms(mappedRooms, roomsResult.unassignedTargets ?? []);
 
-      useSessions.getState().setSessions(gameHistory.history.map(mapGameHistoryToSession));
+      await useSessions.getState().fetchSessions(user.id, { includeFullHistory: true, limit: 500 });
+      const sessionCount = useSessions.getState().sessions.length;
 
       setSyncStatus({
         isComplete: true,
@@ -96,7 +95,7 @@ export const useInitialSync = () => {
         syncedData: {
         targetCount: targetsResult.targets.length,
         roomCount: mappedRooms.length,
-        sessionCount: gameHistory.history.length,
+        sessionCount,
         userNotFound: undefined,
       },
     });

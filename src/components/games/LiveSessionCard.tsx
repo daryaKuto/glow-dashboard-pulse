@@ -109,23 +109,23 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
-              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Total Hits</p>
+              <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Total Hits</p>
               <p className="font-heading text-2xl text-brand-primary">{recentSummary.totalHits}</p>
             </div>
             <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
-              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Avg Split</p>
+              <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Avg Split</p>
               <p className="font-heading text-2xl text-brand-primary">
                 {recentSummary.averageHitInterval > 0 ? `${recentSummary.averageHitInterval.toFixed(2)}s` : '—'}
               </p>
             </div>
             <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
-              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Efficiency Score</p>
+              <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Efficiency Score</p>
               <p className="font-heading text-2xl text-brand-primary">
                 {recentSummary.efficiencyScore > 0 ? recentSummary.efficiencyScore.toFixed(2) : '—'}
               </p>
             </div>
             <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm sm:col-span-3">
-              <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Game ID</p>
+              <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Game ID</p>
               <p className="font-heading text-base text-brand-dark truncate max-w-[200px]" title={recentSummary.gameId}>
                 {recentSummary.gameId}
               </p>

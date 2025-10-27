@@ -93,41 +93,56 @@ const Rooms: React.FC = () => {
   // If you see errors related to isDemoMode, mockData, or demo services,
   // it's because those systems no longer exist. Use live ThingsBoard/Supabase data only.
   const refreshTargetsWithAssignments = async () => {
-    console.log('🔄 [REFRESH] UI: Starting refreshTargetsWithAssignments...');
+    console.info('[Rooms] Refresh assignments requested', {
+      source: 'useRooms.getAllTargetsWithAssignments(forceRefresh=true)',
+      supabaseEdgeFunction: 'rooms',
+      supabaseTablesRead: ['public.user_rooms', 'public.user_room_targets'],
+    });
     setTargetsLoading(true);
     try {
-      console.log('🔄 [REFRESH] UI: Using live mode - fetching real targets...');
       const targetsWithAssignmentsData = await getAllTargetsWithAssignments(true); // forceRefresh on page load
       setTargetsWithAssignments(targetsWithAssignmentsData);
-      console.log('✅ [SUCCESS] UI: Real targets with assignments refreshed:', targetsWithAssignmentsData.length);
-      console.log('📊 [DATA] UI: Sample real targets:', targetsWithAssignmentsData.slice(0, 3).map(t => ({
-        name: t.name,
-        roomId: t.roomId,
-        id: t.id
-      })));
+      console.info('[Rooms] Assignments refreshed', {
+        totalTargets: targetsWithAssignmentsData.length,
+        sourcedFrom: 'Supabase edge function "rooms"',
+        sample: targetsWithAssignmentsData.slice(0, 3).map((t) => ({
+          id: getTargetId(t),
+          name: t.name,
+          roomId: t.roomId,
+        })),
+      });
       return targetsWithAssignmentsData;
     } catch (error) {
-      console.error('❌ [ERROR] UI: Error refreshing targets with assignments:', error);
-      console.error('❌ [ERROR] UI: Error details:', {
+      console.error('[Rooms] Failed to refresh assignments', {
+        source: 'useRooms.getAllTargetsWithAssignments(forceRefresh=true)',
         message: error.message,
         stack: error.stack
       });
       setTargetsWithAssignments([]);
       return [];
     } finally {
-      console.log('🔄 [REFRESH] UI: Setting targetsLoading to false');
       setTargetsLoading(false);
     }
   };
 
   useEffect(() => {
     const loadData = async () => {
-      console.log('🔄 Rooms page: Loading data from stores...');
+      console.info('[Rooms] Hydrating page state', {
+        navigationPath: typeof window !== 'undefined' ? window.location.pathname : 'unknown',
+        dataSources: [
+          'Zustand stores (useRooms + useTargets)',
+          'Supabase edge function "rooms"',
+          'Supabase tables: user_rooms, user_room_targets',
+        ],
+      });
       setInitialLoading(true);
       
       try {
         // Use data from Zustand stores (populated by useInitialSync)
-        console.log('🔄 Reading from stores...');
+        console.info('[Rooms] Reading cached store values', {
+          store: 'useRooms / useTargets',
+          expectedBackingSources: ['Supabase edge cache', 'ThingsBoard telemetry cache'],
+        });
         
         // Get targets with assignments (use existing data, no API call)
         const targets = await getAllTargetsWithAssignments(false);
@@ -136,14 +151,18 @@ const Rooms: React.FC = () => {
         // Fetch rooms (light operation from Supabase)
         await fetchRooms();
         
-        console.log('✅ Rooms page: Data loaded successfully');
+        console.info('[Rooms] Store hydration complete', {
+          targetsFromCache: targets.length,
+          roomsFetched: rooms.length,
+          supabaseEdgeFunction: 'rooms',
+        });
       } catch (error) {
-        console.error('❌ Error loading data:', error);
+        console.error('[Rooms] Initial store hydration failed', error);
         // Fallback: try to fetch fresh data
         try {
           await refreshTargetsWithAssignments();
         } catch (assignError) {
-          console.error('❌ Error fetching assignments as fallback:', assignError);
+          console.error('[Rooms] Fallback assignment refresh failed', assignError);
         }
       } finally {
         setInitialLoading(false);
@@ -377,17 +396,22 @@ const Rooms: React.FC = () => {
   }, [targetsWithAssignments, pendingAssignments]);
 
   // Debug logging
-  console.log('🔍 Rooms page debug:');
-  console.log('  - targetsWithAssignments:', targetsWithAssignments.length);
-  console.log('  - Targets with roomId:', targetsWithAssignments.filter(t => t.roomId).length);
-  console.log('  - Targets without roomId:', targetsWithAssignments.filter(t => !t.roomId).length);
-  console.log('  - unassignedTargets:', unassignedTargets.length);
-  console.log('  - rooms:', rooms.length);
-  console.log('  - roomForDetails:', roomForDetails?.id);
-  console.log('  - Sample target:', targetsWithAssignments[0]);
+  console.groupCollapsed('[Rooms] Snapshot', {
+    supabaseEdgeFunction: 'rooms',
+    supabaseTables: ['public.user_rooms', 'public.user_room_targets'],
+    thingsboardData: 'targets store (hydrated via fetchTargetsWithTelemetry)',
+  });
+  console.info('targetsWithAssignments.total', targetsWithAssignments.length);
+  console.info('targetsWithAssignments.withRoom', targetsWithAssignments.filter(t => t.roomId).length);
+  console.info('targetsWithAssignments.withoutRoom', targetsWithAssignments.filter(t => !t.roomId).length);
+  console.info('unassignedTargets.total', unassignedTargets.length);
+  console.info('rooms.total', rooms.length);
+  console.info('roomForDetails', roomForDetails?.id ?? null);
+  console.info('sampleTarget', targetsWithAssignments[0] ?? null);
   if (roomForDetails) {
-    console.log('  - targets for current room:', targetsWithAssignments.filter(t => t.roomId === roomForDetails.id).length);
+    console.info('activeRoom.targetCount', targetsWithAssignments.filter(t => t.roomId === roomForDetails.id).length);
   }
+  console.groupEnd();
 
   // Get targets assigned to a specific room (including pending assignments) - memoized
   const getRoomTargets = useMemo(() => {

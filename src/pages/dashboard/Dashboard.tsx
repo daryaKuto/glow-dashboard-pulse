@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Target as TargetIcon, Users, Calendar, Bell, Clock, Zap, Trophy, TrendingUp, Activity, Play, User, X, Gamepad2, BarChart, Award, CheckCircle, Flame, Target, ShieldCheck } from 'lucide-react';
+import { Target as TargetIcon, Users, Calendar, Bell, TrendingUp, Activity, Play, User, X, BarChart, Award, CheckCircle, Gamepad2, Trophy } from 'lucide-react';
 import { useStats } from '@/store/useStats';
 import { useTargets } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
@@ -19,6 +19,16 @@ import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import dayjs from 'dayjs';
+import TargetActivityCard, {
+  RANGE_CONFIG,
+  RANGE_ORDER,
+  buildRangeSummaries,
+  type TimeRange,
+} from '@/components/dashboard/TargetActivityCard';
+import RecentSessionsCard from '@/components/dashboard/RecentSessionsCard';
+import TimelineCard from '@/components/dashboard/TimelineCard';
+import HitDistributionCardWrapper from '@/components/dashboard/HitDistributionCardWrapper';
+import { formatScoreValue } from '@/utils/dashboard';
 
 // Modern Stat Card Component
 const StatCard: React.FC<{
@@ -62,367 +72,7 @@ const StatCard: React.FC<{
   </Card>
 );
 
-const formatScoreValue = (value: number | null | undefined): string => {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return 'N/A';
-  }
-  return value % 1 === 0 ? value.toString() : value.toFixed(2);
-};
-
-const formatDurationValue = (durationMs: number | null | undefined): string => {
-  if (durationMs === null || durationMs === undefined || Number.isNaN(durationMs)) {
-    return '—';
-  }
-  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
-  if (totalSeconds < 60) {
-    return `${totalSeconds}s`;
-  }
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
-};
-
-type TimeRange = 'day' | 'week' | 'month' | 'all';
-
-type RangeSummary = {
-  chartData: Array<{ label: string; hits: number }>;
-  averageScore: number | null;
-  bestScore: number | null;
-  totalShots: number;
-  sessionCount: number;
-};
-
-const RANGE_ORDER: TimeRange[] = ['day', 'week', 'month', 'all'];
-
-const RANGE_CONFIG: Record<TimeRange, { windowMs: number | null; bucketMs: number; bucketCount: number; label: string }> = {
-  day: { windowMs: 24 * 60 * 60 * 1000, bucketMs: 60 * 60 * 1000, bucketCount: 24, label: 'ha' },
-  week: { windowMs: 7 * 24 * 60 * 60 * 1000, bucketMs: 24 * 60 * 60 * 1000, bucketCount: 7, label: 'ddd' },
-  month: { windowMs: 30 * 24 * 60 * 60 * 1000, bucketMs: 24 * 60 * 60 * 1000, bucketCount: 30, label: 'MMM D' },
-  all: { windowMs: null, bucketMs: 30 * 24 * 60 * 60 * 1000, bucketCount: 18, label: 'MMM YY' },
-};
-
-const buildRangeSummaries = (sessions: Session[]): Record<TimeRange, RangeSummary> => {
-  const now = Date.now();
-  const summaries: Record<TimeRange, RangeSummary> = {} as Record<TimeRange, RangeSummary>;
-
-  RANGE_ORDER.forEach((range) => {
-    const config = RANGE_CONFIG[range];
-    const windowStart =
-      config.windowMs === null
-        ? (() => {
-            const earliest = sessions.reduce<number | null>((min, session) => {
-              const ts = Date.parse(session.startedAt);
-              if (Number.isNaN(ts)) return min;
-              if (min === null || ts < min) {
-                return ts;
-              }
-              return min;
-            }, null);
-            return earliest ?? now - config.bucketMs * config.bucketCount;
-          })()
-        : now - config.windowMs;
-
-    const filteredSessions = sessions.filter((session) => {
-      const ts = Date.parse(session.startedAt);
-      if (Number.isNaN(ts)) return false;
-      if (config.windowMs === null) {
-        return ts <= now;
-      }
-      return ts >= windowStart && ts <= now;
-    });
-
-    const bucketStart = config.windowMs === null ? windowStart : windowStart;
-    const buckets: Array<{ start: number; label: string; hits: number }> = [];
-    for (let i = 0; i < config.bucketCount; i += 1) {
-      const start = bucketStart + i * config.bucketMs;
-      const label = dayjs(start).format(config.label);
-      buckets.push({ start, label, hits: 0 });
-    }
-
-    filteredSessions.forEach((session) => {
-      const ts = Date.parse(session.startedAt);
-      if (Number.isNaN(ts)) {
-        return;
-      }
-      const index = Math.min(
-        buckets.length - 1,
-        Math.max(0, Math.floor((ts - bucketStart) / config.bucketMs)),
-      );
-      buckets[index].hits += Number.isFinite(session.hitCount) ? session.hitCount : 0;
-    });
-
-    const totalShots = filteredSessions.reduce(
-      (sum, session) => sum + (Number.isFinite(session.hitCount) ? (session.hitCount ?? 0) : 0),
-      0,
-    );
-    const scoreValues = filteredSessions
-      .map((session) => (Number.isFinite(session.score) ? session.score ?? 0 : null))
-      .filter((value): value is number => value !== null);
-
-    const averageScore =
-      scoreValues.length > 0
-        ? Number((scoreValues.reduce((sum, value) => sum + value, 0) / scoreValues.length).toFixed(2))
-        : null;
-    const bestScore =
-      scoreValues.length > 0 ? Math.max(...scoreValues) : null;
-
-    summaries[range] = {
-      chartData: buckets.map((bucket) => ({ label: bucket.label, hits: bucket.hits })),
-      averageScore,
-      bestScore,
-      totalShots,
-      sessionCount: filteredSessions.length,
-    };
-  });
-
-  return summaries;
-};
-
-// Activity Chart Component - Supabase-powered Target Activity
-const STREAK_TIERS = [
-  { label: '3 Day Spark', threshold: 3, Icon: Flame, description: 'Keep the momentum alive.' },
-  { label: '7 Day Groove', threshold: 7, Icon: Target, description: 'One week of laser focus.' },
-  { label: '30 Day Legend', threshold: 30, Icon: ShieldCheck, description: 'Elite performance unlocked.' },
-];
-
-const ActivityChart: React.FC<{
-  summaries: Record<TimeRange, RangeSummary>;
-  availableRanges: TimeRange[];
-  activeRange: TimeRange;
-  onRangeChange: (range: TimeRange) => void;
-  isLoading: boolean;
-  currentStreakLength: number;
-}> = ({
-  summaries,
-  availableRanges,
-  activeRange,
-  onRangeChange,
-  isLoading,
-  currentStreakLength,
-}) => {
-  const summary = summaries[activeRange];
-  const chartData = summary?.chartData ?? [];
-  const hasData = summary && summary.sessionCount > 0;
-  const filteredChartData = useMemo(() => {
-    const shouldTrim = activeRange === 'day' || activeRange === 'month' || activeRange === 'all';
-    if (!shouldTrim) {
-      return chartData;
-    }
-
-    const activeIndexes = chartData.reduce<number[]>((indices, bucket, index) => {
-      if (bucket.hits > 0) {
-        indices.push(index);
-      }
-      return indices;
-    }, []);
-
-    if (activeIndexes.length === 0) {
-      const fallbackWindow = activeRange === 'day' ? 8 : 12;
-      return chartData.slice(-fallbackWindow);
-    }
-
-    const padding =
-      activeRange === 'day'
-        ? 1
-        : activeRange === 'month'
-          ? 2
-          : 1;
-
-    const firstIndex = Math.max(0, activeIndexes[0] - padding);
-    const lastIndex = Math.min(chartData.length - 1, activeIndexes[activeIndexes.length - 1] + padding);
-    return chartData.slice(firstIndex, lastIndex + 1);
-  }, [chartData, activeRange]);
-
-  const activityBuckets = useMemo(() => {
-    if (activeRange !== 'day') {
-      return filteredChartData.map((bucket) => ({ ...bucket, metric: bucket.hits }));
-    }
-
-    let cumulativeHits = 0;
-    return filteredChartData.map((bucket) => {
-      cumulativeHits += bucket.hits;
-      return {
-        ...bucket,
-        metric: cumulativeHits,
-        incrementalHits: bucket.hits,
-      };
-    });
-  }, [filteredChartData, activeRange]);
-
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <div className="animate-pulse">
-          <div className="h-6 bg-gray-200 rounded w-32 mb-2"></div>
-          <div className="h-4 bg-gray-200 rounded w-16"></div>
-        </div>
-        <div className="flex items-end justify-between gap-2 h-32">
-          {[...Array(7)].map((_, i) => (
-            <div key={i} className="flex-1 bg-gray-200 animate-pulse rounded-t-lg h-16"></div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // Calculate real activity metrics
-  
-  const maxHits = Math.max(...activityBuckets.map((d) => d.metric), 1);
-  const nextTier = STREAK_TIERS.find((tier) => currentStreakLength < tier.threshold) ?? STREAK_TIERS[STREAK_TIERS.length - 1];
-  const averageScoreDisplay = formatScoreValue(summary?.averageScore ?? null);
-  const bestScoreDisplay = formatScoreValue(summary?.bestScore ?? null);
-  const totalShotsDisplay = summary ? summary.totalShots.toLocaleString() : '—';
-  
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-primary/10 text-brand-primary">
-            <TargetIcon className="h-4 w-4" />
-          </div>
-          <div>
-            <h3 className="text-sm font-medium text-brand-dark">Target Activity</h3>
-            <p className="text-[11px] text-brand-dark/60">Supabase session telemetry</p>
-          </div>
-        </div>
-        <Badge className="bg-brand-primary/10 text-brand-primary border-brand-primary/20">
-          {summary?.sessionCount ?? 0} sessions
-        </Badge>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2">
-        {[
-          {
-            label: 'Average Score',
-            value: averageScoreDisplay,
-            icon: <Trophy className="h-4 w-4" />,
-            bg: 'from-brand-primary/10 via-white to-brand-primary/5',
-          },
-          {
-            label: 'Best Score',
-            value: bestScoreDisplay,
-            icon: <Zap className="h-4 w-4" />,
-            bg: 'from-emerald-500/10 via-white to-emerald-500/5',
-          },
-          {
-            label: 'Shots Fired',
-            value: totalShotsDisplay,
-            icon: <TargetIcon className="h-4 w-4" />,
-            bg: 'from-brand-secondary/10 via-white to-brand-secondary/5',
-          },
-        ].map((metric) => (
-          <div
-            key={metric.label}
-            className={`rounded-lg border border-white/40 bg-gradient-to-br ${metric.bg} px-3 py-2 flex flex-col gap-1`}
-          >
-            <div className="flex items-center justify-between text-[11px] text-brand-dark/60">
-              <span>{metric.label}</span>
-              <span className="text-brand-primary/80">{metric.icon}</span>
-            </div>
-            <p className="text-sm font-heading text-brand-dark">{metric.value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="pt-4 border-t border-gray-200">
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-sm font-medium text-brand-dark">
-            {activeRange === 'day' && '24-Hour Hit Activity'}
-            {activeRange === 'week' && '7-Day Hit Trend'}
-            {activeRange === 'month' && '30-Day Activity'}
-            {activeRange === 'all' && 'All-Time Activity'}
-          </h4>
-          <div className="flex space-x-1">
-            {availableRanges.map((range) => (
-              <Button
-                key={range}
-                variant={activeRange === range ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => onRangeChange(range)}
-                className="text-xs px-2 py-1 h-7"
-              >
-                {range === 'day' && 'Day'}
-                {range === 'week' && 'Week'}
-                {range === 'month' && 'Month'}
-                {range === 'all' && 'All'}
-              </Button>
-            ))}
-          </div>
-        </div>
-        {hasData ? (
-          <>
-            <div className="flex items-end justify-between gap-2 h-20">
-              {activityBuckets.map((item, index) => {
-                const isLatest = index === activityBuckets.length - 1;
-                const barHeight = (item.metric / maxHits) * 100;
-                return (
-                  <div key={`${item.label}-${index}`} className="flex flex-col items-center gap-2 flex-1">
-                    <div className="flex-1 flex items-end w-full">
-                      <div
-                        className={`w-full rounded-t-lg transition-all duration-300 ${
-                          isLatest
-                            ? 'bg-brand-primary'
-                            : 'bg-brand-secondary/30 hover:bg-brand-secondary/50'
-                        }`}
-                        style={{
-                          height: `${Math.max(6, barHeight)}%`,
-                          minHeight: '4px',
-                        }}
-                        title={
-                          activeRange === 'day'
-                            ? `${item.label}: ${item.incrementalHits ?? item.hits} hits this hour · ${item.metric} cumulative`
-                            : `${item.label}: ${item.hits} hits`
-                        }
-                      />
-                    </div>
-                    <span className="text-xs text-brand-dark/50 font-body">{item.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="mt-4 rounded-lg border border-brand-primary/20 bg-brand-primary/5 p-3 space-y-3">
-              <div className="text-center space-y-1">
-                <p className="text-xs uppercase tracking-wide text-brand-primary/80 font-semibold">Don't break your streak</p>
-                <p className="text-sm text-brand-dark">
-                  {currentStreakLength > 0
-                    ? `You're on a ${currentStreakLength}-day streak. Keep it going!`
-                    : 'Play today to start your streak.'}
-                </p>
-              </div>
-              <div className="rounded-lg border p-2.5 bg-white flex flex-wrap items-center gap-2 justify-between">
-                {(() => {
-                  const Icon = nextTier.Icon;
-                  const daysRemaining = Math.max(nextTier.threshold - Math.min(currentStreakLength, nextTier.threshold), 0);
-                  const achieved = daysRemaining === 0;
-                  return (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <div className={`rounded-full p-2.5 ${achieved ? 'bg-green-100 text-green-700' : 'bg-brand-secondary/10 text-brand-secondary'}`}>
-                          <Icon className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-brand-dark">{nextTier.label}</p>
-                          <p className="text-xs text-brand-dark/60">{nextTier.description}</p>
-                        </div>
-                      </div>
-                      <p className="text-xs font-medium text-brand-primary text-left sm:text-right ml-auto">
-                        {achieved ? 'Milestone achieved — keep it rolling!' : `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} until unlock`}
-                      </p>
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="rounded-lg border border-dashed border-brand-secondary/40 bg-brand-secondary/5 px-4 py-6 text-center text-sm text-brand-dark/60">
-            No Supabase sessions found for this range.
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
+ 
 
 // Progress Ring Component
 const ProgressRing: React.FC<{
@@ -555,11 +205,6 @@ const Dashboard: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [dismissedCards, setDismissedCards] = useState<string[]>([]);
   const [targetsLoading, setTargetsLoading] = useState(false);
-  const isFetchingRef = useRef(false);
-  const lastFetchTimeRef = useRef(0);
-  const telemetryFetchedRef = useRef(false);
-  const telemetryInitializedRef = useRef(false);
-  const FETCH_DEBOUNCE_MS = 2000; // 2 seconds debounce
   
   // Real data from stores
   const { 
@@ -571,9 +216,9 @@ const Dashboard: React.FC = () => {
     fetchStats
   } = useStats();
   
-  const { targets: rawTargets, fetchTargetsFromEdge, fetchTargetDetails } = useTargets();
-  const { rooms, fetchRooms } = useRooms();
-  const { scenarioHistory, isLoading: scenariosLoading, fetchScenarios } = useScenarios();
+  const { targets: rawTargets, setTargets, fetchTargetDetails } = useTargets();
+  const { rooms, isLoading: roomsLoading, fetchRooms } = useRooms();
+  const { isLoading: scenariosLoading, fetchScenarios } = useScenarios();
   const { sessions, isLoading: sessionsLoading, fetchSessions } = useSessions();
   
   const { user, session, loading: authLoading } = useAuth();
@@ -585,7 +230,9 @@ const Dashboard: React.FC = () => {
   const fetchMergedTargets = useCallback(async () => {
     setTargetsLoading(true);
     try {
-      const targets = await fetchTargetsFromEdge(true);
+      const { fetchTargetsWithTelemetry } = await import('@/services/thingsboard-targets');
+      const { targets } = await fetchTargetsWithTelemetry(true);
+      setTargets(targets);
       if (targets.length > 0) {
         const deviceIds = targets.map((target) => target.id);
         try {
@@ -603,7 +250,7 @@ const Dashboard: React.FC = () => {
     } finally {
       setTargetsLoading(false);
     }
-  }, [fetchTargetsFromEdge, fetchTargetDetails]);
+  }, [fetchTargetDetails, setTargets]);
 
   const summary: TargetsSummary | null = metrics?.summary ?? null;
   const summaryLoading = statsLoading && !summary;
@@ -617,10 +264,9 @@ const Dashboard: React.FC = () => {
     return rawTargets.length > 0;
   }, [summary, summaryLoading, rawTargets.length]);
   const summaryPending = summaryLoading || (statsLoading && !summaryReady);
-  const shouldShowSkeleton = summaryPending || sessionsLoading || targetsLoading;
-  const telemetryLoading = targetsLoading && rawTargets.length === 0;
+  const shouldShowSkeleton =
+    summaryPending || sessionsLoading || targetsLoading || roomsLoading || scenariosLoading;
 
-  const telemetryEnabled = summaryReady;
   const currentTargets = rawTargets;
 
   const refreshAllData = useCallback(async () => {
@@ -649,42 +295,6 @@ const Dashboard: React.FC = () => {
 
     refreshAllData();
   }, [authLoading, user?.id, refreshAllData]);
-
-  // Smart polling system with heartbeat detection - optimized for parallel execution
-  const fetchAllData = useCallback(async () => {
-    if (!telemetryEnabled) {
-      return;
-    }
-
-    if (isFetchingRef.current) {
-      return;
-    }
-
-    const now = Date.now();
-    if (now - lastFetchTimeRef.current < FETCH_DEBOUNCE_MS) {
-      return;
-    }
-    lastFetchTimeRef.current = now;
-
-    isFetchingRef.current = true;
-    try {
-      const metricsPromise = fetchStats({ force: true });
-      const sessionsPromise = user?.id
-        ? fetchSessions(user.id, { limit: SESSION_HISTORY_LIMIT })
-        : Promise.resolve();
-
-      await Promise.all([
-        metricsPromise,
-        Promise.allSettled([fetchMergedTargets()]),
-        Promise.allSettled([fetchScenarios()]),
-        sessionsPromise,
-      ]);
-    } catch (error) {
-      console.error('[Dashboard] Error fetching data', error);
-    } finally {
-      isFetchingRef.current = false;
-    }
-  }, [telemetryEnabled, fetchStats, fetchScenarios, fetchMergedTargets, fetchSessions, user?.id]);
 
   const stats = useMemo(() => {
     const usingDetailedTargets = currentTargets.length > 0;
@@ -719,13 +329,25 @@ const Dashboard: React.FC = () => {
 
   const { onlineTargets, totalTargets, avgScore, totalRooms } = stats;
   
-  // Calculate recentScenarios for use in JSX (moved from useMemo for easier access)
-  const recentScenarios = sessions.slice(0, 3);
   const completedSessionsCount = useMemo(
     () => sessions.filter((session) => (session.score ?? 0) > 0).length,
     [sessions],
   );
   const totalSessionsCount = sessions.length;
+
+  useEffect(() => {
+    console.info('[Dashboard] Supabase sessions snapshot', {
+      fetchedAt: new Date().toISOString(),
+      totalSessions: sessions.length,
+      completedSessions: completedSessionsCount,
+      sample: sessions.slice(0, 5).map((session) => ({
+        id: session.id,
+        gameName: session.gameName,
+        score: session.score,
+        startedAt: session.startedAt,
+      })),
+    });
+  }, [sessions, completedSessionsCount]);
 
   const earliestSessionTimestamp = useMemo(() => {
     return sessions.reduce<number | null>((min, session) => {
@@ -812,6 +434,108 @@ const Dashboard: React.FC = () => {
       setActiveRange(availableRanges[0]);
     }
   }, [availableRanges, activeRange]);
+
+  const distributionSourceSummary = useMemo(() => {
+    if (rangeSummaries.all && rangeSummaries.all.sessionCount > 0) {
+      return rangeSummaries.all;
+    }
+    return rangeSummaries[activeRange];
+  }, [rangeSummaries, activeRange]);
+
+  const {
+    totalHits: distributionTotalHits,
+    summary: distributionSummary,
+    pieData: distributionPieData,
+  } = useMemo(() => {
+    const summary = distributionSourceSummary;
+    if (!summary || !summary.targetTotals || summary.targetTotals.length === 0) {
+      return {
+        totalHits: 0,
+        summary: [] as Array<{ deviceId: string; deviceName: string; hits: number }>,
+        pieData: [] as Array<{ name: string; value: number }>,
+      };
+    }
+
+    const totals = summary.targetTotals;
+    const totalHits = totals.reduce((sum, entry) => sum + entry.hits, 0);
+    const formatted = totals.map((entry) => ({
+      deviceId: entry.deviceId,
+      deviceName: entry.deviceName,
+      hits: entry.hits,
+    }));
+    const pieData = formatted.map((entry) => ({
+      name: entry.deviceName,
+      value: entry.hits > 0 ? entry.hits : 1,
+    }));
+
+    return { totalHits, summary: formatted, pieData };
+  }, [distributionSourceSummary]);
+
+  const hitDistributionLoading = shouldShowSkeleton;
+
+  const aggregateSeriesLabel = useMemo(() => {
+    const activeSummary = rangeSummaries[activeRange];
+    const activeCount = activeSummary?.targetTotals?.length ?? 0;
+    if (activeCount > 0) {
+      if (activeCount === 1) {
+        return `${activeSummary.targetTotals[0]?.deviceName ?? 'Device'} Hits`;
+      }
+      return `${activeCount} Devices · Total Hits`;
+    }
+
+    const distributionCount = distributionSourceSummary?.targetTotals?.length ?? 0;
+    if (distributionCount > 0) {
+      if (distributionCount === 1) {
+        return `${distributionSourceSummary.targetTotals[0]?.deviceName ?? 'Device'} Hits`;
+      }
+      return `${distributionCount} Devices · Total Hits`;
+    }
+
+    return 'Total Hit Volume';
+  }, [rangeSummaries, activeRange, distributionSourceSummary]);
+
+  const { hitTimelineTrackedDevices, hitTimelineData } = useMemo(() => {
+    const summary = rangeSummaries[activeRange];
+    if (!summary) {
+      return {
+        hitTimelineTrackedDevices: [{ deviceId: 'aggregate', deviceName: aggregateSeriesLabel }],
+        hitTimelineData: [] as Array<Record<string, number | string>>,
+      };
+    }
+
+    const topDevices = (summary.targetTotals ?? [])
+      .filter((entry) => entry.hits > 0)
+      .slice(0, 4);
+
+    const trackedDevices = [
+      { deviceId: 'aggregate', deviceName: aggregateSeriesLabel },
+      ...topDevices.map((device) => ({
+        deviceId: device.deviceId,
+        deviceName: device.deviceName,
+      })),
+    ];
+
+    const timelineData = (summary.targetBuckets ?? []).map((bucket, bucketIndex) => {
+      const row: Record<string, number | string> = { time: bucket.label };
+      const totalHitsForBucket = bucket.devices.reduce((sum, device) => sum + device.hits, 0);
+      const fallbackTotal = summary.chartData?.[bucketIndex]?.hits ?? 0;
+      row[aggregateSeriesLabel] = totalHitsForBucket > 0 ? totalHitsForBucket : fallbackTotal;
+
+      topDevices.forEach((device) => {
+        const match = bucket.devices.find((entry) => entry.deviceId === device.deviceId);
+        row[device.deviceName] = match ? match.hits : 0;
+      });
+
+      return row;
+    });
+
+    return {
+      hitTimelineTrackedDevices: trackedDevices,
+      hitTimelineData: timelineData,
+    };
+  }, [rangeSummaries, activeRange, aggregateSeriesLabel]);
+
+  const hitTimelineLoading = shouldShowSkeleton;
 
   const sessionScores = useMemo(
     () =>
@@ -922,208 +646,38 @@ const Dashboard: React.FC = () => {
             
 
             {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-4 lg:gap-5">
-              
-              {/* Activity Chart - Real Target Activity */}
-              <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                <CardHeader className="pb-1 md:pb-3 p-2 md:p-4">
-                  <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">Target Activity</CardTitle>
-                </CardHeader>
-                <CardContent className="p-2 md:p-4">
-                  {(targetsLoading && currentTargets.length === 0) ? (
-                    <div className="space-y-4 animate-pulse">
-                      <div className="flex items-center justify-between">
-                        <div className="h-4 w-28 bg-gray-200 rounded"></div>
-                        <div className="h-6 w-20 bg-gray-200 rounded"></div>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[...Array(3)].map((_, i) => (
-                          <div key={i} className="rounded-lg border border-gray-200 bg-white/70 px-3 py-2 space-y-2">
-                            <div className="flex items-center justify-between">
-                              <div className="h-3 w-12 bg-gray-200 rounded"></div>
-                              <div className="h-4 w-8 bg-gray-200 rounded"></div>
-                            </div>
-                            <div className="h-4 w-16 bg-gray-200 rounded"></div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="space-y-3 pt-2 border-t border-gray-100">
-                        <div className="flex items-end justify-between gap-2 h-20">
-                          {[...Array(8)].map((_, i) => (
-                            <div key={i} className="flex flex-col items-center gap-2 flex-1">
-                              <div className="flex-1 flex items-end w-full">
-                                <div className="w-full rounded-t-lg bg-gray-200" style={{ height: `${10 + i * 5}%` }}></div>
-                              </div>
-                              <div className="h-3 w-8 bg-gray-200 rounded"></div>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="rounded-lg border border-gray-200 bg-white/80 p-3 space-y-2">
-                          <div className="h-3 w-32 bg-gray-200 rounded mx-auto"></div>
-                          <div className="rounded-lg border border-gray-200 bg-white p-2 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <div className="w-10 h-10 rounded-full bg-gray-200"></div>
-                              <div className="space-y-1">
-                                <div className="h-3 w-16 bg-gray-200 rounded"></div>
-                                <div className="h-3 w-20 bg-gray-200 rounded"></div>
-                              </div>
-                            </div>
-                            <div className="h-3 w-14 bg-gray-200 rounded"></div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                  <ActivityChart 
-                    summaries={rangeSummaries}
-                    availableRanges={availableRanges}
-                    activeRange={activeRange}
-                    onRangeChange={setActiveRange}
-                    isLoading={telemetryLoading || sessionsLoading}
-                    currentStreakLength={currentStreakLength}
-                  />
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Recent Sessions */}
-              <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                <CardHeader className="pb-1 md:pb-3 p-2 md:p-4">
-                  {shouldShowSkeleton ? (
-                    <div className="animate-pulse flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-gray-200"></div>
-                        <div className="space-y-2">
-                          <div className="h-4 w-24 bg-gray-200 rounded"></div>
-                          <div className="h-3 w-32 bg-gray-200 rounded"></div>
-                        </div>
-                      </div>
-                      <div className="h-6 w-16 bg-gray-200 rounded"></div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-primary/10 text-brand-primary">
-                          <Gamepad2 className="h-4 w-4" />
-                        </div>
-                        <div>
-                          <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">
-                            Recent Sessions
-                          </CardTitle>
-                          <p className="text-[11px] text-brand-dark/60">Latest games synced from Supabase</p>
-                        </div>
-                      </div>
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        className="text-brand-secondary hover:text-brand-primary text-xs h-6 px-2 rounded-sm md:rounded"
-                        onClick={() => window.location.href = '/dashboard/scenarios'}
-                      >
-                        View All
-                      </Button>
-                    </div>
-                  )}
-                </CardHeader>
-                <CardContent className="p-2 md:p-4">
-                  {shouldShowSkeleton ? (
-                    <div className="space-y-2 md:space-y-3 animate-pulse">
-                      {[...Array(3)].map((_, i) => (
-                        <div key={i} className="border border-gray-200 rounded-sm md:rounded-lg bg-gradient-to-r from-gray-50 to-gray-100 p-3 md:p-4 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="h-8 w-8 rounded-full bg-gray-200"></div>
-                              <div className="space-y-1">
-                                <div className="h-3 w-24 bg-gray-200 rounded"></div>
-                                <div className="h-4 w-32 bg-gray-200 rounded"></div>
-                              </div>
-                            </div>
-                            <div className="h-5 w-16 bg-gray-200 rounded-full"></div>
-                          </div>
-                          <div className="grid grid-cols-3 gap-2 text-xs">
-                            {[...Array(3)].map((_, statIndex) => (
-                              <div key={statIndex} className="rounded-md bg-white/70 px-2 py-2 border border-white/60 space-y-2">
-                                <div className="h-2 w-12 bg-gray-200 rounded"></div>
-                                <div className="h-4 w-10 bg-gray-200 rounded"></div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : recentScenarios.length > 0 ? (
-                    <div className="space-y-2 md:space-y-3">
-                      {recentScenarios.map((session) => {
-                        const isCompleted = Number.isFinite(session.score) && (session.score ?? 0) > 0;
-                        const accent = isCompleted ? 'from-emerald-500/15 to-teal-500/10' : 'from-brand-secondary/20 to-brand-primary/10';
-                        const iconBg = isCompleted ? 'bg-emerald-500/20 text-emerald-600' : 'bg-brand-secondary/20 text-brand-secondary';
-                        const icon = isCompleted ? <Trophy className="h-4 w-4" /> : <Clock className="h-4 w-4" />;
-
-                        return (
-                          <Card
-                            key={session.id}
-                            className={`border border-transparent bg-gradient-to-r ${accent} rounded-sm md:rounded-lg shadow-sm`}
-                          >
-                            <CardContent className="p-3 md:p-4 space-y-2">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                  <div className={`flex h-8 w-8 items-center justify-center rounded-full ${iconBg}`}>
-                                    {icon}
-                                  </div>
-                                  <div>
-                                    <p className="text-[11px] font-medium text-brand-dark/60">
-                                      {dayjs(session.startedAt).format('MMM D, HH:mm')}
-                                    </p>
-                                    <h4 className="font-heading text-sm text-brand-dark">
-                                      {session.gameName || session.scenarioName || 'Custom Game'}
-                                    </h4>
-                                  </div>
-                                </div>
-                                <Badge
-                                  className={`text-[10px] md:text-xs border-none ${
-                                    isCompleted ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'
-                                  }`}
-                                >
-                                  {isCompleted ? 'Completed' : 'In Progress'}
-                                </Badge>
-                              </div>
-                              <div className="grid grid-cols-3 gap-2 text-[11px] md:text-xs text-brand-dark/70">
-                                <div className="rounded-md bg-white/50 px-2 py-1 border border-white/40">
-                                  <p className="uppercase tracking-wide text-[10px] text-brand-dark/50">Score</p>
-                                  <p className="font-heading text-sm text-brand-dark">
-                                    {Number.isFinite(session.score) ? formatScoreValue(session.score) : 'N/A'}
-                                  </p>
-                                </div>
-                                <div className="rounded-md bg-white/50 px-2 py-1 border border-white/40">
-                                  <p className="uppercase tracking-wide text-[10px] text-brand-dark/50">Hits</p>
-                                  <p className="font-heading text-sm text-brand-dark">
-                                    {Number.isFinite(session.hitCount) ? session.hitCount : '—'}
-                                  </p>
-                                </div>
-                                <div className="rounded-md bg-white/50 px-2 py-1 border border-white/40 text-right">
-                                  <p className="uppercase tracking-wide text-[10px] text-brand-dark/50">Duration</p>
-                                  <p className="font-heading text-sm text-brand-dark">
-                                    {formatDurationValue(session.duration)}
-                                  </p>
-                                </div>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-4">
-                      <p className="text-xs text-brand-dark/70 font-body mb-3">No sessions yet</p>
-                      <Button 
-                        className="bg-brand-secondary hover:bg-brand-primary text-white font-body"
-                        onClick={() => window.location.href = '/dashboard/scenarios'}
-                      >
-                        Start Training
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+            <div className="space-y-2 md:space-y-4 lg:space-y-5">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-4 lg:gap-5">
+                <TargetActivityCard
+                  summaries={rangeSummaries}
+                  availableRanges={availableRanges}
+                  activeRange={activeRange}
+                  onRangeChange={setActiveRange}
+                  isLoading={shouldShowSkeleton}
+                  currentStreakLength={currentStreakLength}
+                  showSkeleton={shouldShowSkeleton}
+                />
+                <RecentSessionsCard
+                  sessions={sessions}
+                  isLoading={shouldShowSkeleton}
+                  onViewAll={() => {
+                    window.location.href = '/dashboard/scenarios';
+                  }}
+                />
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-4 lg:gap-5">
+                <TimelineCard
+                  isLoading={hitTimelineLoading}
+                  trackedDevices={hitTimelineTrackedDevices}
+                  data={hitTimelineData}
+                />
+                <HitDistributionCardWrapper
+                  isLoading={hitDistributionLoading}
+                  totalHits={distributionTotalHits}
+                  deviceHitSummary={distributionSummary}
+                  pieChartData={distributionPieData}
+                />
+              </div>
             </div>
 
             {/* Coming Soon Features - Dismissible Stack */}

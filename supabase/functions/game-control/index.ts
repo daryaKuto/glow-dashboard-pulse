@@ -338,6 +338,93 @@ async function handleHistory(
 
     const summaryRecord = summary as Record<string, unknown>;
 
+    let sessionId: string | null = null;
+    try {
+      const hitCount = typeof summary.totalHits === "number"
+        ? summary.totalHits
+        : Array.isArray(summary.deviceResults)
+          ? summary.deviceResults.reduce((sum, device) => {
+              const count = typeof device?.hitCount === "number" ? device.hitCount : Number(device?.hitCount) || 0;
+              return sum + count;
+            }, 0)
+          : 0;
+
+      const startedAtIso = new Date(summary.startTime).toISOString();
+      const endedAtIso = new Date(summary.endTime).toISOString();
+      const durationMs = typeof summary.actualDuration === "number"
+        ? Math.max(0, Math.round(summary.actualDuration * 1000))
+        : null;
+
+      const sessionPayload = {
+        user_id: userId,
+        game_id: summary.gameId ?? null,
+        scenario_name: summary.scenarioName ?? summary.gameName ?? null,
+        scenario_type: summary.scenarioType ?? null,
+        room_name: summary.roomName ?? null,
+        score: typeof summary.score === "number" ? summary.score : hitCount,
+        duration_ms: durationMs,
+        hit_count: hitCount,
+        miss_count: 0,
+        total_shots: hitCount,
+        accuracy_percentage: typeof summary.accuracy === "number" ? summary.accuracy : null,
+        avg_reaction_time_ms: null,
+        best_reaction_time_ms: null,
+        worst_reaction_time_ms: null,
+        started_at: startedAtIso,
+        ended_at: endedAtIso,
+        thingsboard_data: summaryRecord,
+        raw_sensor_data: {
+          targetStats: summary.targetStats ?? null,
+          crossTargetStats: summary.crossTargetStats ?? null,
+          splits: summary.splits ?? null,
+          transitions: summary.transitions ?? null,
+        },
+      };
+
+      const { data: sessionInsert, error: sessionError } = await supabaseAdmin
+        .from('sessions')
+        .insert(sessionPayload)
+        .select('id')
+        .single();
+
+      if (sessionError) {
+        throw sessionError;
+      }
+
+      sessionId = sessionInsert?.id ?? null;
+
+      if (sessionId && Array.isArray(summary.hitHistory) && summary.hitHistory.length > 0) {
+      const hitRows = summary.hitHistory.map((hit) => ({
+        session_id: sessionId,
+        user_id: userId,
+        target_id: hit.deviceId ?? null,
+        target_name: hit.deviceName ?? null,
+        room_name: summary.roomName ?? null,
+        hit_type: 'hit',
+        reaction_time_ms: typeof (hit as Record<string, unknown>)?.reactionTimeMs === 'number'
+          ? (hit as Record<string, unknown>).reactionTimeMs
+          : null,
+        score: typeof (hit as Record<string, unknown>)?.score === 'number'
+          ? (hit as Record<string, unknown>).score
+          : null,
+        hit_timestamp: new Date(hit.timestamp).toISOString(),
+        hit_position: {},
+        sensor_data: hit,
+      }));
+
+        const { error: hitsError } = await supabaseAdmin.from('session_hits').insert(hitRows);
+        if (hitsError) {
+          throw hitsError;
+        }
+      }
+
+      if (sessionId) {
+        summaryRecord.sessionId = sessionId;
+      }
+    } catch (sessionError) {
+      console.warn('[game-control] Failed to persist session analytics', sessionError);
+    }
+
     let isUpdate = false;
     try {
       const { data: existingRows } = await supabaseAdmin

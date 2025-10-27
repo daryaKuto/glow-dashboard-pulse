@@ -14,6 +14,7 @@ interface LiveSessionCardProps {
   activeHits: number;
   hitCounts: Record<string, number>;
   recentSummary: LiveSessionSummary | null;
+  desiredDurationSeconds?: number | null;
 }
 
 // Displays either the current live telemetry view or the most recent session summary snapshot.
@@ -24,7 +25,13 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
   activeHits,
   hitCounts,
   recentSummary,
+  desiredDurationSeconds = null,
 }) => {
+  const desiredDurationLabel =
+    typeof desiredDurationSeconds === 'number' && desiredDurationSeconds > 0
+      ? formatSessionDuration(desiredDurationSeconds)
+      : 'Not set';
+
   if (isRunning) {
     return (
       <Card className="bg-white border-brand-primary/20 shadow-lg rounded-md md:rounded-xl">
@@ -41,6 +48,7 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
             <div className="rounded-xl bg-brand-primary text-white px-4 py-3 shadow-md">
               <p className="text-[11px] uppercase tracking-wide text-white/70">Stopwatch</p>
               <p className="font-heading text-3xl">{formatSessionDuration(timerSeconds)}</p>
+              <p className="mt-1 text-xs text-white/70">Goal: {desiredDurationLabel}</p>
             </div>
             <div className="rounded-xl bg-brand-secondary text-white px-4 py-3 shadow-md">
               <p className="text-[11px] uppercase tracking-wide text-white/70">Session Hits</p>

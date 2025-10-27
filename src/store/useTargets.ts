@@ -134,10 +134,14 @@ export const useTargets = create<TargetsState>((set, get) => ({
           acc[key] = (acc[key] ?? 0) + 1;
           return acc;
         }, {});
-        console.info('[Dashboard] Target status snapshot', {
+        console.info('[Targets] Edge payload received', {
+          edgeFunction: 'targets-with-telemetry',
+          supabaseTablesQueried: ['public.user_room_targets', 'public.user_rooms', 'public.user_profiles'],
+          thingsboardTelemetryAttached: true,
+          fetchedAt: new Date().toISOString(),
           totalTargets: targets.length,
           statusCounts,
-          targets: targets.map(({ id, name, status }) => ({ id, name, status })),
+          sample: targets.slice(0, 5).map(({ id, name, status, roomName }) => ({ id, name, status, roomName })),
         });
       }
       if (debug) {
@@ -151,10 +155,12 @@ export const useTargets = create<TargetsState>((set, get) => ({
           acc[key] = (acc[key] ?? 0) + 1;
           return acc;
         }, {});
-        console.info('[Dashboard] Target status snapshot (edge payload before hydration)', {
+        console.info('[Targets] Edge payload status summary', {
+          edgeFunction: 'targets-with-telemetry',
+          fetchedAt: new Date().toISOString(),
           totalTargets: targets.length,
           statusCounts,
-          targets: targets.map(({ id, name, status }) => ({ id, name, status })),
+          sample: targets.slice(0, 5).map(({ id, name, status, roomName }) => ({ id, name, status, roomName })),
         });
       }
       return targets;
@@ -242,9 +248,20 @@ export const useTargets = create<TargetsState>((set, get) => ({
           acc[key] = (acc[key] ?? 0) + 1;
           return acc;
         }, {});
-        console.info('[Dashboard] Target status snapshot (hydrated with telemetry)', {
+        console.info('[Targets] Hydrated ThingsBoard telemetry applied', {
+          edgeFunction: 'target-details',
+          supabaseTablesQueried: ['public.user_room_targets', 'public.user_profiles'],
+          thingsboardTelemetryApplied: true,
+          hydratedAt: new Date().toISOString(),
           totalTargets: targets.length,
           statusCounts,
+          sample: targets.slice(0, 5).map((target) => ({
+            id: target.id,
+            name: target.name,
+            status: target.status,
+            lastShotTime: target.lastShotTime,
+            recentShots: target.recentShotsCount,
+          })),
         });
       }
 

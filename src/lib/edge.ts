@@ -165,6 +165,10 @@ export async function fetchTargetsWithTelemetry(force = false): Promise<{ target
     const summary = mapSummary(data?.summary);
     const cached = Boolean(data?.cached);
     console.info('[Edge] targets-with-telemetry fetched (no list)', {
+      supabaseEdgeFunction: 'targets-with-telemetry',
+      backingTables: ['public.user_profiles', 'public.user_rooms', 'public.user_room_targets'],
+      thingsboardInvolved: true,
+      fetchedAt: new Date().toISOString(),
       targetCount: 0,
       cached,
       summary: summary
@@ -181,6 +185,10 @@ export async function fetchTargetsWithTelemetry(force = false): Promise<{ target
   const targets = data.data.map(mapEdgeTarget);
   const summary = mapSummary(data.summary);
   console.info('[Edge] targets-with-telemetry fetched', {
+    supabaseEdgeFunction: 'targets-with-telemetry',
+    backingTables: ['public.user_profiles', 'public.user_rooms', 'public.user_room_targets'],
+    thingsboardInvolved: true,
+    fetchedAt: new Date().toISOString(),
     targetCount: targets.length,
     cached: Boolean(data.cached),
     summary: summary
@@ -190,6 +198,7 @@ export async function fetchTargetsWithTelemetry(force = false): Promise<{ target
           assignedTargets: summary.assignedTargets,
         }
       : null,
+    sample: targets.slice(0, 5).map((target) => ({ id: target.id, name: target.name, status: target.status, roomName: target.roomName })),
   });
   return { targets, cached: Boolean(data.cached), summary };
 }
@@ -215,6 +224,7 @@ export async function fetchTargetsSummary(force = false): Promise<{ summary: Tar
   const summary = mapSummary(data?.summary);
   const cached = Boolean(data?.cached);
   console.info('[Edge] targets summary fetched', {
+    fetchedAt: new Date().toISOString(),
     cached,
     summary: summary
       ? {
@@ -437,9 +447,13 @@ export async function fetchRoomsData(force = false): Promise<{ rooms: EdgeRoom[]
   };
 
   console.info('[Edge] rooms payload fetched', {
+    supabaseEdgeFunction: 'rooms',
+    backingTables: ['public.user_rooms', 'public.user_room_targets'],
+    fetchedAt: new Date().toISOString(),
     roomCount: rooms.length,
     unassignedTargets: unassignedTargets.length,
     cached: result.cached,
+    sample: rooms.slice(0, 5).map((room) => ({ id: room.id, name: room.name, targetCount: room.targetCount })),
   });
 
   return result;
@@ -673,8 +687,20 @@ export async function fetchTargetDetails(
 
   const cached = Boolean(data?.cached);
   console.info('[Edge] target-details fetched', {
+    supabaseEdgeFunction: 'target-details',
+    backingTables: ['public.user_profiles'],
+    thingsboardInvolved: true,
+    fetchedAt: new Date().toISOString(),
     detailCount: details.length,
     cached,
+    sample: details.slice(0, 5).map((detail) => ({
+      deviceId: detail.deviceId,
+      status: detail.status,
+      lastShotTime: detail.lastShotTime,
+      recentShotsCount: detail.recentShotsCount,
+      battery: detail.battery,
+      wifiStrength: detail.wifiStrength,
+    })),
   });
 
   return {
@@ -823,4 +849,124 @@ export async function fetchGameControlInfo(
   deviceIds: string[],
 ): Promise<GameControlCommandResponse> {
   return invokeGameControl('info', { deviceIds });
+}
+
+export interface GamePreset {
+  id: string;
+  name: string;
+  description: string | null;
+  roomId: string | null;
+  roomName: string | null;
+  durationSeconds: number | null;
+  targetIds: string[];
+  settings: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type GamePresetResponse = {
+  id: string;
+  name: string;
+  description: string | null;
+  room_id: string | null;
+  room_name: string | null;
+  duration_seconds: number | null;
+  target_ids: string[];
+  settings: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+const mapGamePreset = (record: GamePresetResponse): GamePreset => ({
+  id: record.id,
+  name: record.name,
+  description: record.description,
+  roomId: record.room_id,
+  roomName: record.room_name,
+  durationSeconds: record.duration_seconds,
+  targetIds: record.target_ids ?? [],
+  settings: record.settings ?? {},
+  createdAt: record.created_at,
+  updatedAt: record.updated_at,
+});
+
+export async function fetchGamePresets(): Promise<GamePreset[]> {
+  const { data, error } = await supabase.functions.invoke<{ presets: GamePresetResponse[] }>('game-presets', {
+    method: 'POST',
+    body: { action: 'list' },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const presets = Array.isArray(data?.presets) ? data!.presets.map(mapGamePreset) : [];
+  console.info('[Edge] game-presets list fetched', {
+    fetchedAt: new Date().toISOString(),
+    count: presets.length,
+    sample: presets.slice(0, 3).map((preset) => ({
+      id: preset.id,
+      name: preset.name,
+      targetCount: preset.targetIds.length,
+      durationSeconds: preset.durationSeconds,
+    })),
+  });
+
+  return presets;
+}
+
+export interface SaveGamePresetInput {
+  id?: string;
+  name: string;
+  description?: string | null;
+  roomId?: string | null;
+  roomName?: string | null;
+  durationSeconds?: number | null;
+  targetIds: string[];
+  settings?: Record<string, unknown>;
+}
+
+export async function saveGamePreset(preset: SaveGamePresetInput): Promise<GamePreset> {
+  const { data, error } = await supabase.functions.invoke<{ preset: GamePresetResponse }>('game-presets', {
+    method: 'POST',
+    body: {
+      action: 'save',
+      preset: {
+        id: preset.id,
+        name: preset.name,
+        description: preset.description,
+        roomId: preset.roomId,
+        roomName: preset.roomName,
+        durationSeconds: preset.durationSeconds,
+        targetIds: preset.targetIds,
+        settings: preset.settings ?? {},
+      },
+    },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const mapped = mapGamePreset(data!.preset);
+  console.info('[Edge] game-presets saved', {
+    presetId: mapped.id,
+    name: mapped.name,
+    targetCount: mapped.targetIds.length,
+  });
+
+  return mapped;
+}
+
+export async function deleteGamePreset(id: string): Promise<void> {
+  const { error } = await supabase.functions.invoke('game-presets', {
+    method: 'POST',
+    body: { action: 'delete', id },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  console.info('[Edge] game-presets deleted', { id });
 }

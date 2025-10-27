@@ -17,6 +17,7 @@ interface RoomSelectionCardProps {
   rooms: RoomSelection[];
   selectedDeviceIds: string[];
   isSessionLocked: boolean;
+  activeRoomId?: string | null;
   onSelectAllRooms: () => void;
   onClearRooms: () => void;
   onToggleRoomTargets: (roomId: string, checked: boolean) => void;
@@ -28,6 +29,7 @@ export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
   rooms,
   selectedDeviceIds,
   isSessionLocked,
+  activeRoomId = null,
   onSelectAllRooms,
   onClearRooms,
   onToggleRoomTargets,
@@ -81,11 +83,16 @@ export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
                 const partialSelection =
                   !isRoomSelected && room.deviceIds.some((id) => selectedDeviceIds.includes(id));
                 const checkboxState = isRoomSelected ? true : partialSelection ? 'indeterminate' : false;
+                const isActiveRoom = activeRoomId === room.id;
                 return (
                   <div
                     key={room.id}
                     className={`flex items-center justify-between rounded-lg border px-3 py-2 transition-colors ${
-                      isRoomSelected ? 'border-brand-primary/40 bg-brand-primary/5' : 'border-gray-200 bg-white'
+                      isActiveRoom
+                        ? 'border-brand-primary bg-brand-primary/10 shadow-sm'
+                        : isRoomSelected
+                          ? 'border-brand-primary/40 bg-brand-primary/5'
+                          : 'border-gray-200 bg-white'
                     }`}
                   >
                     <div className="flex items-center gap-3">
@@ -100,6 +107,11 @@ export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
                         <p className="text-xs text-brand-dark/60">
                           {room.onlineCount}/{room.targetCount} online
                         </p>
+                        {isActiveRoom && (
+                          <p className="text-[11px] uppercase tracking-wide text-brand-primary/70 font-semibold">
+                            Active room
+                          </p>
+                        )}
                       </label>
                     </div>
                     <Button

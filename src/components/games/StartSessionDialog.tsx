@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Play, Square, Timer, Target } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Loader2, Play, Square, Timer, Target, BookmarkPlus } from 'lucide-react';
 import type { NormalizedGameDevice } from '@/hooks/useGameDevices';
 import type { SessionHitRecord } from '@/services/device-game-flow';
 import type { TelemetryEnvelope } from '@/services/thingsboard-client';
@@ -37,6 +39,11 @@ export interface StartSessionDialogProps {
   directFlowActive: boolean;
   onRetryFailed: () => void;
   isRetryingFailedDevices: boolean;
+  selectedRoomName: string | null;
+  desiredDurationSeconds: number | null;
+  onDesiredDurationChange: (value: number | null) => void;
+  onRequestSavePreset: () => void;
+  isSavingPreset: boolean;
 }
 
 // Normalizes telemetry payload values into strings for dialog subscriptions.
@@ -276,8 +283,22 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   directFlowActive,
   onRetryFailed: _onRetryFailed,
   isRetryingFailedDevices: _isRetryingFailedDevices,
+  selectedRoomName,
+  desiredDurationSeconds,
+  onDesiredDurationChange,
+  onRequestSavePreset,
+  isSavingPreset,
 }) => {
   const [dialogHitHistory, setDialogHitHistory] = useState<SessionHitRecord[]>([]);
+  const [durationInput, setDurationInput] = useState('');
+
+  useEffect(() => {
+    const nextValue =
+      typeof desiredDurationSeconds === 'number' && Number.isFinite(desiredDurationSeconds) && desiredDurationSeconds > 0
+        ? String(desiredDurationSeconds)
+        : '';
+    setDurationInput(nextValue);
+  }, [desiredDurationSeconds]);
 
   const dialogDeviceIds = useMemo(() => targets.map((target) => target.deviceId), [targets]);
   const dialogDeviceIdSet = useMemo(() => new Set(dialogDeviceIds), [dialogDeviceIds]);
@@ -386,6 +407,30 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   }, [dialogHitHistory]);
 
   const displayedSessionHits = dialogSessionHits.length > 0 ? dialogSessionHits : sessionHits;
+  const targetDurationFormatted = desiredDurationSeconds && desiredDurationSeconds > 0 ? formatSessionDuration(desiredDurationSeconds) : 'Not set';
+  const handleDurationInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const value = event.target.value;
+      setDurationInput(value);
+      if (value.trim().length === 0) {
+        onDesiredDurationChange(null);
+        return;
+      }
+      const parsed = Number(value);
+      if (Number.isFinite(parsed) && parsed >= 0) {
+        onDesiredDurationChange(Math.round(parsed));
+      }
+    },
+    [onDesiredDurationChange],
+  );
+
+  const handleQuickDuration = useCallback(
+    (value: number) => {
+      setDurationInput(String(value));
+      onDesiredDurationChange(value);
+    },
+    [onDesiredDurationChange],
+  );
 
   const runningScore = useMemo(() => {
     if (displayedSessionHits.length === 0) {
@@ -543,13 +588,77 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
       </div>
     );
   } else {
+    const quickDurationOptions = [60, 120, 180, 300];
     bodyContent = (
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="font-heading text-sm uppercase tracking-wide text-brand-dark/70">Targets ({targets.length})</h3>
-          <span className="text-[11px] text-brand-dark/50">IDs logged to console</span>
+      <div className="space-y-4">
+        <div className="space-y-3 rounded-lg border border-brand-secondary/30 bg-brand-secondary/10 px-3 py-3">
+          <div className="flex items-center justify-between text-sm text-brand-dark/80">
+            <span className="font-medium">Room</span>
+            <span className="text-brand-dark/70">{selectedRoomName ?? 'Not set'}</span>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="session-duration-seconds" className="text-xs font-medium text-brand-dark uppercase tracking-wide">
+              Target duration (seconds)
+            </Label>
+            <Input
+              id="session-duration-seconds"
+              value={durationInput}
+              onChange={handleDurationInputChange}
+              placeholder="e.g. 120"
+              inputMode="numeric"
+            />
+            <div className="flex flex-col gap-2 text-[11px] text-brand-dark/60 sm:flex-row sm:items-center sm:justify-between">
+              <span>Formatted: {targetDurationFormatted}</span>
+              <div className="flex flex-wrap gap-2">
+                {quickDurationOptions.map((value) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => handleQuickDuration(value)}
+                  >
+                    {formatSessionDuration(value)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
-        <SessionTargetList targets={targets} tone="default" />
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="font-heading text-sm uppercase tracking-wide text-brand-dark/70">Targets ({targets.length})</h3>
+            <span className="text-[11px] text-brand-dark/50">IDs logged to console</span>
+          </div>
+          <SessionTargetList targets={targets} tone="default" />
+        </div>
+
+        {targets.length > 0 && (
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={onRequestSavePreset}
+              disabled={isSavingPreset}
+            >
+              {isSavingPreset ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <BookmarkPlus className="h-4 w-4" />
+                  Save as preset
+                </>
+              )}
+            </Button>
+          </div>
+        )}
       </div>
     );
   }

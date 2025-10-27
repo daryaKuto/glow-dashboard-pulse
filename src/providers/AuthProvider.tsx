@@ -51,7 +51,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (session?.user) {
         setUser(session.user);
         setSession(session);
-        console.log('[Auth] Authenticated as', session.user.email);
+        const expiresIn = session.expires_at ? session.expires_at * 1000 - Date.now() : null;
+        console.info('[Auth] Session established', {
+          source: 'supabase.auth.getSession',
+          supabaseProjectUrl: supabase.supabaseUrl,
+          tablesInPlay: ['auth.sessions', 'public.user_profiles'],
+          userId: session.user.id,
+          email: session.user.email,
+          appMetadata: session.user.app_metadata,
+          lastSignInAt: session.user.last_sign_in_at,
+          expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+          expiresInMs: expiresIn,
+          roles: session.user.app_metadata?.roles ?? null,
+        });
         void ensureThingsboardSession().catch((tbError) => {
           console.warn('[AuthProvider] Prefetch ThingsBoard session failed (non-blocking):', tbError);
         });
@@ -148,7 +160,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       const emailForLog = result.user?.email ?? email;
       if (emailForLog) {
-        console.log('[Auth] Signed in as', emailForLog);
+        console.info('[Auth] Credentials accepted', {
+          source: 'supabase.auth.signInWithPassword',
+          email: emailForLog,
+          userId: result.user?.id ?? null,
+          supabaseProjectUrl: supabase.supabaseUrl,
+          tablesTouched: ['auth.sessions', 'public.user_profiles'],
+        });
       }
     } catch (error) {
       console.error('[AuthProvider] Sign in error:', error);

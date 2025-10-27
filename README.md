@@ -23,6 +23,14 @@ A modern React dashboard application for managing shooting range scenarios, targ
 - The Start Session popup moved to `src/components/games/StartSessionDialog.tsx`. The page simply passes lifecycle state, direct-control flags, and the hydrated `sessionHits` array; the dialog component owns its own ThingsBoard telemetry subscription buffer to keep the live hit feed scoped.
 - Shared helpers (color palette, summary types, selection skeletons) live alongside the cards so the data flow is one-way: `Games.tsx → components`. No component reaches back into the page for state, which makes testing and Storybook coverage significantly easier.
 
+### 🎮 Game Presets Workflow
+
+- `src/store/useGamePresets.ts` fronts the Supabase `game-presets` edge function and exposes `fetchPresets`, `savePreset`, and `deletePreset`. The Games page primes the store on mount and logs all fetch lifecycles for observability.
+- `src/pages/Games.tsx` renders a dedicated `GamePresetsCard` that surfaces presets as reusable “apply / delete” actions. Applying a preset pumps the saved target IDs through the shared `openStartDialogForTargets` helper so `pendingSessionTargets`, `selectedDeviceIds`, and `currentSessionTargets` stay in sync. Room and duration metadata are merged into the `sessionRoomId`/`sessionDurationSeconds` state so downstream components reflect the preset immediately.
+- The Start Session dialog now shows the active room and editable target duration during the selecting phase (`StartSessionDialog.tsx`). Operators can stamp presets straight from the dialog via the new “Save as preset” CTA, which launches a shadcn modal managed from `Games.tsx`.
+- The save modal collects preset metadata (name, description, optional room, optional duration) and persists it through `useGamePresets.savePreset`. Successful saves trigger a toast, refresh the local store, and log the action; failures surface via toast + console in line with existing conventions.
+- Desired duration travels with the session: it’s baked into the ThingsBoard shared attributes/RPC payload (`tbSetShared` + `tbSendOneway`) and is displayed on the `LiveSessionCard` so operators can see the target run length alongside the live stopwatch.
+
 ## 🚀 Features
 
 ### Core Functionality

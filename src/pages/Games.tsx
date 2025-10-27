@@ -1,12 +1,25 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Gamepad2, Play, AlertCircle } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Gamepad2, Play, AlertCircle, CheckCircle2, Trash2, Loader2 } from 'lucide-react';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from '@/components/ui/sonner';
+import { Skeleton } from '@/components/ui/skeleton';
 import type {
   DeviceStatus,
   GameHistory,
@@ -35,29 +48,8 @@ import { useSessionActivation } from '@/hooks/useSessionActivation';
 import { useAuth } from '@/providers/AuthProvider';
 import { fetchRecentSessions, type RecentSession } from '@/services/profile';
 import {
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  Legend,
-  BarChart,
-  Bar,
-} from 'recharts';
-import {
-  OperatorOverviewCard,
-  OperatorOverviewSkeleton,
   LiveSessionCard,
   LiveSessionCardSkeleton,
-  HitTimelineCard,
-  HitTimelineSkeleton,
-  HitDistributionCard,
-  HitDistributionSkeleton,
   TargetSelectionCard,
   TargetSelectionSkeleton,
   RoomSelectionCard,
@@ -65,21 +57,10 @@ import {
 } from '@/components/games';
 import type { LiveSessionSummary } from '@/components/games/types';
 
-import { useSessionTimer, type SessionLifecycle, type SessionHitEntry } from '@/components/game-session/sessionState';
+import { useSessionTimer, formatSessionDuration, type SessionLifecycle, type SessionHitEntry } from '@/components/game-session/sessionState';
+import { useGamePresets } from '@/store/useGamePresets';
+import type { GamePreset } from '@/lib/edge';
 
-const DEVICE_COLOR_PALETTE = [
-  '#6C5CE7',
-  '#10B981',
-  '#F97316',
-  '#8B5CF6',
-  '#EF4444',
-  '#0EA5E9',
-  '#F59E0B',
-  '#14B8A6',
-];
-
-const MAX_TIMELINE_POINTS = 24;
-const TIMELINE_BUCKET_MS = 1_000;
 type AxiosErrorLike = {
   isAxiosError?: boolean;
   response?: { status?: unknown };
@@ -127,6 +108,330 @@ const resolveHttpStatus = (error: unknown): number | undefined => {
     return error.status;
   }
   return undefined;
+};
+
+// Formats preset duration seconds into mm:ss while tolerating nulls.
+const renderPresetDuration = (durationSeconds: number | null): string => {
+  if (!Number.isFinite(durationSeconds) || durationSeconds === null || durationSeconds <= 0) {
+    return '—';
+  }
+  return formatSessionDuration(durationSeconds);
+};
+
+const resolvePresetDurationSeconds = (preset: GamePreset): number | null => {
+  const candidate = preset.durationSeconds;
+  if (typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0) {
+    return Math.round(candidate);
+  }
+  const settingsValue =
+    preset.settings != null
+      ? (preset.settings as Record<string, unknown>)['desiredDurationSeconds']
+      : null;
+  if (typeof settingsValue === 'number' && Number.isFinite(settingsValue) && settingsValue > 0) {
+    return Math.round(settingsValue);
+  }
+  return null;
+};
+
+type GamePresetsCardProps = {
+  presets: GamePreset[];
+  isLoading: boolean;
+  isSessionLocked: boolean;
+  applyingId: string | null;
+  deletingId: string | null;
+  onApply: (preset: GamePreset) => void;
+  onDelete: (preset: GamePreset) => void;
+  onRefresh: () => void;
+};
+
+// Presents available presets with quick apply/delete actions so operators can stage sessions instantly.
+const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
+  presets,
+  isLoading,
+  isSessionLocked,
+  applyingId,
+  deletingId,
+  onApply,
+  onDelete,
+  onRefresh,
+}) => {
+  return (
+    <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
+      <CardContent className="p-4 md:p-5 space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-heading text-lg text-brand-dark">Game Presets</h2>
+            <p className="text-xs text-brand-dark/60">Save and reuse session setups for faster launches.</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
+            Refresh
+          </Button>
+        </div>
+        {isLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div key={index} className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
+                <Skeleton className="h-4 w-40" />
+                <div className="grid grid-cols-3 gap-2">
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-full" />
+                </div>
+                <div className="flex gap-2">
+                  <Skeleton className="h-8 w-24" />
+                  <Skeleton className="h-8 w-24" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : presets.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-6 text-center text-sm text-brand-dark/60">
+            No presets yet. Configure a session and save it for later.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {presets.map((preset) => {
+              const isApplyLoading = applyingId === preset.id;
+              const isDeleteLoading = deletingId === preset.id;
+              return (
+                <div
+                  key={preset.id}
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-3 shadow-sm transition hover:border-brand-primary/40"
+                >
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                      <p className="font-heading text-sm text-brand-dark">{preset.name}</p>
+                      <div className="text-[11px] uppercase tracking-wide text-brand-dark/50">
+                        Saved {new Date(preset.updatedAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={() => onApply(preset)}
+                        disabled={isSessionLocked || isApplyLoading}
+                      >
+                        {isApplyLoading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Applying...
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="h-4 w-4 mr-2" />
+                            Apply
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onDelete(preset)}
+                        disabled={isSessionLocked || isDeleteLoading}
+                      >
+                        {isDeleteLoading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Deleting...
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                  <dl className="mt-3 grid grid-cols-1 gap-2 text-xs text-brand-dark/70 sm:grid-cols-3">
+                    <div>
+                      <dt className="font-medium text-brand-dark">Room</dt>
+                      <dd>{preset.roomName ?? preset.roomId ?? '—'}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-brand-dark">Duration</dt>
+                      <dd>{renderPresetDuration(preset.durationSeconds)}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-brand-dark">Targets</dt>
+                      <dd>{preset.targetIds.length}</dd>
+                    </div>
+                  </dl>
+                  {preset.description && (
+                    <p className="mt-2 text-xs text-brand-dark/60">{preset.description}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+type SavePresetDialogProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  isSaving: boolean;
+  name: string;
+  onNameChange: (value: string) => void;
+  description: string;
+  onDescriptionChange: (value: string) => void;
+  targetCount: number;
+  includeRoom: boolean;
+  canIncludeRoom: boolean;
+  onIncludeRoomChange: (next: boolean) => void;
+  includeDuration: boolean;
+  onIncludeDurationChange: (next: boolean) => void;
+  durationValue: string;
+  onDurationValueChange: (value: string) => void;
+  onSubmit: () => void;
+  roomName: string | null;
+};
+
+const SavePresetDialog: React.FC<SavePresetDialogProps> = ({
+  open,
+  onOpenChange,
+  isSaving,
+  name,
+  onNameChange,
+  description,
+  onDescriptionChange,
+  targetCount,
+  includeRoom,
+  canIncludeRoom,
+  onIncludeRoomChange,
+  includeDuration,
+  onIncludeDurationChange,
+  durationValue,
+  onDurationValueChange,
+  onSubmit,
+  roomName,
+}) => {
+  const parsedDuration = Number(durationValue);
+  const hasValidDuration = Number.isFinite(parsedDuration) && parsedDuration > 0;
+  const durationSeconds = includeDuration && hasValidDuration ? parsedDuration : null;
+  const formattedDuration = renderPresetDuration(durationSeconds);
+  const disableSave =
+    isSaving ||
+    name.trim().length === 0 ||
+    targetCount === 0 ||
+    (includeDuration && !hasValidDuration);
+  const durationInputId = 'preset-duration';
+  const roomToggleId = 'preset-include-room';
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-heading">Save Session As Preset</DialogTitle>
+          <DialogDescription>
+            Capture the current target selection so operators can reapply it from the presets list.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="preset-name" className="text-sm font-medium text-brand-dark">
+              Preset name
+            </Label>
+            <Input
+              id="preset-name"
+              placeholder="Example: Rapid Drill Alpha"
+              value={name}
+              onChange={(event) => onNameChange(event.target.value)}
+              autoFocus
+              disabled={isSaving}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="preset-description" className="text-sm font-medium text-brand-dark">
+              Description (optional)
+            </Label>
+            <Textarea
+              id="preset-description"
+              placeholder="Add context or instructions for operators."
+              value={description}
+              onChange={(event) => onDescriptionChange(event.target.value)}
+              disabled={isSaving}
+              rows={3}
+            />
+          </div>
+
+          <div className="rounded-md border border-dashed border-brand-secondary/40 bg-brand-secondary/10 px-3 py-2 text-sm text-brand-dark/70">
+            {targetCount > 0 ? `${targetCount} target${targetCount === 1 ? '' : 's'} will be included in this preset.` : 'Select targets before saving the preset.'}
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-white px-3 py-3">
+            <div className="space-y-1 text-sm text-brand-dark/80">
+              <p className="font-medium">Attach room to preset</p>
+              <p className="text-xs text-brand-dark/60">
+                {roomName ? `Current room: ${roomName}` : 'No room assigned to this selection yet.'}
+              </p>
+            </div>
+            <Switch
+              id={roomToggleId}
+              checked={includeRoom && canIncludeRoom}
+              onCheckedChange={(value) => onIncludeRoomChange(Boolean(value))}
+              disabled={isSaving || !canIncludeRoom}
+            />
+          </div>
+
+          <div className="space-y-3 rounded-md border border-gray-200 bg-white px-3 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="space-y-1 text-sm text-brand-dark/80">
+                <p className="font-medium">Set duration override</p>
+                <p className="text-xs text-brand-dark/60">Operators will see the target session length when they apply this preset.</p>
+              </div>
+              <Switch
+                checked={includeDuration}
+                onCheckedChange={(value) => onIncludeDurationChange(Boolean(value))}
+                disabled={isSaving}
+              />
+            </div>
+            {includeDuration && (
+              <div className="space-y-1">
+                <Label htmlFor={durationInputId} className="text-xs font-medium text-brand-dark">
+                  Duration in seconds
+                </Label>
+                <Input
+                  id={durationInputId}
+                  type="number"
+                  inputMode="numeric"
+                  min={10}
+                  step={10}
+                  value={durationValue}
+                  onChange={(event) => onDurationValueChange(event.target.value)}
+                  placeholder="120"
+                  disabled={isSaving}
+                />
+                <p className="text-[11px] text-brand-dark/60">Formatted: {formattedDuration}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter className="mt-6">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
+            Cancel
+          </Button>
+          <Button onClick={onSubmit} disabled={disableSave} className="bg-brand-primary hover:bg-brand-primary/90">
+            {isSaving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              'Save preset'
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 };
 
 const DIRECT_TB_CONTROL_ENABLED = true;
@@ -206,12 +511,17 @@ const Games: React.FC = () => {
   const { isLoading: loadingDevices, refresh: refreshGameDevices } = useGameDevices({ immediate: false });
   const targetsSnapshot = useTargets((state) => state.targets);
   const targetsStoreLoading = useTargets((state) => state.isLoading);
-  const targetDetailsLoading = useTargets((state) => state.detailsLoading);
   const refreshTargets = useTargets((state) => state.refresh);
-  const targetsLastFetched = useTargets((state) => state.lastFetched);
   const rooms = useRooms((state) => state.rooms);
   const roomsLoading = useRooms((state) => state.isLoading);
   const fetchRooms = useRooms((state) => state.fetchRooms);
+  const gamePresets = useGamePresets((state) => state.presets);
+  const presetsLoading = useGamePresets((state) => state.isLoading);
+  const presetsSaving = useGamePresets((state) => state.isSaving);
+  const presetsError = useGamePresets((state) => state.error);
+  const fetchPresets = useGamePresets((state) => state.fetchPresets);
+  const savePreset = useGamePresets((state) => state.savePreset);
+  const deletePresetFromStore = useGamePresets((state) => state.deletePreset);
   // Canonical list of targets decorated with live telemetry that powers the tables and selectors.
   const [availableDevices, setAvailableDevices] = useState<NormalizedGameDevice[]>([]);
   // Surface-level error banner for operator actions (start/stop failures, auth issues).
@@ -226,7 +536,6 @@ const Games: React.FC = () => {
   const [gameStopTime, setGameStopTime] = useState<number | null>(null);
   // Live counters and history feed the hit charts plus the popup shot list.
   const [hitCounts, setHitCounts] = useState<Record<string, number>>({});
-  const [historicalHitCounts, setHistoricalHitCounts] = useState<Record<string, number>>({});
   const [hitHistory, setHitHistory] = useState<SessionHitRecord[]>([]);
   // Active devices represent the targets we actually armed for the in-progress session.
   const [activeDeviceIds, setActiveDeviceIds] = useState<string[]>([]);
@@ -236,8 +545,66 @@ const Games: React.FC = () => {
   const [pendingSessionTargets, setPendingSessionTargets] = useState<NormalizedGameDevice[]>([]);
   // Current session targets are locked once the session is running, informing UI badges and telemetry subscriptions.
   const [currentSessionTargets, setCurrentSessionTargets] = useState<NormalizedGameDevice[]>([]);
+  // Desired session duration seeded by presets or operator overrides.
+  const [sessionDurationSeconds, setSessionDurationSeconds] = useState<number | null>(null);
+  // Tracks which room (if any) is currently associated with the staged session.
+  const [sessionRoomId, setSessionRoomId] = useState<string | null>(null);
   // Snapshot of the most recent completed game, displayed in the post-session summary card.
   const [recentSessionSummary, setRecentSessionSummary] = useState<LiveSessionSummary | null>(null);
+  useEffect(() => {
+    if (!recentSessionSummary) {
+      console.info('[Games] Recent session summary cleared');
+      return;
+    }
+    console.info('[Games] Recent session summary updated', {
+      gameId: recentSessionSummary.gameId,
+      gameName: recentSessionSummary.gameName,
+      totalHits: recentSessionSummary.totalHits,
+      durationSeconds: recentSessionSummary.durationSeconds,
+      devices: recentSessionSummary.deviceStats.map((stat) => ({
+        deviceId: stat.deviceId,
+        deviceName: stat.deviceName,
+        hitCount: stat.hitCount,
+      })),
+      start: new Date(recentSessionSummary.startedAt).toISOString(),
+      stop: new Date(recentSessionSummary.stoppedAt).toISOString(),
+    });
+  }, [recentSessionSummary]);
+
+  useEffect(() => {
+    console.info('[Games] Game history refreshed', {
+      refreshedAt: new Date().toISOString(),
+      totalEntries: gameHistory.length,
+      firstEntry: gameHistory[0]
+        ? {
+            gameId: gameHistory[0].gameId,
+            score: gameHistory[0].score,
+            startTime: gameHistory[0].startTime,
+          }
+        : null,
+      sample: gameHistory.slice(0, 5).map((entry) => ({
+        gameId: entry.gameId,
+        score: entry.score,
+        startTime: entry.startTime,
+        deviceResultCount: entry.deviceResults?.length ?? 0,
+      })),
+    });
+  }, [gameHistory]);
+
+  useEffect(() => {
+    console.info('[Games] Available devices snapshot', {
+      fetchedAt: new Date().toISOString(),
+      totalDevices: availableDevices.length,
+      sample: availableDevices.slice(0, 5).map((device) => ({
+        deviceId: device.deviceId,
+        name: device.name,
+        status: device.gameStatus,
+        wifiStrength: device.wifiStrength,
+        hitCount: device.hitCount,
+      })),
+    });
+  }, [availableDevices]);
+
   // directSessionGameId mirrors the ThingsBoard `gameId` string used by the RPC start/stop commands.
   const [directSessionGameId, setDirectSessionGameId] = useState<string | null>(null);
   // directSessionTargets stores `{deviceId, name}` pairs used by the popup telemetry stream and status pills.
@@ -256,6 +623,14 @@ const Games: React.FC = () => {
   const [isDirectAuthLoading, setIsDirectAuthLoading] = useState(false);
   // Toggles the retry button state while we resend start commands to failed devices.
   const [isRetryingFailedDevices, setIsRetryingFailedDevices] = useState(false);
+  const [applyingPresetId, setApplyingPresetId] = useState<string | null>(null);
+  const [deletingPresetId, setDeletingPresetId] = useState<string | null>(null);
+  const [isSavePresetDialogOpen, setIsSavePresetDialogOpen] = useState(false);
+  const [savePresetName, setSavePresetName] = useState('');
+  const [savePresetDescription, setSavePresetDescription] = useState('');
+  const [savePresetIncludeRoom, setSavePresetIncludeRoom] = useState(false);
+  const [savePresetIncludeDuration, setSavePresetIncludeDuration] = useState(false);
+  const [savePresetDurationInput, setSavePresetDurationInput] = useState('');
   const directStartStatesRef = useRef<Record<string, 'idle' | 'pending' | 'success' | 'error'>>({});
   const updateDirectStartStates = useCallback((
     value:
@@ -300,6 +675,8 @@ const Games: React.FC = () => {
   const selectionManuallyModifiedRef = useRef(false);
   // Tracks whether the initial ThingsBoard device snapshot has been loaded.
   const hasLoadedDevicesRef = useRef(false);
+  const presetsErrorRef = useRef<string | null>(null);
+  const hasFetchedPresetsRef = useRef(false);
   // Centralised token manager so the Games page always has a fresh ThingsBoard JWT for sockets/RPCs.
   const { session: tbSession, refresh: refreshThingsboardSession } = useThingsboardToken();
 
@@ -313,10 +690,20 @@ const Games: React.FC = () => {
   const isSessionDialogVisible = sessionLifecycle !== 'idle' && !isSessionDialogDismissed;
   const isLiveDialogPhase = isRunningLifecycle || isStoppingLifecycle || isFinalizingLifecycle;
 
+  const prevLifecycleRef = useRef<SessionLifecycle>('idle');
+
   useEffect(() => {
-    console.info('[Games] Session lifecycle changed', sessionLifecycle);
+    const previous = prevLifecycleRef.current;
+    console.info('[Games] Session lifecycle transition', {
+      previous,
+      next: sessionLifecycle,
+      timestamp: new Date().toISOString(),
+      activeDeviceCount: activeDeviceIds.length,
+      selectedDeviceCount: selectedDeviceIds.length,
+    });
+    prevLifecycleRef.current = sessionLifecycle;
     sessionLifecycleRef.current = sessionLifecycle;
-  }, [sessionLifecycle]);
+  }, [sessionLifecycle, activeDeviceIds.length, selectedDeviceIds.length]);
 
   useEffect(() => {
     if (sessionLifecycle === 'idle') {
@@ -325,11 +712,13 @@ const Games: React.FC = () => {
   }, [sessionLifecycle]);
 
   useEffect(() => {
-    console.info('[Games] Direct telemetry enabled state', {
+    console.info('[Games] Direct telemetry state change', {
       enabled: directTelemetryEnabled,
       lifecycle: sessionLifecycle,
+      telemetryDevices: currentSessionTargets.map((device) => ({ id: device.deviceId, name: device.name })),
+      timestamp: new Date().toISOString(),
     });
-  }, [directTelemetryEnabled, sessionLifecycle]);
+  }, [directTelemetryEnabled, sessionLifecycle, currentSessionTargets]);
 
   useEffect(() => {
     sessionConfirmedRef.current = sessionConfirmed;
@@ -354,6 +743,7 @@ const Games: React.FC = () => {
 
   const convertSessionToHistory = useCallback(
     (session: RecentSession): GameHistory => {
+      console.info('[Games] Converting Supabase session to history entry', session);
       const ensureNumber = (value: unknown): number | null => {
         if (value === null || value === undefined) {
           return null;
@@ -602,6 +992,18 @@ const Games: React.FC = () => {
       if (historyResult.status === 'rejected') {
         console.warn('[Games] Failed to load persisted game history', historyResult.reason);
       }
+      if (historyResult.status === 'fulfilled') {
+        console.info('[Games] Persisted game history fetched from Supabase', {
+          fetchedAt: new Date().toISOString(),
+          count: persistedHistory.length,
+          sample: persistedHistory.slice(0, 3).map((entry) => ({
+            gameId: entry.gameId,
+            score: entry.score,
+            totalHits: entry.totalHits,
+            startTime: entry.startTime,
+          })),
+        });
+      }
 
       const sessionHistory =
         sessionsResult.status === 'fulfilled'
@@ -609,6 +1011,19 @@ const Games: React.FC = () => {
           : [];
       if (sessionsResult.status === 'rejected') {
         console.warn('[Games] Failed to load session history', sessionsResult.reason);
+      }
+      if (sessionsResult.status === 'fulfilled') {
+        console.info('[Games] Recent sessions fetched from Supabase', {
+          fetchedAt: new Date().toISOString(),
+          count: sessionsResult.value.length,
+          sample: sessionsResult.value.slice(0, 3).map((session) => ({
+            id: session.id,
+            scenarioName: session.scenarioName,
+            score: session.score,
+            startedAt: session.startedAt,
+            hitCount: session.hitCount,
+          })),
+        });
       }
 
       const historyMap = new Map<string, GameHistory>();
@@ -670,6 +1085,19 @@ const Games: React.FC = () => {
           return;
         }
         const mapped = result.devices;
+
+        console.info('[Games] Edge devices refresh complete', {
+          refreshedAt: new Date().toISOString(),
+          totalDevices: mapped.length,
+          source: result.source,
+          sample: mapped.slice(0, 5).map((device) => ({
+            deviceId: device.deviceId,
+            name: device.name,
+            status: device.gameStatus,
+            wifiStrength: device.wifiStrength,
+            hitCount: device.hitCount,
+          })),
+        });
 
         setAvailableDevices(mapped);
         availableDevicesRef.current = mapped;
@@ -812,6 +1240,60 @@ const Games: React.FC = () => {
     };
   }, [fetchRooms]);
 
+  useEffect(() => {
+    if (hasFetchedPresetsRef.current) {
+      return;
+    }
+    hasFetchedPresetsRef.current = true;
+    let cancelled = false;
+
+    const run = async () => {
+      console.info('[Games] Fetching game presets (initial load)');
+      try {
+        await fetchPresets();
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[Games] Failed to fetch game presets', err);
+        }
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchPresets]);
+
+  useEffect(() => {
+    if (gamePresets.length === 0) {
+      console.info('[Games] Game presets list cleared');
+      return;
+    }
+    console.info('[Games] Game presets updated', {
+      fetchedAt: new Date().toISOString(),
+      totalPresets: gamePresets.length,
+      sample: gamePresets.slice(0, 3).map((preset) => ({
+        id: preset.id,
+        name: preset.name,
+        targetCount: preset.targetIds.length,
+        durationSeconds: preset.durationSeconds,
+      })),
+    });
+  }, [gamePresets]);
+
+  useEffect(() => {
+    if (!presetsError) {
+      presetsErrorRef.current = null;
+      return;
+    }
+    if (presetsErrorRef.current === presetsError) {
+      return;
+    }
+    presetsErrorRef.current = presetsError;
+    toast.error(presetsError);
+  }, [presetsError]);
+
   const targetById = useMemo(() => {
     const map = new Map<string, Target>();
     targetsSnapshot.forEach((target) => {
@@ -934,43 +1416,164 @@ const Games: React.FC = () => {
     [deriveConnectionStatus],
   );
 
+  // Centralises the logic to stage the session dialog for a given device roster.
+  const openStartDialogForTargets = useCallback(
+    async ({
+      targetIds,
+      source,
+      requireOnline,
+      syncCurrentTargets = false,
+    }: {
+      targetIds: string[];
+      source: 'manual' | 'preset';
+      requireOnline: boolean;
+      syncCurrentTargets?: boolean;
+    }): Promise<NormalizedGameDevice[] | null> => {
+      const uniqueIds = Array.from(
+        new Set(
+          targetIds
+            .map((id) => (typeof id === 'string' ? id.trim() : ''))
+            .filter((id): id is string => id.length > 0),
+        ),
+      );
+
+      if (uniqueIds.length === 0) {
+        const message = source === 'preset' ? 'Preset has no targets to apply.' : 'Select at least one target before starting a game.';
+        setErrorMessage(message);
+        toast.error(message);
+        return null;
+      }
+
+      const resolvedTargets = uniqueIds
+        .map((deviceId) => availableDeviceMap.get(deviceId) ?? null)
+        .filter((device): device is NormalizedGameDevice => device !== null);
+
+      const missingDeviceIds = uniqueIds.filter((deviceId) => !availableDeviceMap.has(deviceId));
+
+      if (resolvedTargets.length === 0) {
+        const message =
+          source === 'preset'
+            ? 'Preset targets are not available in the current device snapshot.'
+            : 'Selected targets are unavailable. Refresh the device list and try again.';
+        setErrorMessage(message);
+        toast.error(message);
+        return null;
+      }
+
+      const onlineTargets = resolvedTargets.filter((device) => deriveIsOnline(device));
+      const offlineTargets = resolvedTargets.filter((device) => !deriveIsOnline(device));
+
+      if (requireOnline && offlineTargets.length > 0) {
+        const message =
+          offlineTargets.length === resolvedTargets.length
+            ? 'Selected targets are offline. Choose at least one online target.'
+            : 'Some selected targets are offline. Deselect offline devices to continue.';
+        setErrorMessage(message);
+        toast.error(message);
+        return null;
+      }
+
+      if (missingDeviceIds.length > 0) {
+        console.warn('[Games] Preset targets missing in snapshot', {
+          source,
+          missingDeviceIds,
+        });
+        toast.warning(`Missing ${missingDeviceIds.length} preset target${missingDeviceIds.length === 1 ? '' : 's'}. Refresh devices and try again.`);
+      }
+
+      if (!requireOnline && offlineTargets.length > 0) {
+        toast.warning(`${offlineTargets.length} preset target${offlineTargets.length === 1 ? '' : 's'} offline. They will be kept in the selection.`);
+      }
+
+      const effectiveTargets = requireOnline ? onlineTargets : resolvedTargets;
+      if (effectiveTargets.length === 0) {
+        const message = 'No online targets available for this session.';
+        setErrorMessage(message);
+        toast.error(message);
+        return null;
+      }
+
+      let generatedGameId: string | null = null;
+      try {
+        console.info('[Games] Authenticating with ThingsBoard before opening start dialog', { source });
+        await refreshDirectAuthToken();
+        generatedGameId = `GM-${Date.now()}`;
+      } catch (error) {
+        console.error('[Games] ThingsBoard authentication failed', { error, source });
+        const message = error instanceof Error ? error.message : 'Failed to authenticate with ThingsBoard.';
+        setDirectControlError(message);
+        setErrorMessage(message);
+        toast.error(message);
+        return null;
+      }
+
+      const directTargetList = effectiveTargets.map((device) => ({
+        deviceId: device.deviceId,
+        name: device.name ?? device.deviceId,
+      }));
+
+      const initialStates = directTargetList.reduce<Record<string, 'idle' | 'pending' | 'success' | 'error'>>((acc, target) => {
+        acc[target.deviceId] = 'idle';
+        return acc;
+      }, {});
+
+      selectionManuallyModifiedRef.current = true;
+      setSelectedDeviceIds(effectiveTargets.map((device) => device.deviceId));
+      setDirectSessionTargets(directTargetList);
+      updateDirectStartStates(() => initialStates);
+      setDirectFlowActive(false);
+      setDirectSessionGameId(generatedGameId ?? `GM-${Date.now()}`);
+      setDirectTelemetryEnabled(false);
+
+      setErrorMessage(null);
+      setDirectControlError(null);
+      setPendingSessionTargets(effectiveTargets);
+      if (syncCurrentTargets) {
+        setCurrentSessionTargets(effectiveTargets);
+      }
+      resetSessionTimer(null);
+      resetSessionActivation();
+      setGameStartTime(null);
+      setGameStopTime(null);
+      setIsSessionDialogDismissed(false);
+      setSessionLifecycle('selecting');
+
+      console.info('[Games] Session dialog prepared', {
+        source,
+        targetCount: effectiveTargets.length,
+        missingDeviceIds,
+        offlineTargetIds: offlineTargets.map((device) => device.deviceId),
+      });
+
+      return effectiveTargets;
+    },
+    [
+      availableDeviceMap,
+      deriveIsOnline,
+      refreshDirectAuthToken,
+      resetSessionActivation,
+      resetSessionTimer,
+      setCurrentSessionTargets,
+      setDirectControlError,
+      setDirectFlowActive,
+      setDirectSessionGameId,
+      setDirectSessionTargets,
+      setDirectTelemetryEnabled,
+      setErrorMessage,
+      setGameStartTime,
+      setGameStopTime,
+      setIsSessionDialogDismissed,
+      setPendingSessionTargets,
+      setSelectedDeviceIds,
+      setSessionLifecycle,
+      toast,
+      updateDirectStartStates,
+    ],
+  );
+
   const getOnlineDevices = useCallback(() => {
     return availableDevicesRef.current.filter((device) => deriveIsOnline(device));
   }, [deriveIsOnline]);
-
-  const buildHitCountsFromSummary = useCallback((summary: LiveSessionSummary | null) => {
-    if (!summary) {
-      return {};
-    }
-    const deviceResults = Array.isArray(summary.historyEntry?.deviceResults)
-      ? summary.historyEntry.deviceResults
-      : [];
-    const fallbackStats = Array.isArray(summary.deviceStats) ? summary.deviceStats : [];
-    const source = deviceResults.length > 0 ? deviceResults : fallbackStats;
-    if (source.length === 0) {
-      return {};
-    }
-    return source.reduce<Record<string, number>>((acc, entry) => {
-      if (entry && typeof entry.deviceId === 'string' && entry.deviceId.length > 0) {
-        const hits =
-          typeof entry.hitCount === 'number' ? entry.hitCount : Number(entry.hitCount) || 0;
-        acc[entry.deviceId] = hits;
-      }
-      return acc;
-    }, {});
-  }, []);
-
-  useEffect(() => {
-    if (isRunningLifecycle) {
-      setHistoricalHitCounts({});
-      return;
-    }
-    if (recentSessionSummary) {
-      setHistoricalHitCounts(buildHitCountsFromSummary(recentSessionSummary));
-    } else {
-      setHistoricalHitCounts({});
-    }
-  }, [buildHitCountsFromSummary, isRunningLifecycle, recentSessionSummary]);
 
   useEffect(() => {
     if (isSessionLocked) {
@@ -996,6 +1599,7 @@ const Games: React.FC = () => {
 
   const handleToggleDeviceSelection = useCallback((deviceId: string, checked: boolean) => {
     selectionManuallyModifiedRef.current = true;
+    setSessionRoomId(null);
     setSelectedDeviceIds((prev) => {
       if (checked) {
         if (prev.includes(deviceId)) {
@@ -1009,6 +1613,7 @@ const Games: React.FC = () => {
 
   const handleSelectAllDevices = useCallback(() => {
     selectionManuallyModifiedRef.current = true;
+    setSessionRoomId(null);
     const next = availableDevicesRef.current
       .filter((device) => deriveIsOnline(device))
       .map((device) => device.deviceId);
@@ -1017,6 +1622,7 @@ const Games: React.FC = () => {
 
   const handleClearDeviceSelection = useCallback(() => {
     selectionManuallyModifiedRef.current = true;
+    setSessionRoomId(null);
     setSelectedDeviceIds([]);
   }, []);
 
@@ -1040,12 +1646,18 @@ const Games: React.FC = () => {
         const deviceIdsToRemove = new Set(roomDeviceIds);
         return prev.filter((id) => !deviceIdsToRemove.has(id));
       });
+      if (checked) {
+        setSessionRoomId(roomId);
+      } else if (sessionRoomId === roomId) {
+        setSessionRoomId(null);
+      }
     },
-    [roomSelections],
+    [roomSelections, sessionRoomId],
   );
 
   const handleSelectAllRooms = useCallback(() => {
     selectionManuallyModifiedRef.current = true;
+    setSessionRoomId(null);
     const roomDeviceIds = roomSelections.flatMap((room) => room.deviceIds);
     if (roomDeviceIds.length === 0) {
       return;
@@ -1055,6 +1667,7 @@ const Games: React.FC = () => {
 
   const handleClearRoomSelection = useCallback(() => {
     selectionManuallyModifiedRef.current = true;
+    setSessionRoomId(null);
     const roomDeviceIds = roomSelections.flatMap((room) => room.deviceIds);
     if (roomDeviceIds.length === 0) {
       return;
@@ -1063,83 +1676,309 @@ const Games: React.FC = () => {
     setSelectedDeviceIds((prev) => prev.filter((id) => !deviceIdsToRemove.has(id)));
   }, [roomSelections]);
 
-  // Presents the confirmation dialog so operators can review selected devices before starting.
-  const handleOpenStartDialog = useCallback(async () => {
-    const onlineDevices = getOnlineDevices();
+  // Re-fetches the preset catalog on demand so operators can sync recent changes.
+  const handleRefreshPresets = useCallback(async () => {
+    if (presetsLoading) {
+      return;
+    }
+    console.info('[Games] Manual game preset refresh triggered');
+    await fetchPresets();
+    const { error } = useGamePresets.getState();
+    if (!error) {
+      toast.success('Game presets refreshed.');
+    }
+  }, [fetchPresets, presetsLoading]);
 
+  // Applies a preset by staging its targets, room, and duration in the session dialog.
+  const handleApplyPreset = useCallback(
+    async (preset: GamePreset) => {
+      if (isSessionLocked) {
+        toast.info('Complete or stop the current session before applying a preset.');
+        return;
+      }
+      setApplyingPresetId(preset.id);
+      console.info('[Games] Applying game preset', {
+        presetId: preset.id,
+        name: preset.name,
+        roomId: preset.roomId,
+        durationSeconds: preset.durationSeconds,
+        targetCount: preset.targetIds.length,
+      });
+
+      try {
+        const stagedTargets = await openStartDialogForTargets({
+          targetIds: preset.targetIds,
+          source: 'preset',
+          requireOnline: false,
+          syncCurrentTargets: true,
+        });
+
+        if (!stagedTargets || stagedTargets.length === 0) {
+          return;
+        }
+
+        const resolvedRoomId =
+          preset.roomId ??
+          (preset.settings != null && typeof (preset.settings as Record<string, unknown>)['roomId'] === 'string'
+            ? ((preset.settings as Record<string, unknown>)['roomId'] as string)
+            : null);
+        const resolvedRoomName =
+          resolvedRoomId !== null ? rooms.find((room) => room.id === resolvedRoomId)?.name ?? null : null;
+        if (resolvedRoomId !== null && !resolvedRoomName) {
+          console.warn('[Games] Preset room not found in local store', { presetId: preset.id, roomId: resolvedRoomId });
+        }
+        setSessionRoomId(resolvedRoomId ?? null);
+
+        const desiredDurationSeconds = resolvePresetDurationSeconds(preset);
+        setSessionDurationSeconds(desiredDurationSeconds);
+
+        toast.success(`Preset "${preset.name}" applied. Review the dialog and start when ready.`);
+      } catch (error) {
+        console.error('[Games] Failed to apply preset', { presetId: preset.id, error });
+        toast.error('Failed to apply preset. Try again after refreshing devices.');
+      } finally {
+        setApplyingPresetId(null);
+      }
+    },
+    [isSessionLocked, openStartDialogForTargets, rooms],
+  );
+
+  // Deletes a preset and refreshes local state once the backend acknowledges the removal.
+  const handleDeletePreset = useCallback(
+    async (preset: GamePreset) => {
+      if (deletingPresetId) {
+        return;
+      }
+      setDeletingPresetId(preset.id);
+      console.info('[Games] Deleting game preset', { presetId: preset.id, name: preset.name });
+      try {
+        await deletePresetFromStore(preset.id);
+        toast.success(`Preset "${preset.name}" deleted.`);
+      } catch (error) {
+        console.error('[Games] Failed to delete preset', { presetId: preset.id, error });
+        toast.error('Failed to delete preset. Please try again.');
+      } finally {
+        setDeletingPresetId(null);
+      }
+    },
+    [deletePresetFromStore, deletingPresetId],
+  );
+
+  const stagedPresetTargets = useMemo<NormalizedGameDevice[]>(() => {
+    if (pendingSessionTargets.length > 0) {
+      return pendingSessionTargets;
+    }
+    if (currentSessionTargets.length > 0) {
+      return currentSessionTargets;
+    }
     if (selectedDeviceIds.length === 0) {
-      setErrorMessage('Select at least one target before starting a game.');
-      toast.error('Select at least one online target before starting a game.');
+      return [];
+    }
+    return selectedDeviceIds
+      .map((deviceId) => availableDevices.find((device) => device.deviceId === deviceId) ?? null)
+      .filter((device): device is NormalizedGameDevice => device !== null);
+  }, [pendingSessionTargets, currentSessionTargets, selectedDeviceIds, availableDevices]);
+
+  const sessionRoomName = useMemo(() => {
+    if (!sessionRoomId) {
+      return null;
+    }
+    const roomRecord = rooms.find((room) => room.id === sessionRoomId);
+    return roomRecord?.name ?? null;
+  }, [rooms, sessionRoomId]);
+
+  useEffect(() => {
+    console.info('[Games] Session desired duration updated', {
+      durationSeconds: sessionDurationSeconds,
+    });
+  }, [sessionDurationSeconds]);
+
+  useEffect(() => {
+    console.info('[Games] Session room updated', {
+      sessionRoomId,
+      sessionRoomName,
+    });
+  }, [sessionRoomId, sessionRoomName]);
+
+  const resetSavePresetForm = useCallback(() => {
+    setSavePresetName('');
+    setSavePresetDescription('');
+    setSavePresetIncludeRoom(false);
+    setSavePresetIncludeDuration(false);
+    setSavePresetDurationInput('');
+  }, []);
+
+  const handleSavePresetDialogOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) {
+        setIsSavePresetDialogOpen(false);
+        resetSavePresetForm();
+      } else {
+        setIsSavePresetDialogOpen(true);
+      }
+    },
+    [resetSavePresetForm],
+  );
+
+  const handleRequestSavePreset = useCallback(() => {
+    if (stagedPresetTargets.length === 0) {
+      toast.error('Select at least one target before saving a preset.');
       return;
     }
 
-    const selectedTargets = onlineDevices.filter((device) => selectedDeviceIds.includes(device.deviceId));
-    if (selectedTargets.length === 0) {
-      setErrorMessage('Selected targets are offline. Choose at least one online target.');
-      toast.error('Selected targets are offline. Choose at least one online target.');
+    resetSavePresetForm();
+    const defaultDuration = typeof sessionDurationSeconds === 'number' && sessionDurationSeconds > 0 ? Math.round(sessionDurationSeconds) : null;
+
+    setSavePresetIncludeRoom(Boolean(sessionRoomId));
+    if (defaultDuration) {
+      setSavePresetIncludeDuration(true);
+      setSavePresetDurationInput(String(defaultDuration));
+    }
+
+    console.info('[Games] Save preset dialog opened', {
+      targetCount: stagedPresetTargets.length,
+      sessionRoomId,
+      defaultDuration,
+    });
+
+    setIsSavePresetDialogOpen(true);
+  }, [resetSavePresetForm, sessionDurationSeconds, sessionRoomId, stagedPresetTargets, toast]);
+
+  const handleSavePresetNameChange = useCallback((value: string) => {
+    setSavePresetName(value);
+  }, []);
+
+  const handleSavePresetDescriptionChange = useCallback((value: string) => {
+    setSavePresetDescription(value);
+  }, []);
+
+  const handleSavePresetIncludeRoomChange = useCallback(
+    (value: boolean) => {
+      if (!sessionRoomId) {
+        setSavePresetIncludeRoom(false);
+        return;
+      }
+      setSavePresetIncludeRoom(value);
+    },
+    [sessionRoomId],
+  );
+
+  const handleSavePresetIncludeDurationChange = useCallback(
+    (value: boolean) => {
+      setSavePresetIncludeDuration(value);
+      if (!value) {
+        setSavePresetDurationInput('');
+        return;
+      }
+      if (value && savePresetDurationInput.trim().length === 0 && sessionDurationSeconds && sessionDurationSeconds > 0) {
+        setSavePresetDurationInput(String(Math.round(sessionDurationSeconds)));
+      }
+    },
+    [savePresetDurationInput, sessionDurationSeconds],
+  );
+
+  const handleSavePresetDurationChange = useCallback((value: string) => {
+    setSavePresetDurationInput(value);
+  }, []);
+
+  const handleSavePresetSubmit = useCallback(async () => {
+    const trimmedName = savePresetName.trim();
+    if (trimmedName.length === 0) {
+      toast.error('Preset name is required.');
       return;
     }
 
-    let generatedGameId: string | null = null;
+    if (stagedPresetTargets.length === 0) {
+      toast.error('Select at least one target before saving a preset.');
+      return;
+    }
+
+    let durationSeconds: number | null = null;
+    if (savePresetIncludeDuration) {
+      const parsed = Number(savePresetDurationInput);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        toast.error('Duration must be greater than zero.');
+        return;
+      }
+      durationSeconds = Math.round(parsed);
+    }
+
+    const targetIds = Array.from(new Set(stagedPresetTargets.map((device) => device.deviceId)));
+    const resolvedRoomId = savePresetIncludeRoom && sessionRoomId ? sessionRoomId : null;
+    const resolvedRoomName = resolvedRoomId ? rooms.find((room) => room.id === resolvedRoomId)?.name ?? null : null;
+    if (resolvedRoomId && !resolvedRoomName) {
+      console.warn('[Games] Unable to resolve room name for preset save', { resolvedRoomId });
+    }
+
+    const description = savePresetDescription.trim().length > 0 ? savePresetDescription.trim() : null;
+    const settings: Record<string, unknown> = { source: 'games-page' };
+    if (durationSeconds) {
+      settings.desiredDurationSeconds = durationSeconds;
+    }
+    if (resolvedRoomId) {
+      settings.roomId = resolvedRoomId;
+    }
+
+    console.info('[Games] Saving preset request', {
+      name: trimmedName,
+      targetCount: targetIds.length,
+      durationSeconds,
+      resolvedRoomId,
+    });
+
     try {
-      console.info('[Games] Authenticating with ThingsBoard before opening start dialog');
-      const token = await refreshDirectAuthToken();
-      console.info('[Games] ThingsBoard authentication succeeded');
-      generatedGameId = `GM-${Date.now()}`;
+      await savePreset({
+        name: trimmedName,
+        description,
+        roomId: resolvedRoomId,
+        roomName: resolvedRoomName,
+        durationSeconds,
+        targetIds,
+        settings,
+      });
+      await fetchPresets();
+      toast.success(`Preset "${trimmedName}" saved.`);
+      setIsSavePresetDialogOpen(false);
+      resetSavePresetForm();
     } catch (error) {
-      console.error('[Games] ThingsBoard authentication failed', error);
-      const message =
-        error instanceof Error ? error.message : 'Failed to authenticate with ThingsBoard.';
-      setDirectControlError(message);
-      setErrorMessage(message);
-      toast.error(message);
-      return;
+      console.error('[Games] Failed to save preset', error);
+      toast.error('Failed to save preset. Please try again.');
     }
-
-    const directTargetList = selectedTargets.map((device) => ({
-      deviceId: device.deviceId,
-      name: device.name ?? device.deviceId,
-    }));
-    console.info('[Games] Direct control targets prepared', directTargetList);
-
-    const initialStates = directTargetList.reduce<Record<string, 'idle' | 'pending' | 'success' | 'error'>>((acc, target) => {
-      acc[target.deviceId] = 'idle';
-      return acc;
-    }, {});
-    setDirectSessionTargets(directTargetList);
-    updateDirectStartStates(() => initialStates);
-    setDirectFlowActive(false);
-    setDirectSessionGameId(generatedGameId ?? `GM-${Date.now()}`);
-    console.info('[Games] Direct telemetry disabled until begin is confirmed');
-    setDirectTelemetryEnabled(false);
-
-    setErrorMessage(null);
-    setPendingSessionTargets(selectedTargets);
-    resetSessionTimer(null);
-    resetSessionActivation();
-    setGameStartTime(null);
-    setGameStopTime(null);
-    setIsSessionDialogDismissed(false);
-    setSessionLifecycle('selecting');
   }, [
-    getOnlineDevices,
-    resetSessionActivation,
-    resetSessionTimer,
-    selectedDeviceIds,
-    updateDirectStartStates,
-    setDirectSessionGameId,
-    setDirectSessionTargets,
-    setDirectFlowActive,
-    setDirectTelemetryEnabled,
-    refreshDirectAuthToken,
-    setDirectControlError,
-    setErrorMessage,
-    setPendingSessionTargets,
-    setGameStartTime,
-    setGameStopTime,
-    setIsSessionDialogDismissed,
+    fetchPresets,
+    resetSavePresetForm,
+    rooms,
+    savePreset,
+    savePresetDescription,
+    savePresetDurationInput,
+    savePresetIncludeDuration,
+    savePresetIncludeRoom,
+    savePresetName,
+    sessionRoomId,
+    stagedPresetTargets,
     toast,
   ]);
+
+  const handleDesiredDurationChange = useCallback((value: number | null) => {
+    if (value === null) {
+      setSessionDurationSeconds(null);
+      return;
+    }
+    const normalized = Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+    setSessionDurationSeconds(normalized);
+  }, []);
+
+  // Presents the confirmation dialog so operators can review selected devices before starting.
+  const handleOpenStartDialog = useCallback(async () => {
+    setSessionRoomId(null);
+    setSessionDurationSeconds(null);
+    await openStartDialogForTargets({
+      targetIds: selectedDeviceIds,
+      source: 'manual',
+      requireOnline: true,
+      syncCurrentTargets: false,
+    });
+  }, [openStartDialogForTargets, selectedDeviceIds]);
 
   // Shared telemetry hook feeds real-time hit data for active devices so the page can merge hit counts, splits, and transitions.
   const directTelemetryDeviceDescriptors = useMemo(
@@ -1351,6 +2190,8 @@ const Games: React.FC = () => {
       resetSessionActivation();
       setDirectTelemetryEnabled(false);
       setDirectFlowActive(false);
+      setSessionRoomId(null);
+      setSessionDurationSeconds(null);
       return;
     }
 
@@ -1488,6 +2329,8 @@ const Games: React.FC = () => {
     updateDirectStartStates({});
     setDirectSessionTargets([]);
     setDirectSessionGameId(null);
+    setSessionRoomId(null);
+    setSessionDurationSeconds(null);
     void loadLiveDevices({ silent: true, showToast: true, reason: 'postStop' });
   }, [
     directSessionGameId,
@@ -1534,6 +2377,8 @@ const Games: React.FC = () => {
       setPendingSessionTargets([]);
       resetSessionTimer(null);
       setIsSessionDialogDismissed(false);
+      setSessionRoomId(null);
+      setSessionDurationSeconds(null);
       return;
     }
 
@@ -1581,19 +2426,35 @@ const Games: React.FC = () => {
         targetsToCommand.map(async ({ deviceId }) => {
           let attemptedRefresh = false;
           const run = async () => {
-            await tbSetShared(deviceId, {
+            const sharedAttributes: Record<string, unknown> = {
               gameId: directSessionGameId,
               status: 'busy',
-            });
+            };
+            if (sessionDurationSeconds && sessionDurationSeconds > 0) {
+              sharedAttributes.desiredDurationSeconds = sessionDurationSeconds;
+            }
+            if (sessionRoomId) {
+              sharedAttributes.roomId = sessionRoomId;
+            }
+
+            await tbSetShared(deviceId, sharedAttributes);
+
+            const commandValues: Record<string, unknown> = {
+              deviceId,
+              event: 'start',
+              gameId: directSessionGameId,
+            };
+            if (sessionDurationSeconds && sessionDurationSeconds > 0) {
+              commandValues.desiredDurationSeconds = sessionDurationSeconds;
+            }
+            if (sessionRoomId) {
+              commandValues.roomId = sessionRoomId;
+            }
 
             try {
               await tbSendOneway(deviceId, 'start', {
                 ts: timestamp,
-                values: {
-                  deviceId,
-                  event: 'start',
-                  gameId: directSessionGameId,
-                },
+                values: commandValues,
               });
             } catch (error) {
               const status = resolveHttpStatus(error);
@@ -1674,6 +2535,8 @@ const Games: React.FC = () => {
       setHitHistory,
       setDirectControlError,
       markTelemetryConfirmed,
+      sessionDurationSeconds,
+      sessionRoomId,
     ],
   );
 
@@ -1733,6 +2596,8 @@ const Games: React.FC = () => {
     console.info('[Games] Begin session pressed (direct ThingsBoard path)', {
       deviceIds: targetedDeviceIds,
       gameId: directSessionGameId,
+      desiredDurationSeconds: sessionDurationSeconds,
+      sessionRoomId,
     });
 
     void executeDirectStart({ deviceIds: targetedDeviceIds, timestamp });
@@ -1758,6 +2623,8 @@ const Games: React.FC = () => {
     setSelectedDeviceIds,
     setSessionLifecycle,
     startSessionTimer,
+    sessionDurationSeconds,
+    sessionRoomId,
     toast,
     updateDirectStartStates,
   ]);
@@ -1802,237 +2669,10 @@ const Games: React.FC = () => {
     return new Date(timestamp).toLocaleTimeString();
   };
 
-  const operatorOverviewMetrics = useMemo(() => {
-    const validTargets = targetsSnapshot.filter(
-      (target) => !target?.isNoDataMessage && !target?.isErrorMessage,
-    );
-    const totalTargets = validTargets.length;
-
-    let onlineTargets = 0;
-    let totalShots = 0;
-    let bestScoreValue = 0;
-    let hasShotData = false;
-
-    validTargets.forEach((target) => {
-      if (!target || target.isNoDataMessage || target.isErrorMessage) {
-        return;
-      }
-
-      const status = typeof target.status === 'string' ? target.status.toLowerCase() : '';
-      if (['online', 'standby', 'active'].includes(status)) {
-        onlineTargets += 1;
-      }
-
-      const targetTotalShots = getTargetTotalShots(target);
-      if (typeof targetTotalShots === 'number') {
-        totalShots += targetTotalShots;
-        hasShotData = true;
-      }
-
-      const targetBestScore = getTargetBestScore(target);
-      if (typeof targetBestScore === 'number') {
-        bestScoreValue = Math.max(bestScoreValue, targetBestScore);
-      }
-    });
-
-    return {
-      totalTargets,
-      onlineTargets,
-      offlineTargets: Math.max(totalTargets - onlineTargets, 0),
-      totalShots: hasShotData ? totalShots : 0,
-      bestScore: bestScoreValue,
-    };
-  }, [targetsSnapshot]);
-
-  const hasResolvedTargets = useMemo(
-    () => operatorOverviewMetrics.totalTargets > 0,
-    [operatorOverviewMetrics.totalTargets],
-  );
-
-  const { totalTargets: totalDevices, onlineTargets: onlineDevices, totalShots: resolvedTotalHits, bestScore } =
-    operatorOverviewMetrics;
-
-  const operatorBestScore = useMemo(() => {
-    const latestSummaryScore =
-      typeof recentSessionSummary?.efficiencyScore === 'number' && Number.isFinite(recentSessionSummary.efficiencyScore)
-        ? recentSessionSummary.efficiencyScore
-        : 0;
-    const snapshotScore = typeof bestScore === 'number' && Number.isFinite(bestScore) ? bestScore : 0;
-    return Math.max(latestSummaryScore, snapshotScore);
-  }, [bestScore, recentSessionSummary?.efficiencyScore]);
-  const activeSessionDevices = activeDeviceIds.length;
   const activeSessionHits = activeDeviceIds.reduce(
     (sum, id) => sum + (hitCounts[id] ?? 0),
     0
   );
-  const trackedDevices = useMemo(() => {
-    const map = new Map<string, string>();
-    const summaryTargets = recentSessionSummary?.targets ?? [];
-
-    const seedIds = (() => {
-      if (isRunningLifecycle) {
-        if (activeDeviceIds.length > 0) {
-          return activeDeviceIds;
-        }
-        if (selectedDeviceIds.length > 0) {
-          return selectedDeviceIds;
-        }
-        return availableDevices.map((device) => device.deviceId);
-      }
-      if (summaryTargets.length > 0) {
-        return summaryTargets.map((target) => target.deviceId);
-      }
-      return availableDevices.map((device) => device.deviceId);
-    })();
-
-    seedIds.forEach((deviceId) => {
-      if (!map.has(deviceId)) {
-        const summaryName = summaryTargets.find((target) => target.deviceId === deviceId)?.deviceName;
-        map.set(deviceId, summaryName ?? deviceNameById.get(deviceId) ?? deviceId);
-      }
-    });
-
-    const sourceHitHistory = isRunningLifecycle ? hitHistory : recentSessionSummary?.hitHistory ?? [];
-    sourceHitHistory.forEach((record) => {
-      if (!map.has(record.deviceId)) {
-        map.set(record.deviceId, record.deviceName ?? deviceNameById.get(record.deviceId) ?? record.deviceId);
-      }
-    });
-
-    return Array.from(map.entries()).map(([deviceId, deviceName]) => ({
-      deviceId,
-      deviceName,
-    }));
-  }, [
-    activeDeviceIds,
-    availableDevices,
-    deviceNameById,
-    hitHistory,
-    isRunningLifecycle,
-    recentSessionSummary,
-    selectedDeviceIds,
-  ]);
-
-  const resolvedHitCounts = useMemo(
-    () => (isRunningLifecycle ? hitCounts : historicalHitCounts),
-    [historicalHitCounts, hitCounts, isRunningLifecycle],
-  );
-
-  const deviceHitSummary = useMemo(() => {
-    if (trackedDevices.length === 0) {
-      return [];
-    }
-
-    const fallbackHits = new Map<string, number>();
-    availableDevices.forEach((device) => {
-      fallbackHits.set(device.deviceId, Number.isFinite(device.hitCount) ? Number(device.hitCount) : 0);
-    });
-
-    return trackedDevices
-      .map(({ deviceId, deviceName }) => {
-        const liveHits = resolvedHitCounts[deviceId];
-        const baseline = fallbackHits.get(deviceId) ?? 0;
-        return {
-          deviceId,
-          deviceName,
-          hits: typeof liveHits === 'number' ? liveHits : baseline,
-        };
-      })
-      .sort((a, b) => b.hits - a.hits);
-  }, [availableDevices, resolvedHitCounts, trackedDevices]);
-
-  const totalHitsLive = useMemo(
-    () => deviceHitSummary.reduce((sum, entry) => sum + entry.hits, 0),
-    [deviceHitSummary],
-  );
-
-  const pieChartData = useMemo(() => {
-    if (deviceHitSummary.length === 0) {
-      return [{ name: 'No hits yet', value: 1 }];
-    }
-
-    const values = deviceHitSummary.map((entry) => ({
-      name: entry.deviceName,
-      value: entry.hits > 0 ? entry.hits : 1,
-    }));
-
-    const total = values.reduce((sum, entry) => sum + entry.value, 0);
-    if (total === 0) {
-      return values.map((entry) => ({ ...entry, value: 1 }));
-    }
-
-    return values;
-  }, [deviceHitSummary]);
-
-  const hitTimelineData = useMemo(() => {
-    const sourceHitHistory = isRunningLifecycle
-      ? hitHistory
-      : recentSessionSummary?.hitHistory ?? [];
-
-    const sourceStartTime = isRunningLifecycle
-      ? gameStartTime
-      : recentSessionSummary?.startedAt ?? gameStartTime;
-
-    const sourceStopTime = isRunningLifecycle
-      ? gameStopTime ?? Date.now()
-      : recentSessionSummary?.stoppedAt ?? recentSessionSummary?.startedAt ?? Date.now();
-
-    if (!sourceStartTime || trackedDevices.length === 0 || sourceHitHistory.length === 0) {
-      return [];
-    }
-
-    const timelineEnd = isRunningLifecycle ? Date.now() : sourceStopTime;
-    const windowStart = Math.max(
-      sourceStartTime,
-      timelineEnd - MAX_TIMELINE_POINTS * TIMELINE_BUCKET_MS,
-    );
-
-    const buckets = Array.from({ length: MAX_TIMELINE_POINTS }, (_, index) => {
-      const bucketStart = windowStart + index * TIMELINE_BUCKET_MS;
-      const secondsSinceStart = Math.max(0, Math.floor((bucketStart - sourceStartTime) / 1000));
-      const entry: Record<string, number | string> = {
-        time: `${secondsSinceStart}s`,
-      };
-      trackedDevices.forEach(({ deviceName }) => {
-        entry[deviceName] = 0;
-      });
-      return entry;
-    });
-
-    sourceHitHistory.forEach((record) => {
-      if (record.timestamp < windowStart) {
-        return;
-      }
-      const bucketIndex = Math.min(
-        MAX_TIMELINE_POINTS - 1,
-        Math.floor((record.timestamp - windowStart) / TIMELINE_BUCKET_MS),
-      );
-      const bucket = buckets[bucketIndex];
-      if (!bucket) {
-        return;
-      }
-      const deviceName =
-        trackedDevices.find((device) => device.deviceId === record.deviceId)?.deviceName ??
-        record.deviceName ??
-        deviceNameById.get(record.deviceId) ??
-        record.deviceId;
-      if (typeof bucket[deviceName] !== 'number') {
-        bucket[deviceName] = 0;
-      }
-      bucket[deviceName] = (bucket[deviceName] as number) + 1;
-    });
-
-    return buckets;
-  }, [
-    deviceNameById,
-    gameStartTime,
-    gameStopTime,
-    hitHistory,
-    isRunningLifecycle,
-    recentSessionSummary,
-    trackedDevices,
-  ]);
-
   const recentTransitions = useMemo(() => {
     if (transitionRecords.length === 0) {
       return [];
@@ -2111,32 +2751,8 @@ const Games: React.FC = () => {
 
   const isLiveDataLoading = loadingDevices || isHistoryLoading;
 
-  const operatorName = useMemo(() => {
-    if (user?.user_metadata?.full_name && typeof user.user_metadata.full_name === 'string') {
-      return user.user_metadata.full_name;
-    }
-    if (user?.email) {
-      return user.email;
-    }
-    return 'Operator';
-  }, [user]);
-
-  const operatorInitials = useMemo(() => {
-    return operatorName
-      .split(' ')
-      .filter(Boolean)
-      .map((part) => part[0]?.toUpperCase() ?? '')
-      .join('')
-      .slice(0, 2) || 'DF';
-  }, [operatorName]);
-
   const displayedSelectedCount = selectedDeviceIds.length;
-  const operatorOverviewLoading =
-    targetsStoreLoading ||
-    targetDetailsLoading ||
-    targetsLastFetched === null ||
-    !hasResolvedTargets;
-  const isPageLoading = operatorOverviewLoading || isLiveDataLoading;
+  const isPageLoading = isLiveDataLoading;
   const sessionDialogTargets =
     isLiveDialogPhase && currentSessionTargets.length > 0 ? currentSessionTargets : pendingSessionTargets;
   const canDismissSessionDialog = sessionLifecycle === 'selecting' && !isStarting && !isLaunchingLifecycle;
@@ -2182,22 +2798,8 @@ const Games: React.FC = () => {
                 <div className="flex flex-col items-stretch gap-3 text-sm text-brand-dark/60 sm:flex-row sm:items-center sm:gap-4" />
               </div>
 
-              <div className="grid gap-4 xl:gap-6 lg:grid-cols-[320px_minmax(320px,1fr)_minmax(320px,380px)]">
+              <div className="grid gap-4 xl:gap-6 lg:grid-cols-[minmax(320px,1fr)_minmax(320px,380px)]">
                   <div className="space-y-4">
-                    {/* Operator overview card summarises current auth user and macro ThingsBoard stats (online targets, selections, lifetime hits). */}
-                    {isPageLoading ? (
-                      <OperatorOverviewSkeleton />
-                    ) : (
-                      <OperatorOverviewCard
-                        operatorName={operatorName}
-                        operatorInitials={operatorInitials}
-                        onlineTargets={onlineDevices}
-                        totalTargets={totalDevices}
-                        totalHits={resolvedTotalHits}
-                        bestScore={operatorBestScore}
-                      />
-                    )}
-
                     {/* Live session card visualises the active session timer, hit totals, and post-session summary fed by telemetry. */}
                     {isPageLoading ? (
                       <LiveSessionCardSkeleton />
@@ -2209,31 +2811,23 @@ const Games: React.FC = () => {
                         activeHits={activeSessionHits}
                         hitCounts={hitCounts}
                         recentSummary={recentSessionSummary}
+                        desiredDurationSeconds={sessionDurationSeconds}
                       />
                     )}
                   </div>
 
                   <div className="space-y-4">
-                    {/* Hit distribution card renders live pie chart + breakdown sourced from current session hit tallies. */}
-                    {isPageLoading ? (
-                      <HitDistributionSkeleton />
-                    ) : (
-                      <HitDistributionCard
-                        totalHits={totalHitsLive}
-                        deviceHitSummary={deviceHitSummary}
-                        pieChartData={pieChartData}
-                      />
-                    )}
+                    <GamePresetsCard
+                      presets={gamePresets}
+                      isLoading={presetsLoading}
+                      isSessionLocked={isSessionLocked}
+                      applyingId={applyingPresetId}
+                      deletingId={deletingPresetId}
+                      onApply={handleApplyPreset}
+                      onDelete={handleDeletePreset}
+                      onRefresh={handleRefreshPresets}
+                    />
 
-                    {isPageLoading ? (
-                      <HitTimelineSkeleton />
-                    ) : (
-                      <HitTimelineCard trackedDevices={trackedDevices} data={hitTimelineData} />
-                    )}
-
-                  </div>
-
-                  <div className="space-y-4">
                     {/* Room selection card allows quick selection by pre-defined room groupings. */}
                     {isPageLoading ? (
                       <TargetSelectionSkeleton />
@@ -2243,6 +2837,7 @@ const Games: React.FC = () => {
                         rooms={roomSelections}
                         selectedDeviceIds={selectedDeviceIds}
                         isSessionLocked={isSessionLocked}
+                        activeRoomId={sessionRoomId}
                         onSelectAllRooms={handleSelectAllRooms}
                         onClearRooms={handleClearRoomSelection}
                         onToggleRoomTargets={handleToggleRoomTargets}
@@ -2316,6 +2911,30 @@ const Games: React.FC = () => {
           directFlowActive={directFlowActive}
           onRetryFailed={handleRetryFailedDevices}
           isRetryingFailedDevices={isRetryingFailedDevices}
+          selectedRoomName={sessionRoomName}
+          desiredDurationSeconds={sessionDurationSeconds}
+          onDesiredDurationChange={handleDesiredDurationChange}
+          onRequestSavePreset={handleRequestSavePreset}
+          isSavingPreset={presetsSaving}
+        />
+        <SavePresetDialog
+          open={isSavePresetDialogOpen}
+          onOpenChange={handleSavePresetDialogOpenChange}
+          isSaving={presetsSaving}
+          name={savePresetName}
+          onNameChange={handleSavePresetNameChange}
+          description={savePresetDescription}
+          onDescriptionChange={handleSavePresetDescriptionChange}
+          targetCount={stagedPresetTargets.length}
+          includeRoom={savePresetIncludeRoom}
+          canIncludeRoom={Boolean(sessionRoomId)}
+          onIncludeRoomChange={handleSavePresetIncludeRoomChange}
+          includeDuration={savePresetIncludeDuration}
+          onIncludeDurationChange={handleSavePresetIncludeDurationChange}
+          durationValue={savePresetDurationInput}
+          onDurationValueChange={handleSavePresetDurationChange}
+          onSubmit={handleSavePresetSubmit}
+          roomName={sessionRoomName}
         />
       </div>
     </div>

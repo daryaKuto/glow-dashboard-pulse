@@ -53,6 +53,7 @@ import {
   TargetSelectionCard,
   TargetSelectionSkeleton,
   RoomSelectionCard,
+  RoomSelectionSkeleton,
   StartSessionDialog,
 } from '@/components/games';
 import type { LiveSessionSummary } from '@/components/games/types';
@@ -67,6 +68,113 @@ type AxiosErrorLike = {
   code?: string;
   message?: unknown;
 };
+
+const StepOneSkeleton: React.FC = () => (
+  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
+    <CardContent className="p-4 md:p-5 space-y-4">
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-5 w-16 rounded-full bg-gray-200" />
+          <Skeleton className="h-4 w-40 bg-gray-200" />
+        </div>
+        <Skeleton className="h-5 w-52 bg-gray-200" />
+        <Skeleton className="h-3 w-60 bg-gray-200" />
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 md:items-start">
+        <RoomSelectionSkeleton />
+        <TargetSelectionSkeleton />
+      </div>
+    </CardContent>
+  </Card>
+);
+
+const StepTwoSkeleton: React.FC = () => (
+  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
+    <CardContent className="p-4 md:p-5 space-y-4">
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-5 w-16 rounded-full bg-gray-200" />
+          <Skeleton className="h-4 w-32 bg-gray-200" />
+        </div>
+        <Skeleton className="h-5 w-48 bg-gray-200" />
+        <Skeleton className="h-3 w-56 bg-gray-200" />
+      </div>
+      <div className="space-y-4 rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-32 bg-gray-200" />
+          <div className="flex flex-wrap gap-2">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Skeleton key={index} className="h-9 w-16 rounded-md bg-gray-200" />
+            ))}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-40 bg-gray-200" />
+          <Skeleton className="h-10 w-full rounded-md bg-gray-200" />
+          <Skeleton className="h-3 w-48 bg-gray-200" />
+        </div>
+      </div>
+    </CardContent>
+  </Card>
+);
+
+const StepThreeSkeleton: React.FC = () => (
+  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
+    <CardContent className="p-4 md:p-5 space-y-4">
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-5 w-16 rounded-full bg-gray-200" />
+          <Skeleton className="h-4 w-40 bg-gray-200" />
+        </div>
+        <Skeleton className="h-5 w-56 bg-gray-200" />
+        <Skeleton className="h-3 w-64 bg-gray-200" />
+      </div>
+      <div className="flex flex-col gap-3 text-left items-stretch md:grid md:grid-cols-3 md:gap-4 md:overflow-visible md:pb-0">
+        <div className="md:min-w-0">
+          <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+            <div className="flex items-start gap-3">
+              <Skeleton className="h-12 w-12 rounded-md bg-gray-200" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-3 w-28 bg-gray-200" />
+                <Skeleton className="h-4 w-36 bg-gray-200" />
+                <Skeleton className="h-3 w-32 bg-gray-200" />
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="md:min-w-0">
+          <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+            <div className="flex items-start gap-3">
+              <Skeleton className="h-12 w-12 rounded-md bg-gray-200" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-3 w-28 bg-gray-200" />
+                <Skeleton className="h-4 w-36 bg-gray-200" />
+                <Skeleton className="h-3 w-40 bg-gray-200" />
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="md:min-w-0">
+          <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+            <div className="flex items-start gap-3">
+              <Skeleton className="h-12 w-12 rounded-md bg-gray-200" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-3 w-28 bg-gray-200" />
+                <Skeleton className="h-4 w-36 bg-gray-200" />
+                <Skeleton className="h-3 w-32 bg-gray-200" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
+        <Skeleton className="h-9 w-full sm:w-40 rounded-md bg-gray-200" />
+        <Skeleton className="h-10 w-full sm:w-48 rounded-md bg-gray-200" />
+      </div>
+      <Skeleton className="h-3 w-64 bg-gray-200" />
+    </CardContent>
+  </Card>
+);
 
 const isAxiosErrorLike = (error: unknown): error is AxiosErrorLike => {
   if (!error || typeof error !== 'object') {
@@ -181,21 +289,38 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
         {isLoading ? (
           <div className="space-y-3">
             {Array.from({ length: 3 }).map((_, index) => (
-              <div key={index} className="rounded-md border border-gray-200 bg-gray-50 px-4 py-4 space-y-3">
-                <Skeleton className="h-5 w-48" />
+              <div
+                key={index}
+                className="rounded-md border border-gray-200 bg-gray-50 px-4 py-4 space-y-4"
+              >
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-8 w-8 rounded-full bg-gray-200" />
+                      <Skeleton className="h-5 w-48 bg-gray-200" />
+                    </div>
+                    <Skeleton className="h-3 w-40 bg-gray-200" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-9 w-24 rounded-md bg-gray-200" />
+                    <Skeleton className="h-9 w-24 rounded-md bg-gray-200" />
+                  </div>
+                </div>
                 <div className="grid gap-3 md:grid-cols-3">
                   {Array.from({ length: 3 }).map((__, innerIndex) => (
                     <div
                       key={innerIndex}
-                      className="rounded-md border border-gray-200 bg-white px-3 py-3 space-y-2"
+                      className="rounded-md border border-gray-200 bg-white px-3 py-3 flex items-start gap-3"
                     >
-                      <Skeleton className="h-8 w-8 rounded-md" />
-                      <Skeleton className="h-4 w-24" />
-                      <Skeleton className="h-3 w-16" />
+                      <Skeleton className="h-8 w-8 rounded-md bg-gray-200" />
+                      <div className="space-y-2">
+                        <Skeleton className="h-3 w-24 bg-gray-200" />
+                        <Skeleton className="h-4 w-36 bg-gray-200" />
+                      </div>
                     </div>
                   ))}
                 </div>
-                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-3 w-48 bg-gray-200" />
               </div>
             ))}
           </div>
@@ -3289,24 +3414,22 @@ const handleDeletePreset = useCallback(
     });
   }, [hitHistory, gameStartTime]);
 
-  const isLiveDataLoading = loadingDevices || isHistoryLoading;
+  const isInitialDataLoading =
+    loadingDevices || isHistoryLoading || roomsLoading || targetsStoreLoading || presetsLoading;
 
   const displayedSelectedCount = selectedDeviceIds.length;
-  const isPageLoading = isLiveDataLoading;
+  const isPageLoading = isInitialDataLoading;
   const sessionDialogTargets =
     isLiveDialogPhase && currentSessionTargets.length > 0 ? currentSessionTargets : pendingSessionTargets;
   const canDismissSessionDialog = sessionLifecycle === 'selecting' && !isStarting && !isLaunchingLifecycle;
-  const showPresetsSkeleton = presetsLoading && gamePresets.length > 0 && !presetsError;
-
   useEffect(() => {
     console.debug('[Games] Preset banner state updated', {
       at: new Date().toISOString(),
-      showPresetsSkeleton,
       presetCount: gamePresets.length,
       presetsLoading,
       presetsError,
     });
-  }, [gamePresets.length, presetsError, presetsLoading, showPresetsSkeleton]);
+  }, [gamePresets.length, presetsError, presetsLoading]);
 
   return (
     <div className="min-h-screen bg-brand-background">
@@ -3349,7 +3472,7 @@ const handleDeletePreset = useCallback(
                 <div className="flex flex-col items-stretch gap-3 text-sm text-brand-dark/60 sm:flex-row sm:items-center sm:gap-4" />
               </div>
 
-              {showPresetsSkeleton ? (
+              {presetsLoading ? (
                 <GamePresetsCard
                   presets={gamePresets}
                   isLoading={presetsLoading}
@@ -3393,304 +3516,307 @@ const handleDeletePreset = useCallback(
               )}
 
               <div className="space-y-4">
-                  <div className="space-y-4">
-                    <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                      <CardContent className="p-4 md:p-5 space-y-4">
+                {isPageLoading ? (
+                  <StepOneSkeleton />
+                ) : (
+                  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
+                    <CardContent className="p-4 md:p-5 space-y-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center rounded-full bg-brand-primary/10 px-2.5 py-0.5 text-xs font-semibold text-brand-primary">
+                            Step 1
+                          </span>
+                          <span className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">
+                            Targets & Room
+                          </span>
+                        </div>
+                        <h2 className="font-heading text-lg text-brand-dark text-left">Select targets & assign a room</h2>
+                        <p className="text-xs text-brand-dark/60 text-left">Choose at least one online target to continue.</p>
+                      </div>
+                      <div className="space-y-4">
+                        <div className="grid gap-4 md:grid-cols-2 md:items-start">
+                          <div className="h-full">
+                            <RoomSelectionCard
+                              roomsLoading={roomsLoading}
+                              rooms={roomSelections}
+                              selectedDeviceIds={selectedDeviceIds}
+                              isSessionLocked={isSessionLocked}
+                              activeRoomId={sessionRoomId}
+                              onSelectAllRooms={handleSelectAllRooms}
+                              onClearRooms={handleClearRoomSelection}
+                              onToggleRoomTargets={handleToggleRoomTargets}
+                              className="h-full"
+                            />
+                          </div>
+                          <div className="h-full">
+                            <TargetSelectionCard
+                              loadingDevices={loadingDevices}
+                              isSessionLocked={isSessionLocked}
+                              devices={orderedAvailableDevices}
+                              targetDetails={targetById}
+                              selectedDeviceIds={selectedDeviceIds}
+                              hitCounts={hitCounts}
+                              deriveConnectionStatus={deriveConnectionStatus}
+                              deriveIsOnline={deriveIsOnline}
+                              formatLastSeen={formatLastSeen}
+                              onToggleDevice={handleToggleDeviceSelection}
+                              onSelectAll={handleSelectAllDevices}
+                              onClearSelection={handleClearDeviceSelection}
+                              selectedCount={displayedSelectedCount}
+                              totalOnlineSelectableTargets={totalOnlineSelectableTargets}
+                              className="h-full"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {isPageLoading ? (
+                  <StepTwoSkeleton />
+                ) : (
+                  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
+                    <CardContent className="p-4 md:p-5 space-y-4">
+                      <div className="flex items-start justify-between gap-3">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
                             <span className="inline-flex items-center rounded-full bg-brand-primary/10 px-2.5 py-0.5 text-xs font-semibold text-brand-primary">
-                              Step 1
+                              Step 2
                             </span>
                             <span className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">
-                              Targets & Room
+                              Duration
                             </span>
                           </div>
-                          <h2 className="font-heading text-lg text-brand-dark text-left">Select targets & assign a room</h2>
-                          <p className="text-xs text-brand-dark/60 text-left">Choose at least one online target to continue.</p>
+                          <h2 className="font-heading text-lg text-brand-dark">Select session duration</h2>
+                          <p className="text-xs text-brand-dark/60">Set a timer or run without limits.</p>
                         </div>
-                        {isPageLoading ? (
-                          <div className="space-y-3">
-                            <Skeleton className="h-24 w-full rounded-lg" />
-                            <TargetSelectionSkeleton />
-                          </div>
-                        ) : (
-                          <div className="space-y-4">
-                            <div className="grid gap-4 md:grid-cols-2 md:items-start">
-                              <div className="h-full">
-                                <RoomSelectionCard
-                                  roomsLoading={roomsLoading}
-                                  rooms={roomSelections}
-                                  selectedDeviceIds={selectedDeviceIds}
-                                  isSessionLocked={isSessionLocked}
-                                  activeRoomId={sessionRoomId}
-                                  onSelectAllRooms={handleSelectAllRooms}
-                                  onClearRooms={handleClearRoomSelection}
-                                  onToggleRoomTargets={handleToggleRoomTargets}
-                                  className="h-full"
-                                />
-                              </div>
-                              <div className="h-full">
-                                <TargetSelectionCard
-                                  loadingDevices={loadingDevices}
-                                  isSessionLocked={isSessionLocked}
-                                  devices={orderedAvailableDevices}
-                                  targetDetails={targetById}
-                                  selectedDeviceIds={selectedDeviceIds}
-                                  hitCounts={hitCounts}
-                                  deriveConnectionStatus={deriveConnectionStatus}
-                                  deriveIsOnline={deriveIsOnline}
-                                  formatLastSeen={formatLastSeen}
-                                  onToggleDevice={handleToggleDeviceSelection}
-                                  onSelectAll={handleSelectAllDevices}
-                                  onClearSelection={handleClearDeviceSelection}
-                                  selectedCount={displayedSelectedCount}
-                                  totalOnlineSelectableTargets={totalOnlineSelectableTargets}
-                                  className="h-full"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-
-                    <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                      <CardContent className="p-4 md:p-5 space-y-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex items-center rounded-full bg-brand-primary/10 px-2.5 py-0.5 text-xs font-semibold text-brand-primary">
-                                Step 2
-                              </span>
-                              <span className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">
-                                Duration
-                              </span>
-                            </div>
-                            <h2 className="font-heading text-lg text-brand-dark">Select session duration</h2>
-                            <p className="text-xs text-brand-dark/60">Set a timer or run without limits.</p>
-                          </div>
+                      </div>
+                      {!canAdvanceToDuration ? (
+                        <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-sm text-brand-dark/60">
+                          Complete Step 1 to configure the game duration.
                         </div>
-                        {!canAdvanceToDuration ? (
-                          <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-sm text-brand-dark/60">
-                            Complete Step 1 to configure the game duration.
-                          </div>
-                        ) : (
-                          <div className="space-y-4">
-                            <div className="space-y-4 rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
-                              <div className="space-y-2">
-                                <Label className="text-xs font-medium text-brand-dark">Quick selections</Label>
-                                <div className="flex flex-wrap gap-2">
-                                  {[
-                                    { label: '30s', value: 30 },
-                                    { label: '1m', value: 60 },
-                                    { label: '2m', value: 120 },
-                                  ].map((option) => (
-                                    <Button
-                                      key={option.value}
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => handleDurationInputValueChange(String(option.value))}
-                                      disabled={isSessionLocked}
-                                    >
-                                      {option.label}
-                                    </Button>
-                                  ))}
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="space-y-4 rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
+                            <div className="space-y-2">
+                              <Label className="text-xs font-medium text-brand-dark">Quick selections</Label>
+                              <div className="flex flex-wrap gap-2">
+                                {[
+                                  { label: '30s', value: 30 },
+                                  { label: '1m', value: 60 },
+                                  { label: '2m', value: 120 },
+                                ].map((option) => (
                                   <Button
+                                    key={option.value}
                                     type="button"
-                                    variant={isDurationUnlimited ? 'default' : 'outline'}
+                                    variant="outline"
                                     size="sm"
-                                    onClick={() => handleToggleDurationUnlimited(true)}
+                                    onClick={() => handleDurationInputValueChange(String(option.value))}
                                     disabled={isSessionLocked}
                                   >
-                                    No time limit
+                                    {option.label}
                                   </Button>
-                                </div>
-                              </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="game-duration" className="text-xs font-medium text-brand-dark">
-                                  Custom duration (seconds)
-                                </Label>
-                                <Input
-                                  id="game-duration"
-                                  type="number"
-                                  inputMode="numeric"
-                                  placeholder="Enter seconds (e.g. 180)"
-                                  value={durationInputValue}
-                                  min={10}
-                                  step={10}
-                                  onChange={(event) => handleDurationInputValueChange(event.target.value)}
+                                ))}
+                                <Button
+                                  type="button"
+                                  variant={isDurationUnlimited ? 'default' : 'outline'}
+                                  size="sm"
+                                  onClick={() => handleToggleDurationUnlimited(true)}
                                   disabled={isSessionLocked}
-                                />
-                                <p className="text-[11px] text-brand-dark/60">
-                                  {isDurationUnlimited
-                                    ? 'Timer disabled • leave blank or choose No time limit'
-                                    : `Formatted: ${formattedDurationLabel}`}
-                                </p>
+                                >
+                                  No time limit
+                                </Button>
                               </div>
                             </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="game-duration" className="text-xs font-medium text-brand-dark">
+                                Custom duration (seconds)
+                              </Label>
+                              <Input
+                                id="game-duration"
+                                type="number"
+                                inputMode="numeric"
+                                placeholder="Enter seconds (e.g. 180)"
+                                value={durationInputValue}
+                                min={10}
+                                step={10}
+                                onChange={(event) => handleDurationInputValueChange(event.target.value)}
+                                disabled={isSessionLocked}
+                              />
+                              <p className="text-[11px] text-brand-dark/60">
+                                {isDurationUnlimited
+                                  ? 'Timer disabled • leave blank or choose No time limit'
+                                  : `Formatted: ${formattedDurationLabel}`}
+                              </p>
+                            </div>
                           </div>
-                        )}
-                      </CardContent>
-                    </Card>
-
-                    <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                      <CardContent className="p-4 md:p-5 space-y-4">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center rounded-full bg-brand-primary/10 px-2.5 py-0.5 text-xs font-semibold text-brand-primary">
-                              Step 3
-                            </span>
-                            <span className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">
-                              Review & Launch
-                            </span>
-                          </div>
-                          <h2 className="font-heading text-lg text-brand-dark">Review selections & start game</h2>
-                          <p className="text-xs text-brand-dark/60">Confirm the selection before starting the game.</p>
                         </div>
-                        <div className="space-y-4">
-                          <div className="flex flex-col gap-3 text-left items-stretch md:grid md:grid-cols-3 md:gap-4 md:overflow-visible md:pb-0">
-                            <div className="md:min-w-0">
-                              <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
-                                <div className="flex items-start gap-3">
-                                  <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
-                                    <Building2 className="h-6 w-6" />
-                                  </div>
-                                  <div className="flex-1 space-y-1 text-sm text-left">
-                                    <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Room</p>
-                                    <p className="font-medium text-brand-dark">
-                                      {sessionRoomName ?? 'No room selected'}
-                                    </p>
-                                    {!sessionRoomName && (
-                                      <p className="text-xs text-brand-dark/60">
-                                        Assign a room in Step 1 to keep device groups organized.
-                                      </p>
-                                    )}
-                                  </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {isPageLoading ? (
+                  <StepThreeSkeleton />
+                ) : (
+                  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
+                    <CardContent className="p-4 md:p-5 space-y-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center rounded-full bg-brand-primary/10 px-2.5 py-0.5 text-xs font-semibold text-brand-primary">
+                            Step 3
+                          </span>
+                          <span className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">
+                            Review & Launch
+                          </span>
+                        </div>
+                        <h2 className="font-heading text-lg text-brand-dark text-left">Review selections & start game</h2>
+                        <p className="text-xs text-brand-dark/60 text-left">Confirm the selection before starting the game.</p>
+                      </div>
+                      <div className="space-y-4">
+                        <div className="flex flex-col gap-3 text-left items-stretch md:grid md:grid-cols-3 md:gap-4 md:overflow-visible md:pb-0">
+                          <div className="md:min-w-0">
+                            <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+                              <div className="flex items-start gap-3">
+                                <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
+                                  <Building2 className="h-6 w-6" />
                                 </div>
-                              </div>
-                            </div>
-                            <div className="md:min-w-0">
-                              <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
-                                <div className="flex flex-col gap-3 text-sm text-left">
-                                  <div className="flex items-start gap-3">
-                                    <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
-                                      <Crosshair className="h-6 w-6" />
-                                    </div>
-                                    <div className="space-y-1">
-                                      <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Targets</p>
-                                      <span className="text-xs font-semibold text-brand-dark">
-                                        {selectedDevices.length} selected
-                                      </span>
-                                    </div>
-                                  </div>
-                                  {selectedDevices.length === 0 ? (
-                                    <div className="text-xs text-brand-dark/60">
-                                      No targets staged yet. Select at least one in Step 1.
-                                    </div>
-                                  ) : (
-                                    <div className="flex flex-wrap gap-2 md:min-w-0">
-                                      {reviewTargets.map((device) => {
-                                        const isOnline = deriveIsOnline(device);
-                                        return (
-                                          <span
-                                            key={`review-${device.deviceId}`}
-                                            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
-                                              isOnline
-                                                ? 'border-gray-200 bg-white text-brand-dark'
-                                                : 'border-red-200 bg-red-50 text-red-600'
-                                            }`}
-                                          >
-                                            {device.name ?? device.deviceId}
-                                            {!isOnline && (
-                                              <span className="text-[10px] font-semibold uppercase">Offline</span>
-                                            )}
-                                          </span>
-                                        );
-                                      })}
-                                      {remainingReviewTargetCount > 0 && (
-                                        <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-brand-dark/60">
-                                          +{remainingReviewTargetCount} more target
-                                          {remainingReviewTargetCount === 1 ? '' : 's'}
-                                        </span>
-                                      )}
-                                    </div>
+                                <div className="flex-1 space-y-1 text-sm text-left">
+                                  <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Room</p>
+                                  <p className="font-medium text-brand-dark">
+                                    {sessionRoomName ?? 'No room selected'}
+                                  </p>
+                                  {!sessionRoomName && (
+                                    <p className="text-xs text-brand-dark/60">
+                                      Assign a room in Step 1 to keep device groups organized.
+                                    </p>
                                   )}
                                 </div>
                               </div>
                             </div>
-                            <div className="md:min-w-0">
-                              <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+                          </div>
+                          <div className="md:min-w-0">
+                            <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+                              <div className="flex flex-col gap-3 text-sm text-left">
                                 <div className="flex items-start gap-3">
                                   <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
-                                    <Clock3 className="h-6 w-6" />
+                                    <Crosshair className="h-6 w-6" />
                                   </div>
-                                  <div className="flex-1 space-y-1 text-sm text-left">
-                                    <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Duration</p>
-                                    <p className="font-medium text-brand-dark">{formattedDurationLabel}</p>
-                                    {!canAdvanceToReview && (
-                                      <p className="text-xs text-brand-dark/60">
-                                        Choose a duration in Step 2 or enable no time limit.
-                                      </p>
+                                  <div className="space-y-1">
+                                    <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Targets</p>
+                                    <span className="text-xs font-semibold text-brand-dark">
+                                      {selectedDevices.length} selected
+                                    </span>
+                                  </div>
+                                </div>
+                                {selectedDevices.length === 0 ? (
+                                  <div className="text-xs text-brand-dark/60">
+                                    No targets staged yet. Select at least one in Step 1.
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-wrap gap-2 md:min-w-0">
+                                    {reviewTargets.map((device) => {
+                                      const isOnline = deriveIsOnline(device);
+                                      return (
+                                        <span
+                                          key={`review-${device.deviceId}`}
+                                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                                            isOnline
+                                              ? 'border-gray-200 bg-white text-brand-dark'
+                                              : 'border-red-200 bg-red-50 text-red-600'
+                                          }`}
+                                        >
+                                          {device.name ?? device.deviceId}
+                                          {!isOnline && (
+                                            <span className="text-[10px] font-semibold uppercase">Offline</span>
+                                          )}
+                                        </span>
+                                      );
+                                    })}
+                                    {remainingReviewTargetCount > 0 && (
+                                      <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-brand-dark/60">
+                                        +{remainingReviewTargetCount} more target
+                                        {remainingReviewTargetCount === 1 ? '' : 's'}
+                                      </span>
                                     )}
                                   </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="md:min-w-0">
+                            <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+                              <div className="flex items-start gap-3">
+                                <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
+                                  <Clock3 className="h-6 w-6" />
+                                </div>
+                                <div className="flex-1 space-y-1 text-sm text-left">
+                                  <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Duration</p>
+                                  <p className="font-medium text-brand-dark">{formattedDurationLabel}</p>
+                                  {!canAdvanceToReview && (
+                                    <p className="text-xs text-brand-dark/60">
+                                      Choose a duration in Step 2 or enable no time limit.
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                             </div>
                           </div>
                         </div>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={handleRequestSavePreset}
-                            disabled={isSessionLocked || selectedDevices.length === 0}
-                          >
-                            Save as preset
-                          </Button>
-                          <Button
-                            onClick={handleOpenStartDialog}
-                            disabled={!canLaunchGame || isStarting || loadingDevices}
-                            className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto"
-                          >
-                            {isStarting ? (
-                              <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Starting...
-                              </>
-                            ) : (
-                              <>
-                                <Play className="mr-2 h-4 w-4" />
-                                Start Game
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                        {!canLaunchGame && (
-                          <p className="text-xs text-brand-dark/60">
-                            Complete the previous steps with at least one online target to enable launch.
-                          </p>
-                        )}
-                      </CardContent>
-                    </Card>
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={handleRequestSavePreset}
+                          disabled={isSessionLocked || selectedDevices.length === 0}
+                        >
+                          Save as preset
+                        </Button>
+                        <Button
+                          onClick={handleOpenStartDialog}
+                          disabled={!canLaunchGame || isStarting || loadingDevices}
+                          className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto"
+                        >
+                          {isStarting ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Starting...
+                            </>
+                          ) : (
+                            <>
+                              <Play className="mr-2 h-4 w-4" />
+                              Start Game
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                      {!canLaunchGame && (
+                        <p className="text-xs text-brand-dark/60">
+                          Complete the previous steps with at least one online target to enable launch.
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
 
-                    {isPageLoading ? (
-                      <LiveSessionCardSkeleton />
-                    ) : (
-                      <LiveSessionCard
-                        isRunning={isRunningLifecycle}
-                        timerSeconds={sessionTimerSeconds}
-                        activeTargets={currentSessionTargets}
-                        activeHits={activeSessionHits}
-                        hitCounts={hitCounts}
-                        recentSummary={recentSessionSummary}
-                        desiredDurationSeconds={sessionDurationSeconds}
-                        onUsePrevious={handleUsePreviousSettings}
-                        onCreateNew={handleCreateNewSetup}
-                        isSessionLocked={isSessionLocked}
-                      />
-                    )}
-                  </div>
+                {isPageLoading ? (
+                  <LiveSessionCardSkeleton />
+                ) : (
+                  <LiveSessionCard
+                    isRunning={isRunningLifecycle}
+                    timerSeconds={sessionTimerSeconds}
+                    activeTargets={currentSessionTargets}
+                    activeHits={activeSessionHits}
+                    hitCounts={hitCounts}
+                    recentSummary={recentSessionSummary}
+                    desiredDurationSeconds={sessionDurationSeconds}
+                    onUsePrevious={handleUsePreviousSettings}
+                    onCreateNew={handleCreateNewSetup}
+                    isSessionLocked={isSessionLocked}
+                  />
+                )}
               </div>
             </div>
           </div>

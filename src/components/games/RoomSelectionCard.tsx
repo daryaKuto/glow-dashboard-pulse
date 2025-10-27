@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface RoomSelection {
   id: string;
@@ -45,24 +46,12 @@ export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
         <div className="space-y-2">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-heading text-lg text-brand-dark truncate">Room Selection</h2>
-            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onSelectAllRooms}
-                disabled={isSessionLocked || roomsLoading}
-                className="flex-1 min-w-[140px] sm:flex-none sm:min-w-[0]"
-              >
-                Select all rooms
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={onSelectAllRooms} disabled={isSessionLocked || roomsLoading}>
+                Select all
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onClearRooms}
-                disabled={isSessionLocked}
-                className="flex-1 min-w-[140px] sm:flex-none sm:min-w-[0]"
-              >
-                Clear rooms
+              <Button variant="ghost" size="sm" onClick={onClearRooms} disabled={isSessionLocked}>
+                Clear
               </Button>
             </div>
           </div>
@@ -135,3 +124,37 @@ export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
     </Card>
   );
 };
+
+export const RoomSelectionSkeleton: React.FC = () => (
+  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg flex h-full flex-col">
+    <CardContent className="flex flex-1 flex-col space-y-3 p-4 md:p-5">
+      <div className="space-y-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <Skeleton className="h-5 w-36 bg-gray-200" />
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-9 w-28 rounded-md bg-gray-200" />
+            <Skeleton className="h-9 w-24 rounded-md bg-gray-200" />
+          </div>
+        </div>
+        <Skeleton className="h-3 w-36 bg-gray-200" />
+      </div>
+      <div className="space-y-2">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div
+            key={index}
+            className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2"
+          >
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-4 w-4 rounded-sm bg-gray-200" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-28 bg-gray-200" />
+                <Skeleton className="h-3 w-20 bg-gray-200" />
+              </div>
+            </div>
+            <Skeleton className="h-8 w-20 rounded-md bg-gray-200" />
+          </div>
+        ))}
+      </div>
+    </CardContent>
+  </Card>
+);

@@ -219,19 +219,19 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
 
 // Placeholder while the device roster is refreshing.
 export const TargetSelectionSkeleton: React.FC = () => (
-  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-32 bg-gray-200" />
-          <Skeleton className="h-3 w-44 bg-gray-200" />
+  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg flex h-full flex-col">
+    <CardContent className="flex flex-1 flex-col space-y-4 p-4 md:p-5">
+      <div className="space-y-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <Skeleton className="h-5 w-40 bg-gray-200" />
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-9 w-24 rounded-md bg-gray-200" />
+            <Skeleton className="h-9 w-20 rounded-md bg-gray-200" />
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-9 w-20 bg-gray-200 rounded-md" />
-          <Skeleton className="h-9 w-16 bg-gray-200 rounded-md" />
-        </div>
+        <Skeleton className="h-3 w-52 bg-gray-200" />
       </div>
-      <div className="space-y-3">
+      <div className="space-y-2">
         {Array.from({ length: 5 }).map((_, index) => (
           <div
             key={index}

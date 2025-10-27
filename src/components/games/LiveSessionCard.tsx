@@ -292,24 +292,70 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
 // Placeholder while live session data boots.
 export const LiveSessionCardSkeleton: React.FC = () => (
   <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-5 w-32 bg-gray-200" />
-        <Skeleton className="h-6 w-16 bg-gray-200" />
+    <CardContent className="p-4 md:p-5 space-y-5">
+      <div className="rounded-2xl bg-gradient-to-r from-brand-primary/10 to-brand-secondary/10 px-5 py-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-36 bg-gray-200" />
+          <Skeleton className="h-6 w-40 bg-gray-200" />
+          <Skeleton className="h-3 w-48 bg-gray-200" />
+        </div>
+        <Skeleton className="h-6 w-20 bg-gray-200 rounded-full" />
       </div>
-      <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-8 text-center space-y-3">
-        <Skeleton className="mx-auto h-10 w-10 rounded-full bg-gray-200" />
-        <Skeleton className="mx-auto h-4 w-20 bg-gray-200" />
-        <Skeleton className="mx-auto h-10 w-40 bg-gray-200" />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="rounded-xl bg-gray-50 px-4 py-3 shadow-inner space-y-2">
+          <Skeleton className="h-3 w-32 bg-gray-200" />
+          <Skeleton className="h-8 w-36 bg-gray-200" />
+          <Skeleton className="h-3 w-28 bg-gray-200" />
+        </div>
+        <div className="rounded-xl bg-gray-50 px-4 py-3 shadow-inner space-y-2">
+          <Skeleton className="h-3 w-32 bg-gray-200" />
+          <Skeleton className="h-8 w-24 bg-gray-200" />
+        </div>
       </div>
       <div className="space-y-2">
-        {Array.from({ length: 3 }).map((_, index) => (
-          <div key={index} className="flex items-center justify-between">
-            <Skeleton className="h-3 w-28 bg-gray-200" />
-            <Skeleton className="h-3 w-16 bg-gray-200" />
-          </div>
-        ))}
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-3 w-36 bg-gray-200" />
+          <Skeleton className="h-3 w-24 bg-gray-200" />
+        </div>
+        <div className="space-y-2 max-h-48">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div
+              key={index}
+              className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm"
+            >
+              <div className="space-y-1">
+                <Skeleton className="h-4 w-32 bg-gray-200" />
+                <Skeleton className="h-3 w-40 bg-gray-200" />
+              </div>
+              <Skeleton className="h-6 w-16 bg-gray-200 rounded-full" />
+            </div>
+          ))}
+        </div>
       </div>
+      <Separator />
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-3 w-32 bg-gray-200" />
+          <Skeleton className="h-3 w-24 bg-gray-200" />
+        </div>
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div
+              key={index}
+              className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+            >
+              <Skeleton className="h-4 w-32 bg-gray-200" />
+              <Skeleton className="h-4 w-16 bg-gray-200" />
+            </div>
+          ))}
+        </div>
+      </div>
+      <Separator />
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+        <Skeleton className="h-9 w-full sm:w-40 rounded-md bg-gray-200" />
+        <Skeleton className="h-10 w-full sm:w-48 rounded-md bg-gray-200" />
+      </div>
+      <Skeleton className="h-3 w-52 bg-gray-200 self-end" />
     </CardContent>
   </Card>
 );

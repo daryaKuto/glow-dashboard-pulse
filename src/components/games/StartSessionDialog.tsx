@@ -436,18 +436,14 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   );
 
   const runningScore = useMemo(() => {
-    if (displayedSessionHits.length === 0) {
+    const totalHits = displayedSessionHits.length;
+    if (totalHits === 0) {
       return 0;
     }
-    const totalHits = displayedSessionHits.length;
-    const totalSpan = Math.max(1, sessionSeconds);
-    const firstHitSeconds = displayedSessionHits[0]?.sinceStartSeconds ?? 0;
-    const lastHitSeconds = displayedSessionHits[displayedSessionHits.length - 1]?.sinceStartSeconds ?? firstHitSeconds;
-    const activeSpanRaw = lastHitSeconds - firstHitSeconds;
-    const normalizedActiveSpan =
-      totalHits < 2 || !Number.isFinite(activeSpanRaw) || activeSpanRaw <= 0 ? totalSpan : Math.max(activeSpanRaw, 0.01);
-    return Math.max(0, Math.round((totalHits * (totalSpan / Math.max(1, normalizedActiveSpan))) * 100) / 100);
-  }, [displayedSessionHits, sessionSeconds]);
+    const elapsedSeconds = Math.max(sessionSeconds, 1);
+    const hitsPerMinute = (totalHits / elapsedSeconds) * 60;
+    return Math.max(0, Math.round(hitsPerMinute * 100) / 100);
+  }, [displayedSessionHits.length, sessionSeconds]);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && canClose) {
@@ -519,6 +515,7 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
     }
     return 'Review your target list and get ready to launch this live session.';
   })();
+  const dialogTitle = usesLivePalette ? 'Active Game' : 'New Session';
 
   const stopwatchStatus = (() => {
     if (isFinalizingPhase) {
@@ -688,7 +685,7 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
         ].join(' ')}
       >
         <DialogHeader className="space-y-1.5 sm:space-y-2">
-          <DialogTitle className="text-xl sm:text-2xl font-heading">New Session</DialogTitle>
+          <DialogTitle className="text-xl sm:text-2xl font-heading">{dialogTitle}</DialogTitle>
           <DialogDescription className={usesLivePalette ? 'text-white/80' : 'text-brand-dark/70'}>{dialogDescription}</DialogDescription>
         </DialogHeader>
 

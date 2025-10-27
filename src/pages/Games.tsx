@@ -143,7 +143,6 @@ type GamePresetsCardProps = {
   deletingId: string | null;
   onApply: (preset: GamePreset) => void;
   onDelete: (preset: GamePreset) => void;
-  onRefresh: () => void;
 };
 
 // Presents available presets with quick apply/delete actions so operators can stage sessions instantly.
@@ -155,7 +154,6 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
   deletingId,
   onApply,
   onDelete,
-  onRefresh,
 }) => {
   console.debug('[GamePresetsCard] render', {
     at: new Date().toISOString(),
@@ -179,9 +177,6 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
               Stage saved configurations with the same quick-glance layout as Step 3.
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
-            Refresh
-          </Button>
         </div>
         {isLoading ? (
           <div className="space-y-3">
@@ -737,6 +732,8 @@ const Games: React.FC = () => {
   const hasFetchedPresetsRef = useRef(false);
   // Centralised token manager so the Games page always has a fresh ThingsBoard JWT for sockets/RPCs.
   const { session: tbSession, refresh: refreshThingsboardSession } = useThingsboardToken();
+  // Prevents duplicate auto-stop triggers once the desired duration elapses.
+  const autoStopTriggeredRef = useRef(false);
 
   const isSelectingLifecycle = sessionLifecycle === 'selecting';
   const isLaunchingLifecycle = sessionLifecycle === 'launching';
@@ -745,7 +742,7 @@ const Games: React.FC = () => {
   const isFinalizingLifecycle = sessionLifecycle === 'finalizing';
   const isSessionLocked =
     isLaunchingLifecycle || isRunningLifecycle || isStoppingLifecycle || isFinalizingLifecycle;
-  const isSessionDialogVisible = sessionLifecycle !== 'idle' && !isSessionDialogDismissed;
+  const isSessionDialogVisible = sessionLifecycle !== 'idle' && !isSelectingLifecycle && !isSessionDialogDismissed;
   const isLiveDialogPhase = isRunningLifecycle || isStoppingLifecycle || isFinalizingLifecycle;
 
   const prevLifecycleRef = useRef<SessionLifecycle>('idle');
@@ -768,6 +765,12 @@ const Games: React.FC = () => {
       setIsSessionDialogDismissed(false);
     }
   }, [sessionLifecycle]);
+
+  useEffect(() => {
+    if (!isRunningLifecycle) {
+      autoStopTriggeredRef.current = false;
+    }
+  }, [isRunningLifecycle]);
 
   useEffect(() => {
     if (selectedDeviceIds.length === 0 && !isStepSelectTargets) {
@@ -1617,7 +1620,7 @@ useEffect(() => {
       source: 'manual' | 'preset';
       requireOnline: boolean;
       syncCurrentTargets?: boolean;
-    }): Promise<NormalizedGameDevice[] | null> => {
+    }): Promise<{ targets: NormalizedGameDevice[]; gameId: string } | null> => {
       const uniqueIds = Array.from(
         new Set(
           targetIds
@@ -1700,6 +1703,7 @@ useEffect(() => {
         deviceId: device.deviceId,
         name: device.name ?? device.deviceId,
       }));
+      const resolvedGameId = generatedGameId ?? `GM-${Date.now()}`;
 
       const initialStates = directTargetList.reduce<Record<string, 'idle' | 'pending' | 'success' | 'error'>>((acc, target) => {
         acc[target.deviceId] = 'idle';
@@ -1711,7 +1715,7 @@ useEffect(() => {
       setDirectSessionTargets(directTargetList);
       updateDirectStartStates(() => initialStates);
       setDirectFlowActive(false);
-      setDirectSessionGameId(generatedGameId ?? `GM-${Date.now()}`);
+      setDirectSessionGameId(resolvedGameId);
       setDirectTelemetryEnabled(false);
 
       setErrorMessage(null);
@@ -1732,9 +1736,10 @@ useEffect(() => {
         targetCount: effectiveTargets.length,
         missingDeviceIds,
         offlineTargetIds: offlineTargets.map((device) => device.deviceId),
+        gameId: resolvedGameId,
       });
 
-      return effectiveTargets;
+      return { targets: effectiveTargets, gameId: resolvedGameId };
     },
     [
       availableDeviceMap,
@@ -1907,62 +1912,6 @@ useEffect(() => {
     }
   }, [fetchPresets, presetsLoading]);
 
-  // Applies a preset by staging its targets, room, and duration in the session dialog.
-  const handleApplyPreset = useCallback(
-    async (preset: GamePreset) => {
-      if (isSessionLocked) {
-        toast.info('Complete or stop the current session before applying a preset.');
-        return;
-      }
-      setApplyingPresetId(preset.id);
-      console.info('[Games] Applying game preset', {
-        presetId: preset.id,
-        name: preset.name,
-        roomId: preset.roomId,
-        durationSeconds: preset.durationSeconds,
-        targetCount: preset.targetIds.length,
-      });
-
-      try {
-        const stagedTargets = await openStartDialogForTargets({
-          targetIds: preset.targetIds,
-          source: 'preset',
-          requireOnline: false,
-          syncCurrentTargets: true,
-        });
-
-        if (!stagedTargets || stagedTargets.length === 0) {
-          return;
-        }
-
-        const resolvedRoomId =
-          preset.roomId ??
-          (preset.settings != null && typeof (preset.settings as Record<string, unknown>)['roomId'] === 'string'
-            ? ((preset.settings as Record<string, unknown>)['roomId'] as string)
-            : null);
-        const resolvedRoomName =
-          resolvedRoomId !== null ? rooms.find((room) => room.id === resolvedRoomId)?.name ?? null : null;
-        if (resolvedRoomId !== null && !resolvedRoomName) {
-          console.warn('[Games] Preset room not found in local store', { presetId: preset.id, roomId: resolvedRoomId });
-        }
-        setSessionRoomId(resolvedRoomId ?? null);
-
-        const desiredDurationSeconds = resolvePresetDurationSeconds(preset);
-        setSessionDurationSeconds(desiredDurationSeconds);
-        setStagedPresetId(preset.id);
-        advanceToReviewStep();
-
-        toast.success(`Preset "${preset.name}" applied. Review the dialog and start when ready.`);
-      } catch (error) {
-        console.error('[Games] Failed to apply preset', { presetId: preset.id, error });
-        toast.error('Failed to apply preset. Try again after refreshing devices.');
-      } finally {
-        setApplyingPresetId(null);
-      }
-    },
-    [advanceToReviewStep, isSessionLocked, openStartDialogForTargets, rooms],
-  );
-
   const handleUsePreviousSettings = useCallback(async () => {
     if (!recentSessionSummary) {
       toast.info('No previous session available yet.');
@@ -1984,14 +1933,14 @@ useEffect(() => {
     }
 
     setActivePresetId(null);
-    const stagedTargets = await openStartDialogForTargets({
+    const prepResult = await openStartDialogForTargets({
       targetIds,
       source: 'manual',
       requireOnline: false,
       syncCurrentTargets: true,
     });
 
-    if (!stagedTargets || stagedTargets.length === 0) {
+    if (!prepResult || prepResult.targets.length === 0) {
       return;
     }
 
@@ -2720,6 +2669,28 @@ const handleDeletePreset = useCallback(
     console.info('[Games] Forwarding stop request to direct ThingsBoard handler');
     await handleStopDirectGame();
   }, [isRunningLifecycle, isStopping, isStoppingLifecycle, isFinalizingLifecycle, handleStopDirectGame]);
+
+  useEffect(() => {
+    if (!isRunningLifecycle) {
+      return;
+    }
+    if (typeof sessionDurationSeconds !== 'number' || sessionDurationSeconds <= 0) {
+      return;
+    }
+    if (autoStopTriggeredRef.current) {
+      return;
+    }
+    if (sessionTimerSeconds < sessionDurationSeconds) {
+      return;
+    }
+    autoStopTriggeredRef.current = true;
+    console.info('[Games] Auto-stopping session because desired duration elapsed', {
+      desiredDurationSeconds: sessionDurationSeconds,
+      elapsedSeconds: sessionTimerSeconds,
+    });
+    toast.info('Session reached its time limit. Stopping game...');
+    void handleStopGame();
+  }, [handleStopGame, isRunningLifecycle, sessionDurationSeconds, sessionTimerSeconds, toast]);
   // Dismisses the start dialog, cancelling setup when we're still in the pre-launch phase.
   const handleCloseStartDialog = useCallback(() => {
     if (sessionLifecycle === 'selecting' && !isStarting && !isLaunchingLifecycle) {
@@ -2741,21 +2712,52 @@ const handleDeletePreset = useCallback(
 
 
   const executeDirectStart = useCallback(
-    async ({ deviceIds, timestamp, isRetry = false }: { deviceIds: string[]; timestamp: number; isRetry?: boolean }) => {
+    async ({
+      deviceIds,
+      timestamp,
+      isRetry = false,
+      gameIdOverride,
+      targetsOverride,
+    }: {
+      deviceIds: string[];
+      timestamp: number;
+      isRetry?: boolean;
+      gameIdOverride?: string;
+      targetsOverride?: NormalizedGameDevice[];
+    }) => {
+      const activeGameId = gameIdOverride ?? directSessionGameId;
       const uniqueIds = Array.from(new Set(deviceIds));
       if (uniqueIds.length === 0) {
         toast.error('No devices selected to start.');
         return { successIds: [], errorIds: [] };
       }
 
-      if (!directSessionGameId) {
+      if (!activeGameId) {
         toast.error('Missing ThingsBoard game identifier. Close and reopen the dialog to retry.');
         return { successIds: [], errorIds: uniqueIds };
       }
 
-      const targetsToCommand = directSessionTargets.filter((target) => uniqueIds.includes(target.deviceId));
+      const candidateTargets =
+        targetsOverride && targetsOverride.length > 0
+          ? targetsOverride.map((device) => ({
+              deviceId: device.deviceId,
+              name: device.name ?? device.deviceId,
+            }))
+          : directSessionTargets;
+
+      const targetsToCommand = candidateTargets.filter((target) => uniqueIds.includes(target.deviceId));
       if (targetsToCommand.length === 0) {
         toast.error('Unable to resolve ThingsBoard devices for the start command.');
+        setDirectFlowActive(false);
+        setDirectTelemetryEnabled(false);
+        setSessionLifecycle('selecting');
+        setGameStartTime(null);
+        setGameStopTime(null);
+        resetSessionTimer(null);
+        setHitCounts({});
+        setHitHistory([]);
+        setDirectControlError('Unable to resolve ThingsBoard devices for the start command.');
+        setActivePresetId(null);
         return { successIds: [], errorIds: uniqueIds };
       }
 
@@ -2772,7 +2774,7 @@ const handleDeletePreset = useCallback(
           let attemptedRefresh = false;
           const run = async () => {
             const sharedAttributes: Record<string, unknown> = {
-              gameId: directSessionGameId,
+              gameId: activeGameId,
               status: 'busy',
             };
             if (sessionDurationSeconds && sessionDurationSeconds > 0) {
@@ -2787,7 +2789,7 @@ const handleDeletePreset = useCallback(
             const commandValues: Record<string, unknown> = {
               deviceId,
               event: 'start',
-              gameId: directSessionGameId,
+              gameId: activeGameId,
             };
             if (sessionDurationSeconds && sessionDurationSeconds > 0) {
               commandValues.desiredDurationSeconds = sessionDurationSeconds;
@@ -2804,7 +2806,7 @@ const handleDeletePreset = useCallback(
             } catch (error) {
               const status = resolveHttpStatus(error);
               if (status === 504) {
-                console.info('[Games] ThingsBoard start RPC timed out (expected for oneway)', { deviceId, gameId: directSessionGameId });
+                console.info('[Games] ThingsBoard start RPC timed out (expected for oneway)', { deviceId, gameId: activeGameId });
               } else if (status === 401 && !attemptedRefresh) {
                 attemptedRefresh = true;
                 await refreshDirectAuthToken();
@@ -2871,11 +2873,11 @@ const handleDeletePreset = useCallback(
       updateDirectStartStates,
       refreshDirectAuthToken,
       toast,
-    setDirectFlowActive,
-    setDirectTelemetryEnabled,
-    setActivePresetId,
-    setSessionLifecycle,
-    setGameStartTime,
+      setDirectFlowActive,
+      setDirectTelemetryEnabled,
+      setActivePresetId,
+      setSessionLifecycle,
+      setGameStartTime,
       setGameStopTime,
       resetSessionTimer,
       setHitCounts,
@@ -2887,120 +2889,188 @@ const handleDeletePreset = useCallback(
     ],
   );
 
-  // Fires the direct start flow after dismissing the dialog confirmation.
-  const handleConfirmStartDialog = useCallback(() => {
-    if (directSessionTargets.length === 0 || !directSessionGameId) {
-      toast.error('No devices are ready for direct control. Close and reopen the dialog.');
-      return;
-    }
-
-    const timestamp = Date.now();
-    const targetedDeviceIds =
-      pendingSessionTargets.length > 0
-        ? pendingSessionTargets.map((device) => device.deviceId)
-        : directSessionTargets.map((target) => target.deviceId);
-
-    const normalizedTargets =
-      pendingSessionTargets.length > 0
-        ? pendingSessionTargets
-        : targetedDeviceIds
-            .map((deviceId) => availableDevicesRef.current.find((device) => device.deviceId === deviceId) ?? null)
-            .filter((device): device is NormalizedGameDevice => device !== null);
-
-    if (normalizedTargets.length === 0) {
-      toast.error('Unable to resolve target metadata for the selected devices.');
-      return;
-    }
-
-    const offlineTargets = normalizedTargets.filter((device) => !deriveIsOnline(device));
-    let launchTargets = normalizedTargets;
-    let launchDeviceIds = targetedDeviceIds;
-
-    if (offlineTargets.length > 0) {
-      const onlineTargets = normalizedTargets.filter((device) => deriveIsOnline(device));
-      if (onlineTargets.length === 0) {
-        setPendingSessionTargets([]);
-        setCurrentSessionTargets([]);
-        updateDirectStartStates({});
-        setDirectControlError('All staged targets are offline. Adjust your selection and try again.');
-        toast.error('All staged targets are offline. Adjust your selection and try again.');
+  // Centralises the launch flow so both the auto-start path and dialog CTA share the same logic.
+  const beginSessionLaunch = useCallback(
+    ({ targets: preparedTargets, gameId: gameIdOverride }: { targets?: NormalizedGameDevice[]; gameId?: string } = {}) => {
+      const activeGameId = gameIdOverride ?? directSessionGameId;
+      const hasPreparedTargets = preparedTargets && preparedTargets.length > 0;
+      if (!activeGameId || (!hasPreparedTargets && directSessionTargets.length === 0 && pendingSessionTargets.length === 0)) {
+        toast.error('No devices are ready for direct control. Close and reopen the dialog.');
         return;
       }
 
-      toast.warning(`${offlineTargets.length} target${offlineTargets.length === 1 ? '' : 's'} went offline and were removed from launch.`);
-      launchTargets = onlineTargets;
-      launchDeviceIds = onlineTargets.map((device) => device.deviceId);
-      setDirectSessionTargets((prev) => prev.filter((target) => launchDeviceIds.includes(target.deviceId)));
-    }
+      const stagedTargets =
+        hasPreparedTargets
+          ? preparedTargets!
+          : pendingSessionTargets.length > 0
+            ? pendingSessionTargets
+            : directSessionTargets
+                .map((target) => availableDevicesRef.current.find((device) => device.deviceId === target.deviceId) ?? null)
+                .filter((device): device is NormalizedGameDevice => device !== null);
 
-    setPendingSessionTargets(launchTargets);
-    setCurrentSessionTargets(launchTargets);
-    currentGameDevicesRef.current = launchDeviceIds;
-    selectionManuallyModifiedRef.current = true;
-    setSelectedDeviceIds(launchDeviceIds);
-    setActiveDeviceIds(launchDeviceIds);
-    setRecentSessionSummary(null);
-    setGameStartTime(null);
-    setGameStopTime(null);
-    setHitCounts(Object.fromEntries(launchDeviceIds.map((id) => [id, 0])));
-    setHitHistory([]);
-    setErrorMessage(null);
-    setDirectControlError(null);
+      if (stagedTargets.length === 0) {
+        toast.error('Unable to resolve target metadata for the selected devices.');
+        return;
+      }
 
-    setActivePresetId(stagedPresetId);
-    markSessionTriggered(timestamp);
-    setSessionLifecycle('launching');
-    setDirectFlowActive(true);
-    setDirectTelemetryEnabled(false);
-    startSessionTimer(timestamp);
+      const timestamp = Date.now();
+      const offlineTargets = stagedTargets.filter((device) => !deriveIsOnline(device));
+      let launchTargets = stagedTargets;
 
-    updateDirectStartStates(() => {
-      const next: Record<string, 'idle' | 'pending' | 'success' | 'error'> = {};
-      launchDeviceIds.forEach((deviceId) => {
-        next[deviceId] = 'pending';
+      if (offlineTargets.length > 0) {
+        const onlineTargets = stagedTargets.filter((device) => deriveIsOnline(device));
+        if (onlineTargets.length === 0) {
+          setPendingSessionTargets([]);
+          setCurrentSessionTargets([]);
+          updateDirectStartStates({});
+          setDirectControlError('All staged targets are offline. Adjust your selection and try again.');
+          toast.error('All staged targets are offline. Adjust your selection and try again.');
+          return;
+        }
+
+        toast.warning(`${offlineTargets.length} target${offlineTargets.length === 1 ? '' : 's'} went offline and were removed from launch.`);
+        launchTargets = onlineTargets;
+        const launchIdSet = new Set(launchTargets.map((device) => device.deviceId));
+        setDirectSessionTargets((prev) => prev.filter((target) => launchIdSet.has(target.deviceId)));
+      }
+
+      const launchDeviceIds = launchTargets.map((device) => device.deviceId);
+
+      setPendingSessionTargets(launchTargets);
+      setCurrentSessionTargets(launchTargets);
+      currentGameDevicesRef.current = launchDeviceIds;
+      selectionManuallyModifiedRef.current = true;
+      setSelectedDeviceIds(launchDeviceIds);
+      setActiveDeviceIds(launchDeviceIds);
+      setRecentSessionSummary(null);
+      setGameStartTime(null);
+      setGameStopTime(null);
+      setHitCounts(Object.fromEntries(launchDeviceIds.map((id) => [id, 0])));
+      setHitHistory([]);
+      setErrorMessage(null);
+      setDirectControlError(null);
+
+      setActivePresetId(stagedPresetId);
+      markSessionTriggered(timestamp);
+      setSessionLifecycle('launching');
+      setDirectFlowActive(true);
+      setDirectTelemetryEnabled(false);
+      startSessionTimer(timestamp);
+
+      updateDirectStartStates(() => {
+        const next: Record<string, 'idle' | 'pending' | 'success' | 'error'> = {};
+        launchDeviceIds.forEach((deviceId) => {
+          next[deviceId] = 'pending';
+        });
+        return next;
       });
-      return next;
-    });
 
-    console.info('[Games] Begin session pressed (direct ThingsBoard path)', {
-      deviceIds: launchDeviceIds,
-      gameId: directSessionGameId,
-      desiredDurationSeconds: sessionDurationSeconds,
+      console.info('[Games] Begin session pressed (direct ThingsBoard path)', {
+        deviceIds: launchDeviceIds,
+        gameId: activeGameId,
+        desiredDurationSeconds: sessionDurationSeconds,
+        sessionRoomId,
+      });
+
+      void executeDirectStart({
+        deviceIds: launchDeviceIds,
+        timestamp,
+        gameIdOverride: activeGameId,
+        targetsOverride: launchTargets,
+      });
+    },
+    [
+      availableDevicesRef,
+      directSessionGameId,
+      directSessionTargets,
+      executeDirectStart,
+      deriveIsOnline,
+      markSessionTriggered,
+      pendingSessionTargets,
+      setActiveDeviceIds,
+      setActivePresetId,
+      setCurrentSessionTargets,
+      setDirectFlowActive,
+      setDirectTelemetryEnabled,
+      setDirectSessionTargets,
+      setDirectControlError,
+      setErrorMessage,
+      setGameStartTime,
+      setGameStopTime,
+      setHitCounts,
+      setHitHistory,
+      setPendingSessionTargets,
+      setRecentSessionSummary,
+      setSelectedDeviceIds,
+      setSessionLifecycle,
+      startSessionTimer,
+      sessionDurationSeconds,
       sessionRoomId,
-    });
+      stagedPresetId,
+      toast,
+      updateDirectStartStates,
+    ],
+  );
 
-    void executeDirectStart({ deviceIds: launchDeviceIds, timestamp });
-  }, [
-    availableDevicesRef,
-    directSessionGameId,
-    directSessionTargets,
-    executeDirectStart,
-    deriveIsOnline,
-    markSessionTriggered,
-    pendingSessionTargets,
-    setActiveDeviceIds,
-    setActivePresetId,
-    setCurrentSessionTargets,
-    setDirectFlowActive,
-    setDirectTelemetryEnabled,
-    setDirectSessionTargets,
-    setDirectControlError,
-    setErrorMessage,
-    setGameStartTime,
-    setGameStopTime,
-    setHitCounts,
-    setHitHistory,
-    setPendingSessionTargets,
-    setRecentSessionSummary,
-    setSelectedDeviceIds,
-    setSessionLifecycle,
-    startSessionTimer,
-    sessionDurationSeconds,
-    sessionRoomId,
-    stagedPresetId,
-    toast,
-    updateDirectStartStates,
-  ]);
+  // Applies a preset by staging its targets, room, and duration, then immediately launching the session.
+  const handleApplyPreset = useCallback(
+    async (preset: GamePreset) => {
+      if (isSessionLocked) {
+        toast.info('Complete or stop the current session before applying a preset.');
+        return;
+      }
+      setApplyingPresetId(preset.id);
+      console.info('[Games] Applying game preset', {
+        presetId: preset.id,
+        name: preset.name,
+        roomId: preset.roomId,
+        durationSeconds: preset.durationSeconds,
+        targetCount: preset.targetIds.length,
+      });
+
+      try {
+        const prepResult = await openStartDialogForTargets({
+          targetIds: preset.targetIds,
+          source: 'preset',
+          requireOnline: false,
+          syncCurrentTargets: true,
+        });
+
+        if (!prepResult || prepResult.targets.length === 0) {
+          return;
+        }
+
+        const resolvedRoomId =
+          preset.roomId ??
+          (preset.settings != null && typeof (preset.settings as Record<string, unknown>)['roomId'] === 'string'
+            ? ((preset.settings as Record<string, unknown>)['roomId'] as string)
+            : null);
+        const resolvedRoomName =
+          resolvedRoomId !== null ? rooms.find((room) => room.id === resolvedRoomId)?.name ?? null : null;
+        if (resolvedRoomId !== null && !resolvedRoomName) {
+          console.warn('[Games] Preset room not found in local store', { presetId: preset.id, roomId: resolvedRoomId });
+        }
+        setSessionRoomId(resolvedRoomId ?? null);
+
+        const desiredDurationSeconds = resolvePresetDurationSeconds(preset);
+        setSessionDurationSeconds(desiredDurationSeconds);
+        setStagedPresetId(preset.id);
+        setActivePresetId(preset.id);
+        toast.success(`Preset "${preset.name}" applied. Launching session...`);
+        beginSessionLaunch({ targets: prepResult.targets, gameId: prepResult.gameId });
+      } catch (error) {
+        console.error('[Games] Failed to apply preset', { presetId: preset.id, error });
+        toast.error('Failed to apply preset. Try again after refreshing devices.');
+      } finally {
+        setApplyingPresetId(null);
+      }
+    },
+    [beginSessionLaunch, isSessionLocked, openStartDialogForTargets, rooms],
+  );
+
+  const handleConfirmStartDialog = useCallback(() => {
+    beginSessionLaunch();
+  }, [beginSessionLaunch]);
 
   const handleRetryFailedDevices = useCallback(async () => {
     const failedIds = Object.entries(directStartStatesRef.current)
@@ -3175,20 +3245,24 @@ const handleDeletePreset = useCallback(
     setupStep,
   ]);
 
-  // Presents the confirmation dialog so operators can review selected devices before starting.
+  // Stages the selected targets and immediately launches the live session.
   const handleOpenStartDialog = useCallback(async () => {
     if (!canLaunchGame) {
       return;
     }
     setStagedPresetId(null);
     advanceToReviewStep();
-    await openStartDialogForTargets({
+    const prepResult = await openStartDialogForTargets({
       targetIds: selectedDeviceIds,
       source: 'manual',
       requireOnline: true,
       syncCurrentTargets: false,
     });
-  }, [advanceToReviewStep, canLaunchGame, openStartDialogForTargets, selectedDeviceIds]);
+    if (!prepResult || prepResult.targets.length === 0) {
+      return;
+    }
+    beginSessionLaunch({ targets: prepResult.targets, gameId: prepResult.gameId });
+  }, [advanceToReviewStep, beginSessionLaunch, canLaunchGame, openStartDialogForTargets, selectedDeviceIds]);
 
   const sessionHitEntries = useMemo<SessionHitEntry[]>(() => {
     if (hitHistory.length === 0) {
@@ -3284,7 +3358,6 @@ const handleDeletePreset = useCallback(
                   deletingId={deletingPresetId}
                   onApply={handleApplyPreset}
                   onDelete={handleDeletePreset}
-                  onRefresh={handleRefreshPresets}
                 />
               ) : presetsError ? (
                 <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -3316,7 +3389,6 @@ const handleDeletePreset = useCallback(
                   deletingId={deletingPresetId}
                   onApply={handleApplyPreset}
                   onDelete={handleDeletePreset}
-                  onRefresh={handleRefreshPresets}
                 />
               )}
 
@@ -3569,7 +3641,7 @@ const handleDeletePreset = useCallback(
                         </div>
                         <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
                           <Button
-                            variant="outline"
+                            variant="destructive"
                             size="sm"
                             onClick={handleRequestSavePreset}
                             disabled={isSessionLocked || selectedDevices.length === 0}

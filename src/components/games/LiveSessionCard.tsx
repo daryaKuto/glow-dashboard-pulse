@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import type { NormalizedGameDevice } from '@/hooks/useGameDevices';
 import { formatSessionDuration } from '@/components/game-session/sessionState';
 import type { LiveSessionSummary } from './types';
+import { Building2, Clock3, Bookmark, Crosshair } from 'lucide-react';
 
 interface LiveSessionCardProps {
   isRunning: boolean;
@@ -147,48 +148,75 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
                 {recentSummary.efficiencyScore > 0 ? recentSummary.efficiencyScore.toFixed(2) : '—'}
               </p>
             </div>
-            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm sm:col-span-3">
-              <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Game ID</p>
-              <p className="font-heading text-base text-brand-dark truncate max-w-[200px]" title={recentSummary.gameId}>
-                {recentSummary.gameId}
-              </p>
-            </div>
           </div>
           <Separator />
-          <div className="space-y-3 text-sm text-brand-dark/70">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-brand-dark">Room</span>
-              <span>{summaryRoomLabel}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-brand-dark">Duration</span>
-              <span>{summaryDurationLabel}</span>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50 px-4 py-4">
+                <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
+                  <Building2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Room</p>
+                  <p className="font-medium text-brand-dark">{summaryRoomLabel ?? 'No room selected'}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50 px-4 py-4">
+                <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
+                  <Crosshair className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Targets</p>
+                  <p className="font-medium text-brand-dark">{recentSummary.targets.length} staged</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50 px-4 py-4">
+                <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
+                  <Clock3 className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Duration</p>
+                  <p className="font-medium text-brand-dark">{summaryDurationLabel}</p>
+                </div>
+              </div>
             </div>
             {recentSummary.presetId && (
-              <div className="flex items-center justify-between">
-                <span className="font-medium text-brand-dark">Preset</span>
-                <Badge variant="outline" className="text-xs font-mono">
-                  {recentSummary.presetId}
-                </Badge>
+              <div className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50 px-4 py-4">
+                <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
+                  <Bookmark className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Preset</p>
+                  <Badge variant="outline" className="text-xs font-mono">
+                    {recentSummary.presetId}
+                  </Badge>
+                </div>
               </div>
             )}
-            <div>
-              <p className="font-medium text-brand-dark">Targets ({recentSummary.targets.length})</p>
-              {displayTargets.length === 0 ? (
-                <p className="text-brand-dark/60">No targets recorded.</p>
-              ) : (
-                <ul className="mt-1 list-disc list-inside space-y-1">
+            {displayTargets.length === 0 ? (
+              <div className="rounded-md border border-dashed border-gray-200 bg-white px-4 py-3 text-sm text-brand-dark/60">
+                No targets recorded.
+              </div>
+            ) : (
+              <div className="rounded-md border border-gray-200 bg-white px-4 py-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Target list</p>
+                <div className="mt-3 flex flex-wrap gap-2">
                   {displayTargets.map((target) => (
-                    <li key={target.deviceId}>{target.deviceName}</li>
+                    <span
+                      key={target.deviceId}
+                      className="inline-flex items-center rounded-full border border-brand-secondary/30 bg-gray-50 px-3 py-1 text-xs font-medium text-brand-dark"
+                    >
+                      {target.deviceName}
+                    </span>
                   ))}
                   {extraTargetCount > 0 && (
-                    <li className="text-brand-dark/60">
+                    <span className="inline-flex items-center rounded-full border border-dashed border-brand-secondary/40 bg-gray-50 px-3 py-1 text-xs font-medium text-brand-dark/60">
                       +{extraTargetCount} more target{extraTargetCount === 1 ? '' : 's'}
-                    </li>
+                    </span>
                   )}
-                </ul>
-              )}
-            </div>
+                </div>
+              </div>
+            )}
           </div>
           <Separator />
           <div className="space-y-3">

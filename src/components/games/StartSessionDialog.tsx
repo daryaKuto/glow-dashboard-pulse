@@ -407,7 +407,10 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   }, [dialogHitHistory]);
 
   const displayedSessionHits = dialogSessionHits.length > 0 ? dialogSessionHits : sessionHits;
-  const targetDurationFormatted = desiredDurationSeconds && desiredDurationSeconds > 0 ? formatSessionDuration(desiredDurationSeconds) : 'Not set';
+  const targetDurationFormatted =
+    typeof desiredDurationSeconds === 'number' && desiredDurationSeconds > 0
+      ? formatSessionDuration(desiredDurationSeconds)
+      : 'No time limit';
   const handleDurationInputChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const value = event.target.value;
@@ -598,7 +601,7 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
           </div>
           <div className="space-y-2">
             <Label htmlFor="session-duration-seconds" className="text-xs font-medium text-brand-dark uppercase tracking-wide">
-              Target duration (seconds)
+              Session duration (seconds)
             </Label>
             <Input
               id="session-duration-seconds"
@@ -608,7 +611,7 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
               inputMode="numeric"
             />
             <div className="flex flex-col gap-2 text-[11px] text-brand-dark/60 sm:flex-row sm:items-center sm:justify-between">
-              <span>Formatted: {targetDurationFormatted}</span>
+              <span>Leave blank for no limit • Formatted: {targetDurationFormatted}</span>
               <div className="flex flex-wrap gap-2">
                 {quickDurationOptions.map((value) => (
                   <Button

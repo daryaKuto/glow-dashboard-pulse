@@ -25,6 +25,7 @@ interface TargetSelectionCardProps {
   onClearSelection: () => void;
   selectedCount: number;
   totalOnlineSelectableTargets: number;
+  className?: string;
 }
 
 // Derives the wifi glyph + color for a device row.
@@ -75,10 +76,39 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
   onClearSelection,
   selectedCount,
   totalOnlineSelectableTargets,
+  className,
 }) => {
+  const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
+  const previousFirstDeviceIdRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    // Snap to the top when room-driven ordering pulls a selected target into the lead slot.
+    if (devices.length === 0) {
+      previousFirstDeviceIdRef.current = null;
+      return;
+    }
+
+    const firstDeviceId = devices[0]?.deviceId ?? null;
+    const previousFirstDeviceId = previousFirstDeviceIdRef.current;
+    previousFirstDeviceIdRef.current = firstDeviceId;
+
+    if (
+      firstDeviceId &&
+      previousFirstDeviceId &&
+      previousFirstDeviceId !== firstDeviceId &&
+      selectedDeviceIds.includes(firstDeviceId)
+    ) {
+      const viewport = scrollAreaRef.current?.querySelector(
+        '[data-radix-scroll-area-viewport]',
+      ) as HTMLDivElement | null;
+
+      viewport?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [devices, selectedDeviceIds]);
+
   return (
-    <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-      <CardContent className="p-4 md:p-5 space-y-3">
+    <Card className={`bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg flex h-full flex-col ${className ?? ''}`}>
+      <CardContent className="flex flex-1 flex-col space-y-4 p-4 md:p-5">
         <div className="space-y-2">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-heading text-lg text-brand-dark">Target Selection</h2>
@@ -107,14 +137,14 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
         </div>
 
         {loadingDevices ? (
-          <div className="flex items-center justify-center py-10 text-sm text-brand-dark/60">
+          <div className="flex flex-1 items-center justify-center text-sm text-brand-dark/60">
             Refreshing device list...
           </div>
         ) : devices.length === 0 ? (
-          <p className="text-sm text-brand-dark/60">No ThingsBoard devices found for this tenant.</p>
+          <p className="flex-1 text-sm text-brand-dark/60">No ThingsBoard devices found for this tenant.</p>
         ) : (
-          <ScrollArea className="h-[260px] pr-2">
-            <div className="space-y-3">
+          <ScrollArea ref={scrollAreaRef} className="flex-1 pr-2 max-h-[280px]">
+            <div className="space-y-2">
               {devices.map((device) => {
                 const checkboxId = `target-${device.deviceId}`;
                 const connectionStatus = deriveConnectionStatus(device);
@@ -146,7 +176,7 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
                 return (
                   <div
                     key={device.deviceId}
-                    className={`flex items-start justify-between rounded-lg border px-3 py-2 transition-colors ${
+                    className={`flex items-start justify-between rounded-lg border px-3 py-2 transition-colors overflow-hidden ${
                       isChecked ? 'border-brand-primary/40 bg-brand-primary/5' : 'border-gray-200 bg-white'
                     }`}
                   >
@@ -157,9 +187,9 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
                         disabled={isSessionLocked || !isOnline}
                         onCheckedChange={(value) => onToggleDevice(device.deviceId, Boolean(value))}
                       />
-                      <div className="space-y-1">
+                      <div className="space-y-1 min-w-0">
                         <label htmlFor={checkboxId} className="font-heading text-sm text-brand-dark leading-tight">
-                          {device.name}
+                          <span className="block truncate max-w-[180px] text-left">{device.name}</span>
                         </label>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-brand-dark/60">
                           <span className={`flex items-center gap-1 font-medium ${connectionColor}`}>

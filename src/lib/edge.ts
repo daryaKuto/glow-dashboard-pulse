@@ -891,18 +891,33 @@ const mapGamePreset = (record: GamePresetResponse): GamePreset => ({
 });
 
 export async function fetchGamePresets(): Promise<GamePreset[]> {
-  const { data, error } = await supabase.functions.invoke<{ presets: GamePresetResponse[] }>('game-presets', {
+  const requestPayload = { action: 'list' as const };
+  const requestStartedAt = Date.now();
+  console.info('[Edge] Invoking game-presets list', {
+    payload: requestPayload,
+    at: new Date().toISOString(),
+  });
+  const { data, error, status, statusText } = await supabase.functions.invoke<{ presets: GamePresetResponse[] }>('game-presets', {
     method: 'POST',
-    body: { action: 'list' },
+    body: requestPayload,
   });
 
   if (error) {
+    console.error('[Edge] game-presets list failed', {
+      error: error.message,
+      status: error.status,
+      elapsedMs: Date.now() - requestStartedAt,
+    });
     throw error;
   }
 
   const presets = Array.isArray(data?.presets) ? data!.presets.map(mapGamePreset) : [];
   console.info('[Edge] game-presets list fetched', {
     fetchedAt: new Date().toISOString(),
+    elapsedMs: Date.now() - requestStartedAt,
+    status,
+    statusText,
+    rawPresetCount: Array.isArray(data?.presets) ? data!.presets.length : null,
     count: presets.length,
     sample: presets.slice(0, 3).map((preset) => ({
       id: preset.id,
@@ -927,6 +942,13 @@ export interface SaveGamePresetInput {
 }
 
 export async function saveGamePreset(preset: SaveGamePresetInput): Promise<GamePreset> {
+  const requestStartedAt = Date.now();
+  console.info('[Edge] Invoking game-presets save', {
+    presetName: preset.name,
+    targetCount: preset.targetIds.length,
+    includeRoom: Boolean(preset.roomId),
+    at: new Date().toISOString(),
+  });
   const { data, error } = await supabase.functions.invoke<{ preset: GamePresetResponse }>('game-presets', {
     method: 'POST',
     body: {
@@ -945,6 +967,11 @@ export async function saveGamePreset(preset: SaveGamePresetInput): Promise<GameP
   });
 
   if (error) {
+    console.error('[Edge] game-presets save failed', {
+      error: error.message,
+      status: error.status,
+      elapsedMs: Date.now() - requestStartedAt,
+    });
     throw error;
   }
 
@@ -953,6 +980,7 @@ export async function saveGamePreset(preset: SaveGamePresetInput): Promise<GameP
     presetId: mapped.id,
     name: mapped.name,
     targetCount: mapped.targetIds.length,
+    elapsedMs: Date.now() - requestStartedAt,
   });
 
   return mapped;

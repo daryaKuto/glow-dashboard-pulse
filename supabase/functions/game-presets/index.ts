@@ -28,6 +28,11 @@ async function handleList(userId: string) {
     return errorResponse("Supabase admin client not configured", 500);
   }
 
+  const startedAt = Date.now();
+  console.info("[game-presets] handleList called", {
+    userId,
+    at: new Date().toISOString(),
+  });
   const { data, error } = await supabaseAdmin
     .from("game_presets")
     .select(
@@ -41,6 +46,18 @@ async function handleList(userId: string) {
     return errorResponse("Failed to fetch presets", 500, error.message ?? undefined);
   }
 
+  console.info("[game-presets] handleList succeeded", {
+    userId,
+    at: new Date().toISOString(),
+    elapsedMs: Date.now() - startedAt,
+    presetCount: data?.length ?? 0,
+    sample: (data ?? []).slice(0, 3).map((preset) => ({
+      id: preset.id,
+      name: preset.name,
+      durationSeconds: preset.duration_seconds,
+      targetCount: preset.target_ids?.length ?? 0,
+    })),
+  });
   return jsonResponse({
     presets: data ?? [],
   });
@@ -54,6 +71,14 @@ async function handleSave(userId: string, preset: PresetPayload | undefined) {
   if (!preset) {
     return errorResponse("Missing preset payload", 400);
   }
+  console.info("[game-presets] handleSave called", {
+    userId,
+    hasPreset: Boolean(preset),
+    name: preset?.name,
+    targetCount: preset?.targetIds?.length ?? 0,
+    durationSeconds: preset?.durationSeconds ?? null,
+    roomId: preset?.roomId ?? null,
+  });
   if (!preset.name || typeof preset.name !== "string" || preset.name.trim().length === 0) {
     return errorResponse("Preset name is required", 400);
   }
@@ -101,6 +126,12 @@ async function handleSave(userId: string, preset: PresetPayload | undefined) {
     return errorResponse("Failed to save preset", 500, error.message ?? undefined);
   }
 
+  console.info("[game-presets] handleSave succeeded", {
+    presetId: data?.id,
+    name: data?.name,
+    targetCount: data?.target_ids?.length ?? 0,
+    durationSeconds: data?.duration_seconds ?? null,
+  });
   return jsonResponse({
     preset: data,
     status: preset.id ? "updated" : "created",
@@ -131,13 +162,14 @@ async function handleDelete(userId: string, id: string | undefined) {
   });
 }
 
-export default async function handler(req: Request): Promise<Response> {
-  if (!ALLOWED_METHODS.includes(req.method)) {
+Deno.serve(async (req) => {
+  const method = req.method.toUpperCase();
+  if (!ALLOWED_METHODS.includes(method)) {
     return errorResponse("Method not allowed", 405);
   }
 
-  if (req.method === "OPTIONS") {
-    return preflightResponse();
+  if (method === "OPTIONS") {
+    return preflightResponse(req);
   }
 
   let payload: RequestPayload;
@@ -148,10 +180,13 @@ export default async function handler(req: Request): Promise<Response> {
     return errorResponse("Invalid JSON payload", 400);
   }
 
-  const user = await requireUser(req);
-  if (!user) {
-    return errorResponse("Unauthorized", 401);
+  const authResult = await requireUser(req);
+  if ("error" in authResult) {
+    console.warn("[game-presets] requireUser returned error");
+    return authResult.error;
   }
+
+  const { user } = authResult;
 
   switch (payload.action) {
     case "list":
@@ -163,4 +198,4 @@ export default async function handler(req: Request): Promise<Response> {
     default:
       return errorResponse("Unsupported action", 400);
   }
-}
+});

@@ -70,6 +70,11 @@ export interface GameHistory {
   scenarioName?: string | null;
   scenarioType?: string | null;
   roomName?: string | null;
+  roomId?: string | null;
+  desiredDurationSeconds?: number | null;
+  presetId?: string | null;
+  targetDeviceIds?: string[];
+  targetDeviceNames?: string[];
   deviceResults: Array<{
     deviceId: string;
     deviceName: string;

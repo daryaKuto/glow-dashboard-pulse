@@ -33,6 +33,10 @@ export interface BuildLiveSessionSummaryArgs {
   splitRecords: SplitRecord[];
   transitionRecords: TransitionRecord[];
   devices: NormalizedGameDevice[];
+  roomId?: string | null;
+  roomName?: string | null;
+  desiredDurationSeconds?: number | null;
+  presetId?: string | null;
 }
 
 export function buildLiveSessionSummary({
@@ -44,6 +48,10 @@ export function buildLiveSessionSummary({
   splitRecords,
   transitionRecords,
   devices,
+  roomId = null,
+  roomName = null,
+  desiredDurationSeconds = null,
+  presetId = null,
 }: BuildLiveSessionSummaryArgs): LiveSessionSummary {
   const safeStart = Number.isFinite(startTime) ? startTime : stopTime;
   const durationSeconds = Math.max(0, Math.round((stopTime - safeStart) / 1000));
@@ -138,6 +146,16 @@ export function buildLiveSessionSummary({
     targetStats: deviceStats,
     crossTargetStats,
   };
+  historyEntry.roomId = roomId ?? null;
+  historyEntry.roomName = roomName ?? null;
+  const normalizedDesiredDuration =
+    typeof desiredDurationSeconds === 'number' && Number.isFinite(desiredDurationSeconds) && desiredDurationSeconds > 0
+      ? Math.round(desiredDurationSeconds)
+      : null;
+  historyEntry.desiredDurationSeconds = normalizedDesiredDuration;
+  historyEntry.presetId = presetId ?? null;
+  historyEntry.targetDeviceIds = targets.map((target) => target.deviceId);
+  historyEntry.targetDeviceNames = targets.map((target) => target.deviceName);
   historyEntry.splits = splits;
   historyEntry.transitions = transitions;
   historyEntry.hitHistory = sortedHits;
@@ -156,6 +174,11 @@ export function buildLiveSessionSummary({
     transitions,
     targets,
     hitHistory: historyEntry.hitHistory ?? [],
+    roomId: historyEntry.roomId ?? null,
+    roomName: historyEntry.roomName ?? null,
+    desiredDurationSeconds: historyEntry.desiredDurationSeconds ?? null,
+    targetDeviceIds: historyEntry.targetDeviceIds ?? targets.map((target) => target.deviceId),
+    presetId: historyEntry.presetId ?? null,
     historyEntry,
   };
 }

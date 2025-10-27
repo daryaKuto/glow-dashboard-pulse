@@ -24,9 +24,24 @@ export const useGamePresets = create<GamePresetsState>((set, get) => ({
   error: null,
 
   fetchPresets: async () => {
+    const previousPresetCount = get().presets.length;
+    const fetchStartedAt = Date.now();
+    console.info('[useGamePresets] fetchPresets start', {
+      at: new Date().toISOString(),
+      previousPresetCount,
+    });
     set({ isLoading: true, error: null });
     try {
       const presets = await fetchGamePresets();
+      const elapsedMs = Date.now() - fetchStartedAt;
+      console.info('[useGamePresets] fetchPresets succeeded', {
+        fetchedAt: new Date().toISOString(),
+        presetCount: presets.length,
+        delta: presets.length - previousPresetCount,
+        elapsedMs,
+        sampleIds: presets.slice(0, 3).map((preset) => preset.id),
+        sampleNames: presets.slice(0, 3).map((preset) => preset.name),
+      });
       set({ presets, isLoading: false });
     } catch (error) {
       console.error('[useGamePresets] Failed to fetch presets', error);
@@ -34,13 +49,29 @@ export const useGamePresets = create<GamePresetsState>((set, get) => ({
         error: error instanceof Error ? error.message : 'Failed to load presets',
         isLoading: false,
       });
+      console.error('[useGamePresets] fetchPresets error persisted to state', {
+        at: new Date().toISOString(),
+        message: error instanceof Error ? error.message : String(error),
+        previousPresetCount,
+      });
     }
   },
 
   savePreset: async (preset: SaveGamePresetInput) => {
+    console.info('[useGamePresets] savePreset invoked', {
+      name: preset.name,
+      targetCount: preset.targetIds.length,
+      durationSeconds: preset.durationSeconds ?? null,
+      includeRoom: Boolean(preset.roomId),
+    });
     set({ isSaving: true, error: null });
     try {
       const saved = await saveGamePreset(preset);
+      console.info('[useGamePresets] savePreset resolved', {
+        presetId: saved.id,
+        name: saved.name,
+        targetCount: saved.targetIds.length,
+      });
       set((state) => {
         const existingIndex = state.presets.findIndex((item) => item.id === saved.id);
         if (existingIndex >= 0) {
@@ -56,6 +87,10 @@ export const useGamePresets = create<GamePresetsState>((set, get) => ({
       set({
         error: error instanceof Error ? error.message : 'Failed to save preset',
         isSaving: false,
+      });
+      console.error('[useGamePresets] savePreset error persisted to state', {
+        at: new Date().toISOString(),
+        message: error instanceof Error ? error.message : String(error),
       });
       throw error;
     }

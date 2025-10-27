@@ -21,6 +21,7 @@ interface RoomSelectionCardProps {
   onSelectAllRooms: () => void;
   onClearRooms: () => void;
   onToggleRoomTargets: (roomId: string, checked: boolean) => void;
+  className?: string;
 }
 
 // Lists available rooms along with quick-select controls for bulk toggling session targets.
@@ -33,13 +34,14 @@ export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
   onSelectAllRooms,
   onClearRooms,
   onToggleRoomTargets,
+  className,
 }) => {
   const roomCount = rooms.length;
   const totalTargets = rooms.reduce((sum, room) => sum + room.targetCount, 0);
 
   return (
-    <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-      <CardContent className="p-4 md:p-5 space-y-3">
+    <Card className={`bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg flex h-full flex-col ${className ?? ''}`}>
+      <CardContent className="flex flex-1 flex-col space-y-3 p-4 md:p-5">
         <div className="space-y-2">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-heading text-lg text-brand-dark truncate">Room Selection</h2>
@@ -70,20 +72,21 @@ export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
         </div>
 
         {roomsLoading ? (
-          <div className="flex items-center justify-center py-10 text-sm text-brand-dark/60">
+          <div className="flex flex-1 items-center justify-center text-sm text-brand-dark/60">
             Loading rooms…
           </div>
         ) : roomCount === 0 ? (
-          <p className="text-sm text-brand-dark/60">No rooms with assigned targets available.</p>
+          <p className="flex-1 text-sm text-brand-dark/60">No rooms with assigned targets available.</p>
         ) : (
-          <ScrollArea className="h-[220px] pr-2">
+          <ScrollArea className="flex-1 pr-2 max-h-[280px]">
             <div className="space-y-2">
               {rooms.map((room) => {
-                const isRoomSelected = room.deviceIds.every((id) => selectedDeviceIds.includes(id));
-                const partialSelection =
-                  !isRoomSelected && room.deviceIds.some((id) => selectedDeviceIds.includes(id));
-                const checkboxState = isRoomSelected ? true : partialSelection ? 'indeterminate' : false;
+                const hasSelectedTargets = room.deviceIds.some((id) => selectedDeviceIds.includes(id));
+                const isFullySelected = room.deviceIds.every((id) => selectedDeviceIds.includes(id));
                 const isActiveRoom = activeRoomId === room.id;
+                const isRoomSelected = isActiveRoom ? hasSelectedTargets : isFullySelected;
+                const partialSelection = !isRoomSelected && hasSelectedTargets;
+                const checkboxState = isRoomSelected ? true : partialSelection ? 'indeterminate' : false;
                 return (
                   <div
                     key={room.id}

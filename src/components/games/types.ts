@@ -17,4 +17,9 @@ export type LiveSessionSummary = {
   hitHistory: SessionHitRecord[];
   historyEntry: GameHistory;
   efficiencyScore: number;
+  roomId: string | null;
+  roomName: string | null;
+  desiredDurationSeconds: number | null;
+  targetDeviceIds: string[];
+  presetId: string | null;
 };

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
@@ -15,6 +16,9 @@ interface LiveSessionCardProps {
   hitCounts: Record<string, number>;
   recentSummary: LiveSessionSummary | null;
   desiredDurationSeconds?: number | null;
+  onUsePrevious?: () => void;
+  onCreateNew?: () => void;
+  isSessionLocked?: boolean;
 }
 
 // Displays either the current live telemetry view or the most recent session summary snapshot.
@@ -26,11 +30,14 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
   hitCounts,
   recentSummary,
   desiredDurationSeconds = null,
+  onUsePrevious,
+  onCreateNew,
+  isSessionLocked = false,
 }) => {
   const desiredDurationLabel =
     typeof desiredDurationSeconds === 'number' && desiredDurationSeconds > 0
       ? formatSessionDuration(desiredDurationSeconds)
-      : 'Not set';
+      : 'No time limit';
 
   if (isRunning) {
     return (
@@ -99,6 +106,14 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
       .sort((a, b) => (b.hitCount ?? 0) - (a.hitCount ?? 0))
       .slice(0, 3);
     const recentSplits = (recentSummary.splits ?? []).slice(0, 4);
+    const summaryRoomLabel = recentSummary.roomName ?? 'No room selected';
+    const summaryDurationLabel =
+      typeof recentSummary.desiredDurationSeconds === 'number' && recentSummary.desiredDurationSeconds > 0
+        ? formatSessionDuration(recentSummary.desiredDurationSeconds)
+        : 'No time limit';
+    const displayTargets = recentSummary.targets.slice(0, 4);
+    const extraTargetCount = Math.max(0, recentSummary.targets.length - displayTargets.length);
+    const actionsDisabled = isSessionLocked;
 
     return (
       <Card className="rounded-md md:rounded-lg border border-brand-primary/20 bg-gradient-to-br from-white via-brand-primary/5 to-brand-secondary/10 shadow-lg">
@@ -137,6 +152,42 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
               <p className="font-heading text-base text-brand-dark truncate max-w-[200px]" title={recentSummary.gameId}>
                 {recentSummary.gameId}
               </p>
+            </div>
+          </div>
+          <Separator />
+          <div className="space-y-3 text-sm text-brand-dark/70">
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-brand-dark">Room</span>
+              <span>{summaryRoomLabel}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-brand-dark">Duration</span>
+              <span>{summaryDurationLabel}</span>
+            </div>
+            {recentSummary.presetId && (
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-brand-dark">Preset</span>
+                <Badge variant="outline" className="text-xs font-mono">
+                  {recentSummary.presetId}
+                </Badge>
+              </div>
+            )}
+            <div>
+              <p className="font-medium text-brand-dark">Targets ({recentSummary.targets.length})</p>
+              {displayTargets.length === 0 ? (
+                <p className="text-brand-dark/60">No targets recorded.</p>
+              ) : (
+                <ul className="mt-1 list-disc list-inside space-y-1">
+                  {displayTargets.map((target) => (
+                    <li key={target.deviceId}>{target.deviceName}</li>
+                  ))}
+                  {extraTargetCount > 0 && (
+                    <li className="text-brand-dark/60">
+                      +{extraTargetCount} more target{extraTargetCount === 1 ? '' : 's'}
+                    </li>
+                  )}
+                </ul>
+              )}
             </div>
           </div>
           <Separator />
@@ -180,18 +231,34 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
               </div>
             </>
           )}
+          <Separator />
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button
+              variant="ghost"
+              onClick={onCreateNew}
+              disabled={actionsDisabled || !onCreateNew}
+            >
+              Create new setup
+            </Button>
+            <Button
+              onClick={onUsePrevious}
+              disabled={actionsDisabled || !onUsePrevious}
+              className="sm:min-w-[180px]"
+            >
+              Use previous settings
+            </Button>
+          </div>
+          {actionsDisabled && (onUsePrevious || onCreateNew) && (
+            <p className="text-[11px] text-brand-dark/60 text-right">
+              Stop the active session to adjust setups.
+            </p>
+          )}
         </CardContent>
       </Card>
     );
   }
 
-  return (
-    <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-      <CardContent className="p-4 md:p-5 text-sm text-brand-dark/60">
-        Launch a live session to capture real-time stats and view the summary here.
-      </CardContent>
-    </Card>
-  );
+  return null;
 };
 
 // Placeholder while live session data boots.

@@ -20,6 +20,11 @@ export interface GameHistorySummaryPayload {
   scenarioName?: string | null;
   scenarioType?: string | null;
   roomName?: string | null;
+  roomId?: string | null;
+  desiredDurationSeconds?: number | null;
+  presetId?: string | null;
+  targetDeviceIds?: string[];
+  targetDeviceNames?: string[];
   deviceResults: GameHistory['deviceResults'];
   targetStats: GameHistory['targetStats'];
   crossTargetStats: GameHistory['crossTargetStats'];
@@ -60,6 +65,11 @@ export function mapSummaryToGameHistory(summary: GameHistorySummaryPayload): Gam
     scenarioName: summary.scenarioName ?? null,
     scenarioType: summary.scenarioType ?? null,
     roomName: summary.roomName ?? null,
+    roomId: summary.roomId ?? null,
+    desiredDurationSeconds: summary.desiredDurationSeconds ?? null,
+    presetId: summary.presetId ?? null,
+    targetDeviceIds: summary.targetDeviceIds ?? [],
+    targetDeviceNames: summary.targetDeviceNames ?? [],
     deviceResults: summary.deviceResults ?? [],
     totalHits: summary.totalHits ?? 0,
     actualDuration: summary.actualDuration ?? 0,
@@ -88,6 +98,11 @@ export async function saveGameHistory(summary: GameHistory): Promise<'created' |
     scenarioName: summary.scenarioName ?? null,
     scenarioType: summary.scenarioType ?? null,
     roomName: summary.roomName ?? null,
+    roomId: summary.roomId ?? null,
+    desiredDurationSeconds: summary.desiredDurationSeconds ?? null,
+    presetId: summary.presetId ?? null,
+    targetDeviceIds: summary.targetDeviceIds ?? [],
+    targetDeviceNames: summary.targetDeviceNames ?? [],
     deviceResults: summary.deviceResults,
     targetStats: summary.targetStats,
     crossTargetStats: summary.crossTargetStats,

@@ -71,6 +71,11 @@ type HistoryPayload = {
     scenarioName?: string | null;
     scenarioType?: string | null;
     roomName?: string | null;
+    roomId?: string | null;
+    desiredDurationSeconds?: number | null;
+    presetId?: string | null;
+    targetDeviceIds?: string[];
+    targetDeviceNames?: string[];
     deviceResults?: Array<Record<string, unknown>>;
     targetStats?: Array<Record<string, unknown>>;
     crossTargetStats?: Record<string, unknown>;
@@ -361,6 +366,7 @@ async function handleHistory(
         scenario_name: summary.scenarioName ?? summary.gameName ?? null,
         scenario_type: summary.scenarioType ?? null,
         room_name: summary.roomName ?? null,
+        room_id: typeof summaryRecord.roomId === "string" && summaryRecord.roomId.length > 0 ? summaryRecord.roomId : null,
         score: typeof summary.score === "number" ? summary.score : hitCount,
         duration_ms: durationMs,
         hit_count: hitCount,

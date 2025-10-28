@@ -48,6 +48,14 @@ interface GameHistoryResponse {
   }>;
   nextCursor?: string | null;
   status?: 'created' | 'updated';
+  sessionPersisted?: boolean;
+  sessionPersistError?: string | null;
+}
+
+export interface SaveGameHistoryResult {
+  status: 'created' | 'updated' | null;
+  sessionPersisted: boolean;
+  sessionPersistError: string | null;
 }
 
 const HISTORY_LIMIT = 20;
@@ -83,7 +91,7 @@ export function mapSummaryToGameHistory(summary: GameHistorySummaryPayload): Gam
 }
 
 // Persists a completed game summary through the game-control edge function so history remains centralised.
-export async function saveGameHistory(summary: GameHistory): Promise<'created' | 'updated' | null> {
+export async function saveGameHistory(summary: GameHistory): Promise<SaveGameHistoryResult> {
   const payload: GameHistorySummaryPayload = {
     gameId: summary.gameId,
     gameName: summary.gameName,
@@ -124,7 +132,25 @@ export async function saveGameHistory(summary: GameHistory): Promise<'created' |
     throw error;
   }
 
-  return data?.status ?? null;
+  const status = data?.status ?? null;
+  const sessionPersisted = typeof data?.sessionPersisted === 'boolean' ? data.sessionPersisted : false;
+  const sessionPersistError =
+    typeof data?.sessionPersistError === 'string' && data.sessionPersistError.length > 0
+      ? data.sessionPersistError
+      : null;
+
+  if (!sessionPersisted && sessionPersistError) {
+    console.warn('[game-history] Session analytics failed to persist', {
+      gameId: summary.gameId,
+      sessionPersistError,
+    });
+  }
+
+  return {
+    status,
+    sessionPersisted,
+    sessionPersistError,
+  };
 }
 
 export interface FetchGameHistoryOptions {

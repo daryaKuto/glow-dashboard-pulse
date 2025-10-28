@@ -54,7 +54,9 @@ export function buildLiveSessionSummary({
   presetId = null,
 }: BuildLiveSessionSummaryArgs): LiveSessionSummary {
   const safeStart = Number.isFinite(startTime) ? startTime : stopTime;
-  const durationSeconds = Math.max(0, Math.round((stopTime - safeStart) / 1000));
+  const durationMs = Math.max(0, stopTime - safeStart);
+  const rawDurationSeconds = durationMs / 1000;
+  const durationSeconds = Number(rawDurationSeconds.toFixed(2));
   const deviceMap = new Map(devices.map((device) => [device.deviceId, device]));
   const deviceIdSet = new Set(devices.map((device) => device.deviceId));
 
@@ -74,7 +76,7 @@ export function buildLiveSessionSummary({
       hitCount: hitsForDevice.length,
       hitTimes: sortedHitTimes,
       averageInterval: intervals.length
-        ? intervals.reduce((sum, value) => sum + value, 0) / intervals.length
+        ? Number((intervals.reduce((sum, value) => sum + value, 0) / intervals.length).toFixed(2))
         : 0,
       firstHitTime: sortedHitTimes[0] ?? 0,
       lastHitTime: sortedHitTimes[sortedHitTimes.length - 1] ?? 0,
@@ -84,20 +86,21 @@ export function buildLiveSessionSummary({
   const totalHits = deviceStats.reduce((sum, stat) => sum + stat.hitCount, 0);
   const overallIntervals = sortedHits.slice(1).map((hit, idx) => (hit.timestamp - sortedHits[idx].timestamp) / 1000);
   const averageHitInterval = overallIntervals.length
-    ? overallIntervals.reduce((sum, value) => sum + value, 0) / overallIntervals.length
+    ? Number((overallIntervals.reduce((sum, value) => sum + value, 0) / overallIntervals.length).toFixed(2))
     : 0;
 
   const switchTimes: number[] = [];
   for (let i = 1; i < sortedHits.length; i++) {
     if (sortedHits[i].deviceId !== sortedHits[i - 1].deviceId) {
-      switchTimes.push((sortedHits[i].timestamp - sortedHits[i - 1].timestamp) / 1000);
+      const switchSpan = (sortedHits[i].timestamp - sortedHits[i - 1].timestamp) / 1000;
+      switchTimes.push(Number(switchSpan.toFixed(2)));
     }
   }
 
   const crossTargetStats = {
     totalSwitches: switchTimes.length,
     averageSwitchTime: switchTimes.length
-      ? switchTimes.reduce((sum, value) => sum + value, 0) / switchTimes.length
+      ? Number((switchTimes.reduce((sum, value) => sum + value, 0) / switchTimes.length).toFixed(2))
       : 0,
     switchTimes,
   };
@@ -131,7 +134,7 @@ export function buildLiveSessionSummary({
   const historyEntry: GameHistory = {
     gameId,
     gameName: gameName ?? `Game ${new Date(safeStart).toLocaleTimeString()}`,
-    duration: Math.max(1, Math.ceil(durationSeconds / 60)),
+    duration: Math.max(1, Math.ceil(rawDurationSeconds / 60)),
     startTime: safeStart,
     endTime: stopTime,
     score: totalHits,

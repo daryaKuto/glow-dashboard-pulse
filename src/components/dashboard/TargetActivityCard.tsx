@@ -107,10 +107,14 @@ export const buildRangeSummaries = (sessions: Session[]): Record<TimeRange, Rang
     });
 
     const bucketStart = config.windowMs === null ? windowStart : windowStart;
+    const alignedBucketStart =
+      config.windowMs === null ? now - config.bucketMs * (config.bucketCount - 1) : bucketStart;
+    const bucketCount = config.bucketCount;
+
     const buckets: Array<{ start: number; label: string; hits: number }> = [];
     const bucketDeviceMaps: Array<Map<string, TargetStat>> = [];
-    for (let i = 0; i < config.bucketCount; i += 1) {
-      const start = bucketStart + i * config.bucketMs;
+    for (let i = 0; i < bucketCount; i += 1) {
+      const start = alignedBucketStart + i * config.bucketMs;
       const label = dayjs(start).format(config.label);
       buckets.push({ start, label, hits: 0 });
       bucketDeviceMaps.push(new Map());
@@ -125,7 +129,7 @@ export const buildRangeSummaries = (sessions: Session[]): Record<TimeRange, Rang
       }
       const index = Math.min(
         buckets.length - 1,
-        Math.max(0, Math.floor((ts - bucketStart) / config.bucketMs)),
+        Math.max(0, Math.floor((ts - alignedBucketStart) / config.bucketMs)),
       );
       const sessionHits = Number.isFinite(session.hitCount) ? session.hitCount : 0;
       buckets[index].hits += sessionHits;

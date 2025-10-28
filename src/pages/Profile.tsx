@@ -414,7 +414,7 @@ const Profile: React.FC = () => {
                 
                 {/* Stats */}
                 {profileLoading ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
                     {/* Total Hits Card Skeleton */}
                     <div className="bg-brand-surface rounded-lg p-6 shadow-sm border border-brand-secondary/20 animate-pulse">
                       <div className="h-4 bg-brand-secondary/20 rounded w-20 mb-2"></div>
@@ -433,26 +433,9 @@ const Profile: React.FC = () => {
                       <div className="h-8 bg-brand-secondary/20 rounded w-14"></div>
                     </div>
                     
-                    {/* Avg Accuracy Card Skeleton */}
-                    <div className="bg-brand-surface rounded-lg p-6 shadow-sm border border-brand-secondary/20 animate-pulse">
-                      <div className="h-4 bg-brand-secondary/20 rounded w-20 mb-2"></div>
-                      <div className="h-8 bg-brand-secondary/20 rounded w-12"></div>
-                    </div>
-                    
-                    {/* Avg Reaction Time Card Skeleton */}
-                    <div className="bg-brand-surface rounded-lg p-6 shadow-sm border border-brand-secondary/20 animate-pulse md:col-span-2 lg:col-span-2">
-                      <div className="h-4 bg-brand-secondary/20 rounded w-32 mb-2"></div>
-                      <div className="h-8 bg-brand-secondary/20 rounded w-20"></div>
-                    </div>
-                    
-                    {/* Best Reaction Time Card Skeleton */}
-                    <div className="bg-brand-surface rounded-lg p-6 shadow-sm border border-brand-secondary/20 animate-pulse md:col-span-2 lg:col-span-2">
-                      <div className="h-4 bg-brand-secondary/20 rounded w-36 mb-2"></div>
-                      <div className="h-8 bg-brand-secondary/20 rounded w-20"></div>
-                    </div>
                   </div>
                 ) : profileData ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
                     <div className="bg-brand-surface rounded-lg p-6 shadow-sm border border-brand-secondary/20 hover:border-brand-primary/30 transition-colors">
                       <div className="text-sm text-brand-dark/70 font-body">Total Hits</div>
                       <div className="text-3xl text-brand-primary font-heading">{profileData.totalHits.toLocaleString()}</div>
@@ -464,10 +447,6 @@ const Profile: React.FC = () => {
                     <div className="bg-brand-surface rounded-lg p-6 shadow-sm border border-brand-secondary/20 hover:border-brand-primary/30 transition-colors">
                       <div className="text-sm text-brand-dark/70 font-body">Total Sessions</div>
                       <div className="text-3xl text-brand-primary font-heading">{profileData.totalSessions.toLocaleString()}</div>
-                    </div>
-                    <div className="bg-brand-surface rounded-lg p-6 shadow-sm border border-brand-secondary/20 hover:border-brand-primary/30 transition-colors">
-                      <div className="text-sm text-brand-dark/70 font-body">Avg Accuracy</div>
-                      <div className="text-3xl text-brand-primary font-heading">{profileData.avgAccuracy.toFixed(1)}%</div>
                     </div>
                     {profileData.avgReactionTime && (
                       <div className="bg-brand-surface rounded-lg p-6 shadow-sm border border-brand-secondary/20 hover:border-brand-primary/30 transition-colors md:col-span-2 lg:col-span-2">

@@ -11,13 +11,20 @@ export const formatDurationValue = (durationMs: number | null | undefined): stri
   if (durationMs === null || durationMs === undefined || Number.isNaN(durationMs)) {
     return '—';
   }
-  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+
+  const totalSeconds = Math.max(0, durationMs / 1000);
+
   if (totalSeconds < 60) {
-    return `${totalSeconds}s`;
+    const preciseSeconds = Number(totalSeconds.toFixed(1));
+    return `${preciseSeconds}s`;
   }
+
   const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  const remainingSeconds = totalSeconds - minutes * 60;
+  const formattedSeconds =
+    remainingSeconds > 0 ? `${Number(remainingSeconds.toFixed(1))}s` : '';
+
+  return formattedSeconds ? `${minutes}m ${formattedSeconds}` : `${minutes}m`;
 };
 
 export const resolveNumericTelemetryValue = (input: unknown): number | null => {

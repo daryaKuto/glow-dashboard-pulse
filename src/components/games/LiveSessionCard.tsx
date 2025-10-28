@@ -7,7 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import type { NormalizedGameDevice } from '@/hooks/useGameDevices';
 import { formatSessionDuration } from '@/components/game-session/sessionState';
 import type { LiveSessionSummary } from './types';
-import { Building2, Clock3, Bookmark, Crosshair } from 'lucide-react';
+import { Building2, Clock3, Bookmark, Crosshair, PlusCircle, RotateCcw } from 'lucide-react';
 
 interface LiveSessionCardProps {
   isRunning: boolean;
@@ -262,17 +262,21 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
           <Separator />
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             <Button
-              variant="ghost"
+              variant="default"
               onClick={onCreateNew}
               disabled={actionsDisabled || !onCreateNew}
+              className="bg-red-600 hover:bg-red-700 text-white"
             >
+              <PlusCircle className="h-4 w-4" />
               Create new setup
             </Button>
             <Button
+              variant="default"
               onClick={onUsePrevious}
               disabled={actionsDisabled || !onUsePrevious}
-              className="sm:min-w-[180px]"
+              className="bg-green-600 hover:bg-green-700 text-white sm:min-w-[180px]"
             >
+              <RotateCcw className="h-4 w-4" />
               Use previous settings
             </Button>
           </div>

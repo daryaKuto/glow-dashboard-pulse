@@ -1,12 +1,23 @@
 import React, { useEffect, useState, useMemo, startTransition } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useRooms } from '@/store/useRooms';
+import type { Room } from '@/store/useRooms';
 import { useTargets } from '@/store/useTargets';
 import { apiWrapper } from '@/services/api-wrapper';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Users, Target, RefreshCw, Eye, X, Check, ArrowRight, ArrowLeft } from 'lucide-react';
@@ -51,6 +62,8 @@ const Rooms: React.FC = () => {
   const [pendingAssignments, setPendingAssignments] = useState<Map<string, string | null>>(new Map()); // targetId -> roomId
   const [targetsLoading, setTargetsLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [roomPendingDelete, setRoomPendingDelete] = useState<Room | null>(null);
+  const [isDeletingRoom, setIsDeletingRoom] = useState(false);
 
   // Helper function to safely get target ID
   const getTargetId = (target: any) => {
@@ -214,14 +227,25 @@ const Rooms: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this room? This action cannot be undone.")) {
-      try {
-        await deleteRoom(id);
-      } catch (error) {
-        console.error('Error deleting room:', error);
-        toast.error('Failed to delete room');
-      }
+  const handleDeleteRequest = (room: Room) => {
+    setRoomPendingDelete(room);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!roomPendingDelete) {
+      return;
+    }
+    setIsDeletingRoom(true);
+    try {
+      await deleteRoom(roomPendingDelete.id);
+      await Promise.all([fetchRooms(), refreshTargets()]);
+      await refreshTargetsWithAssignments();
+      setRoomPendingDelete(null);
+    } catch (error) {
+      console.error('Error deleting room:', error);
+      toast.error('Failed to delete room');
+    } finally {
+      setIsDeletingRoom(false);
     }
   };
 
@@ -371,14 +395,6 @@ const Rooms: React.FC = () => {
     }
   };
 
-  const handleRefresh = async () => {
-    await fetchRooms();
-    await refreshTargets();
-    await refreshTargetsWithAssignments();
-    
-    toast.success('Rooms and targets refreshed');
-  };
-
   const sortedRooms = [...rooms].sort((a, b) => a.order - b.order);
 
   // Get truly unassigned targets (not assigned to ANY room, including pending) - memoized
@@ -449,14 +465,6 @@ const Rooms: React.FC = () => {
           <div className="w-full px-4 py-2 md:container md:mx-auto md:p-4 lg:p-6 responsive-transition h-full">
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
               <h2 className="text-h1 font-heading text-brand-dark">Rooms</h2>
-              <Button 
-                onClick={handleRefresh}
-                variant="outline"
-                className="border-gray-200 text-brand-dark hover:bg-brand-secondary/10 w-full sm:w-auto"
-              >
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
-              </Button>
             </div>
             
             {/* Stats Overview - Mobile Optimized */}
@@ -524,45 +532,35 @@ const Rooms: React.FC = () => {
             
             {isLoading || initialLoading ? (
               <div className="space-y-4">
-                {/* Loading skeleton for rooms */}
                 {[...Array(3)].map((_, i) => (
-                  <div key={i} className="bg-white border border-gray-200 rounded-lg p-4 animate-pulse">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-gray-200 rounded-lg"></div>
+                  <div key={i} className="bg-white border border-gray-200 rounded-lg p-4 md:p-5 animate-pulse">
+                    <div className="flex items-start justify-between gap-3 md:gap-4">
+                      <div className="flex items-start gap-3 md:gap-4">
+                        <div className="w-10 h-10 md:w-12 md:h-12 bg-gray-200 rounded-lg" />
                         <div className="space-y-2">
-                          <div className="h-4 w-32 bg-gray-200 rounded"></div>
-                          <div className="h-3 w-20 bg-gray-200 rounded"></div>
+                          <div className="h-4 w-32 bg-gray-200 rounded" />
+                          <div className="flex items-center gap-2">
+                            <div className="h-5 w-12 bg-gray-200 rounded-full" />
+                            <div className="h-4 w-16 bg-gray-200 rounded" />
+                          </div>
+                          <div className="h-3 w-24 bg-gray-200 rounded" />
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="h-6 w-16 bg-gray-200 rounded"></div>
-                        <div className="h-8 w-8 bg-gray-200 rounded"></div>
+                        <div className="h-8 w-8 bg-gray-200 rounded-full" />
+                        <div className="h-8 w-8 bg-gray-200 rounded-full" />
+                        <div className="h-8 w-8 bg-gray-200 rounded-full" />
                       </div>
+                    </div>
+                    <div className="mt-4 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="h-4 w-20 bg-gray-200 rounded" />
+                        <div className="h-3 w-16 bg-gray-200 rounded" />
+                      </div>
+                      <div className="h-8 w-28 bg-gray-200 rounded" />
                     </div>
                   </div>
                 ))}
-                
-                {/* Loading skeleton for targets */}
-                <div className="mt-6">
-                  <div className="h-4 w-48 bg-gray-200 rounded mb-4 animate-pulse"></div>
-                  <div className="space-y-3">
-                    {[...Array(4)].map((_, i) => (
-                      <div key={i} className="bg-white border border-gray-200 rounded-lg p-3 animate-pulse">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="w-6 h-6 bg-gray-200 rounded"></div>
-                            <div className="space-y-1">
-                              <div className="h-3 w-24 bg-gray-200 rounded"></div>
-                              <div className="h-2 w-16 bg-gray-200 rounded"></div>
-                            </div>
-                          </div>
-                          <div className="h-6 w-20 bg-gray-200 rounded"></div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </div>
             ) : rooms.length === 0 ? (
               <div className="text-center py-8">
@@ -586,7 +584,7 @@ const Rooms: React.FC = () => {
                     key={room.id}
                     room={room}
                     onRename={handleRename}
-                    onDelete={handleDelete}
+                    onDelete={handleDeleteRequest}
                     onAssignTargets={() => openAssignDialog(room)}
                     onViewDetails={() => openRoomDetails(room)}
                   />
@@ -596,6 +594,73 @@ const Rooms: React.FC = () => {
           </div>
         </main>
       </div>
+
+      <AlertDialog
+        open={Boolean(roomPendingDelete)}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingRoom) {
+            setRoomPendingDelete(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete room {roomPendingDelete ? `"${roomPendingDelete.name}"` : ''}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the room and unassign any targets currently linked to it. You can reassign those targets later from the Targets page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {roomPendingDelete && (
+            <div className="space-y-3">
+              <div className="rounded-md bg-brand-secondary/5 border border-brand-secondary/20 p-3">
+                <p className="text-xs text-brand-dark/70 font-medium">
+                  Assigned targets ({roomPendingDelete.targetCount ?? roomPendingDelete.targets?.length ?? 0})
+                </p>
+                {roomPendingDelete.targets && roomPendingDelete.targets.length > 0 ? (
+                  <ul className="mt-2 max-h-36 overflow-y-auto text-sm text-brand-dark/80 space-y-1">
+                    {roomPendingDelete.targets.slice(0, 6).map((target) => (
+                      <li key={target.id} className="flex items-center gap-2">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-primary" />
+                        <span>{target.name ?? target.deviceName ?? target.id}</span>
+                      </li>
+                    ))}
+                    {roomPendingDelete.targets.length > 6 && (
+                      <li className="text-xs text-brand-dark/60">
+                        +{roomPendingDelete.targets.length - 6} more
+                      </li>
+                    )}
+                  </ul>
+                ) : roomPendingDelete.targetCount && roomPendingDelete.targetCount > 0 ? (
+                  <p className="mt-2 text-xs text-brand-dark/60">
+                    {roomPendingDelete.targetCount} target{roomPendingDelete.targetCount === 1 ? '' : 's'} assigned
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-brand-dark/60">No targets assigned.</p>
+                )}
+              </div>
+              <p className="text-xs text-brand-dark/60">
+                Deleting a room is permanent. Targets will remain in your account but will become unassigned.
+              </p>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingRoom}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                variant="destructive"
+                onClick={handleConfirmDelete}
+                disabled={isDeletingRoom}
+              >
+                {isDeletingRoom ? 'Deleting…' : 'Delete Room'}
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Target Assignment Dialog */}
       <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
@@ -922,7 +987,8 @@ const Rooms: React.FC = () => {
         availableTargets={unassignedTargets.map(target => ({
           id: target.id,
           name: target.name,
-          status: target.status || 'active'
+          status: target.status ?? null,
+          activityStatus: target.activityStatus ?? null,
         }))}
       />
     </div>

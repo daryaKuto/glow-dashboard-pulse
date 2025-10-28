@@ -507,19 +507,31 @@ const Dashboard: React.FC = () => {
       .filter((entry) => entry.hits > 0)
       .slice(0, 4);
 
-    const trackedDevices = [
-      { deviceId: 'aggregate', deviceName: aggregateSeriesLabel },
-      ...topDevices.map((device) => ({
+    const includeAggregateLine = topDevices.length !== 1;
+    const trackedDevices = (() => {
+      if (topDevices.length === 0) {
+        return [{ deviceId: 'aggregate', deviceName: aggregateSeriesLabel }];
+      }
+      const deviceEntries = topDevices.map((device) => ({
         deviceId: device.deviceId,
         deviceName: device.deviceName,
-      })),
-    ];
+      }));
+      if (!includeAggregateLine) {
+        return deviceEntries;
+      }
+      return [
+        { deviceId: 'aggregate', deviceName: aggregateSeriesLabel },
+        ...deviceEntries,
+      ];
+    })();
 
     const timelineData = (summary.targetBuckets ?? []).map((bucket, bucketIndex) => {
       const row: Record<string, number | string> = { time: bucket.label };
-      const totalHitsForBucket = bucket.devices.reduce((sum, device) => sum + device.hits, 0);
-      const fallbackTotal = summary.chartData?.[bucketIndex]?.hits ?? 0;
-      row[aggregateSeriesLabel] = totalHitsForBucket > 0 ? totalHitsForBucket : fallbackTotal;
+      if (includeAggregateLine) {
+        const totalHitsForBucket = bucket.devices.reduce((sum, device) => sum + device.hits, 0);
+        const fallbackTotal = summary.chartData?.[bucketIndex]?.hits ?? 0;
+        row[aggregateSeriesLabel] = totalHitsForBucket > 0 ? totalHitsForBucket : fallbackTotal;
+      }
 
       topDevices.forEach((device) => {
         const match = bucket.devices.find((entry) => entry.deviceId === device.deviceId);

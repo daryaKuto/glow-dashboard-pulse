@@ -363,7 +363,7 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
         hitCount: device.hitCount,
         hitTimes,
         averageInterval: intervals.length
-          ? intervals.reduce((sum, value) => sum + value, 0) / intervals.length
+          ? Number((intervals.reduce((sum, value) => sum + value, 0) / intervals.length).toFixed(2))
           : 0,
         firstHitTime: hitTimes[0] ?? 0,
         lastHitTime: hitTimes[hitTimes.length - 1] ?? 0,
@@ -371,7 +371,8 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
     });
 
     const totalHits = targetStats.reduce((sum, stat) => sum + stat.hitCount, 0);
-    const actualDurationSeconds = Math.max(0, Math.round((session.endTime - session.startTime) / 1000));
+    const durationMs = Math.max(0, session.endTime - session.startTime);
+    const actualDurationSeconds = Number((durationMs / 1000).toFixed(2));
 
     const allHits = targetStats
       .flatMap((stat) => stat.hitTimes.map((timestamp) => ({ deviceId: stat.deviceId, timestamp })))
@@ -384,7 +385,8 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
     const switchTimes: number[] = [];
     for (let i = 1; i < allHits.length; i++) {
       if (allHits[i].deviceId !== allHits[i - 1].deviceId) {
-        switchTimes.push((allHits[i].timestamp - allHits[i - 1].timestamp) / 1000);
+        const switchSpan = (allHits[i].timestamp - allHits[i - 1].timestamp) / 1000;
+        switchTimes.push(Number(switchSpan.toFixed(2)));
       }
     }
 
@@ -402,13 +404,13 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
       totalHits,
       actualDuration: actualDurationSeconds,
       averageHitInterval: overallIntervals.length
-        ? overallIntervals.reduce((sum, value) => sum + value, 0) / overallIntervals.length
+        ? Number((overallIntervals.reduce((sum, value) => sum + value, 0) / overallIntervals.length).toFixed(2))
         : null,
       targetStats,
       crossTargetStats: {
         totalSwitches: switchTimes.length,
         averageSwitchTime: switchTimes.length
-          ? switchTimes.reduce((sum, value) => sum + value, 0) / switchTimes.length
+          ? Number((switchTimes.reduce((sum, value) => sum + value, 0) / switchTimes.length).toFixed(2))
           : 0,
         switchTimes,
       },
@@ -419,9 +421,15 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
     }));
 
     void persistGameHistory(historyEntry)
-      .then((status) => {
+      .then(({ status, sessionPersisted, sessionPersistError }) => {
         if (status) {
           console.info('[useGameFlow] Game history entry', status, historyEntry.gameId);
+        }
+        if (!sessionPersisted) {
+          console.warn('[useGameFlow] Session analytics failed to persist', {
+            gameId: historyEntry.gameId,
+            sessionPersistError,
+          });
         }
       })
       .catch((error) => {
@@ -438,9 +446,15 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
     console.log('💾 Game added to history:', historyEntry);
 
     void persistGameHistory(historyEntry)
-      .then((status) => {
+      .then(({ status, sessionPersisted, sessionPersistError }) => {
         if (status) {
           console.info('[useGameFlow] Manual history entry', status, historyEntry.gameId);
+        }
+        if (!sessionPersisted) {
+          console.warn('[useGameFlow] Session analytics failed to persist (manual)', {
+            gameId: historyEntry.gameId,
+            sessionPersistError,
+          });
         }
       })
       .catch((error) => {

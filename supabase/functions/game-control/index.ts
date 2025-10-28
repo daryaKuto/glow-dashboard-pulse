@@ -93,10 +93,47 @@ type HistorySummary = NonNullable<HistoryPayload['summary']>;
 
 const TELEMETRY_KEYS = ["hits", "wifiStrength", "ambientLight", "event", "gameStatus", "gameId", "hit_ts"];
 
+function isUuid(value: unknown): value is string {
+  if (typeof value !== "string") {
+    return false;
+  }
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function normalizeNumber(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toErrorMessage(error: unknown): string | null {
+  if (!error) {
+    return null;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "object") {
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (typeof maybeMessage === "string" && maybeMessage.length > 0) {
+      return maybeMessage;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch (_jsonError) {
+      return String(error);
+    }
+  }
+  return typeof error === "string" ? error : String(error);
+}
+
+function isRoomForeignKeyError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const code = (error as { code?: string }).code;
+  const details = (error as { details?: unknown }).details;
+  return code === "23503" && typeof details === "string" && details.includes("room_id");
 }
 
 function normalizeString(value: unknown): string | null {
@@ -344,6 +381,8 @@ async function handleHistory(
     const summaryRecord = summary as Record<string, unknown>;
 
     let sessionId: string | null = null;
+    let sessionPersisted = false;
+    let sessionPersistError: unknown = null;
     try {
       const hitCount = typeof summary.totalHits === "number"
         ? summary.totalHits
@@ -354,20 +393,26 @@ async function handleHistory(
             }, 0)
           : 0;
 
+      const rawScoreValue = typeof summary.score === "number" ? summary.score : hitCount;
+      const normalizedScore = Number.isFinite(rawScoreValue) ? Math.round(rawScoreValue) : hitCount;
+
       const startedAtIso = new Date(summary.startTime).toISOString();
       const endedAtIso = new Date(summary.endTime).toISOString();
       const durationMs = typeof summary.actualDuration === "number"
         ? Math.max(0, Math.round(summary.actualDuration * 1000))
         : null;
 
-      const sessionPayload = {
+      const normalizedRoomId =
+        typeof summaryRecord.roomId === "string" && summaryRecord.roomId.trim().length > 0 ? summaryRecord.roomId : null;
+
+      const buildSessionPayload = (roomId: string | null) => ({
         user_id: userId,
         game_id: summary.gameId ?? null,
         scenario_name: summary.scenarioName ?? summary.gameName ?? null,
         scenario_type: summary.scenarioType ?? null,
         room_name: summary.roomName ?? null,
-        room_id: typeof summaryRecord.roomId === "string" && summaryRecord.roomId.length > 0 ? summaryRecord.roomId : null,
-        score: typeof summary.score === "number" ? summary.score : hitCount,
+        room_id: roomId,
+        score: normalizedScore,
         duration_ms: durationMs,
         hit_count: hitCount,
         miss_count: 0,
@@ -376,6 +421,7 @@ async function handleHistory(
         avg_reaction_time_ms: null,
         best_reaction_time_ms: null,
         worst_reaction_time_ms: null,
+        game_id: isUuid(summary.gameId) ? summary.gameId : null,
         started_at: startedAtIso,
         ended_at: endedAtIso,
         thingsboard_data: summaryRecord,
@@ -385,21 +431,81 @@ async function handleHistory(
           splits: summary.splits ?? null,
           transitions: summary.transitions ?? null,
         },
-      };
+      });
 
-      const { data: sessionInsert, error: sessionError } = await supabaseAdmin
-        .from('sessions')
-        .insert(sessionPayload)
-        .select('id')
-        .single();
+      const attemptSessionInsert = async (roomId: string | null) =>
+        supabaseAdmin
+          .from("sessions")
+          .insert(buildSessionPayload(roomId))
+          .select("id")
+          .single();
+
+      let currentRoomId: string | null = normalizedRoomId;
+      let {
+        data: sessionInsert,
+        error: sessionError,
+        status: sessionStatus,
+      }: {
+        data: { id?: string | null } | null;
+        error: unknown;
+        status: number | null;
+      } = await attemptSessionInsert(currentRoomId);
+
+      if (sessionError && isRoomForeignKeyError(sessionError)) {
+        console.warn("[game-control] sessions insert failed due to room foreign key, retrying without room_id", {
+          summaryGameId: summary.gameId,
+          roomId: currentRoomId,
+          code: (sessionError as { code?: string }).code,
+          details: (sessionError as { details?: unknown }).details,
+        });
+        currentRoomId = null;
+        ({ data: sessionInsert, error: sessionError, status: sessionStatus } = await attemptSessionInsert(currentRoomId));
+      }
 
       if (sessionError) {
         throw sessionError;
       }
 
       sessionId = sessionInsert?.id ?? null;
+      sessionPersisted = Boolean(sessionId);
+      if (!sessionPersisted) {
+        console.warn("[game-control] Session insert succeeded but returned no id; attempting fallback lookup", {
+          summaryGameId: summary.gameId,
+          status: sessionStatus,
+          sessionInsert,
+        });
+        const { data: fallbackRow, error: fallbackError } = await supabaseAdmin
+          .from("sessions")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("started_at", startedAtIso)
+          .eq("ended_at", endedAtIso)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (fallbackError) {
+          sessionPersistError = fallbackError;
+        }
+        if (fallbackRow?.id) {
+          sessionId = fallbackRow.id;
+          sessionPersisted = true;
+        }
+      }
 
-      if (sessionId && Array.isArray(summary.hitHistory) && summary.hitHistory.length > 0) {
+      if (!sessionPersisted) {
+        if (!sessionPersistError) {
+          sessionPersistError = {
+            message: "Session insert returned no id and fallback lookup failed",
+            status: sessionStatus,
+            payload: sessionInsert,
+          };
+        }
+        throw sessionPersistError;
+      }
+
+      summaryRecord.roomId = currentRoomId;
+
+      if (Array.isArray(summary.hitHistory) && summary.hitHistory.length > 0) {
       const hitRows = summary.hitHistory.map((hit) => ({
         session_id: sessionId,
         user_id: userId,
@@ -422,13 +528,17 @@ async function handleHistory(
         if (hitsError) {
           throw hitsError;
         }
+        sessionPersisted = true;
       }
 
-      if (sessionId) {
-        summaryRecord.sessionId = sessionId;
-      }
+      summaryRecord.sessionId = sessionId;
     } catch (sessionError) {
-      console.warn('[game-control] Failed to persist session analytics', sessionError);
+      sessionPersistError = sessionError;
+      console.warn('[game-control] Failed to persist session analytics', {
+        error: sessionError,
+        summaryGameId: summary.gameId,
+        isUuid: isUuid(summary.gameId),
+      });
     }
 
     let isUpdate = false;
@@ -478,6 +588,8 @@ async function handleHistory(
         createdAt: data?.created_at ?? null,
         summary: data?.summary ?? null,
       },
+      sessionPersisted,
+      sessionPersistError: toErrorMessage(sessionPersistError),
       status: isUpdate ? 'updated' : 'created',
     });
   }

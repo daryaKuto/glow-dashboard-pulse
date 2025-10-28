@@ -36,7 +36,7 @@ interface RoomCardProps {
   room: Room;
   isDragging?: boolean;
   onRename: (id: string, name: string) => void;
-  onDelete: (id: string) => void;
+  onDelete: (room: Room) => void;
   onAssignTargets: () => void;
   onViewDetails: () => void;
 }
@@ -131,8 +131,9 @@ const RoomCard: React.FC<RoomCardProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => onDelete(room.id)}
+              onClick={() => onDelete(room)}
               className="text-red-600 hover:bg-red-600 hover:text-white p-1.5 md:p-2"
+              title="Delete this room"
             >
               <Trash className="h-3 w-3 md:h-4 md:w-4" />
             </Button>

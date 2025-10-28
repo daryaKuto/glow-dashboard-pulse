@@ -340,7 +340,7 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
                 >
                   <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                     <div className="space-y-1">
-                      <p className="font-heading text-sm text-brand-dark">{preset.name}</p>
+                      <p className="font-heading text-sm text-brand-dark text-left">{preset.name}</p>
                       <div className="text-[11px] uppercase tracking-wide text-brand-dark/50">
                         Saved {new Date(preset.updatedAt).toLocaleString()}
                       </div>
@@ -348,7 +348,7 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
                     <div className="flex gap-2">
                       <Button
                         size="sm"
-                        className="bg-green-600 hover:bg-green-700"
+                        className="bg-green-600 hover:bg-green-700 text-white"
                         onClick={() => onApply(preset)}
                         disabled={isSessionLocked || isApplyLoading}
                       >
@@ -2570,11 +2570,17 @@ const handleDeletePreset = useCallback(
       setGameHistory((prev) => [sessionSummary.historyEntry, ...prev]);
 
       try {
-        const status = await saveGameHistory(sessionSummary.historyEntry);
+        const { status, sessionPersisted, sessionPersistError } = await saveGameHistory(sessionSummary.historyEntry);
         if (status === 'created') {
           console.info('[Games] Game history entry created', sessionSummary.historyEntry.gameId);
         } else if (status === 'updated') {
           console.info('[Games] Game history entry updated', sessionSummary.historyEntry.gameId);
+        }
+        if (!sessionPersisted) {
+          console.warn('[Games] Session analytics missing from Supabase sessions table', {
+            gameId: sessionSummary.historyEntry.gameId,
+            sessionPersistError,
+          });
         }
       } catch (persistError) {
         console.warn('[Games] Failed to persist game history', persistError);
@@ -3460,13 +3466,13 @@ const handleDeletePreset = useCallback(
               </Card>
             )}
             <div className="space-y-6">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between text-left">
                 <div>
                   <h1 className="font-heading text-2xl md:text-3xl font-semibold text-brand-text">
-                    Live Game Control
+                    Games &amp; Sessions Overview
                   </h1>
                   <p className="font-body text-brand-text/70 text-sm md:text-base">
-                    Orchestrate your session and watch hits stream in from ThingsBoard.
+                    Manage rooms, targets, and quick-start presets from one control center.
                   </p>
                 </div>
                 <div className="flex flex-col items-stretch gap-3 text-sm text-brand-dark/60 sm:flex-row sm:items-center sm:gap-4" />
@@ -3909,7 +3915,7 @@ function convertHistoryEntryToLiveSummary(entry: GameHistory): LiveSessionSummar
         hitCount: Number.isFinite(result.hitCount) ? result.hitCount : deviceHits.length,
         hitTimes: [...deviceHits],
         averageInterval: intervals.length
-          ? intervals.reduce((sum, value) => sum + value, 0) / intervals.length
+          ? Number((intervals.reduce((sum, value) => sum + value, 0) / intervals.length).toFixed(2))
           : 0,
         firstHitTime: deviceHits[0] ?? 0,
         lastHitTime: deviceHits[deviceHits.length - 1] ?? 0,
@@ -3944,10 +3950,10 @@ function convertHistoryEntryToLiveSummary(entry: GameHistory): LiveSessionSummar
     : typeof entry.score === 'number' && Number.isFinite(entry.score)
       ? entry.score
       : 0;
-  const computedDurationSeconds = Math.max(0, Math.round((endTime - startTime) / 1000));
+  const computedDurationSeconds = Math.max(0, (endTime - startTime) / 1000);
   const durationSeconds = Number.isFinite(entry.actualDuration) && entry.actualDuration > 0
-    ? Math.round(entry.actualDuration)
-    : computedDurationSeconds;
+    ? Number(entry.actualDuration.toFixed(2))
+    : Number(computedDurationSeconds.toFixed(2));
 
   const computedAverageHitInterval = (() => {
     if (sortedHitHistory.length < 2) {
@@ -3956,12 +3962,14 @@ function convertHistoryEntryToLiveSummary(entry: GameHistory): LiveSessionSummar
     const intervals = sortedHitHistory
       .slice(1)
       .map((hit, idx) => (hit.timestamp - sortedHitHistory[idx].timestamp) / 1000);
-    return intervals.length ? intervals.reduce((sum, value) => sum + value, 0) / intervals.length : 0;
+    return intervals.length
+      ? Number((intervals.reduce((sum, value) => sum + value, 0) / intervals.length).toFixed(2))
+      : 0;
   })();
 
   const averageHitInterval =
     typeof entry.averageHitInterval === 'number' && Number.isFinite(entry.averageHitInterval)
-      ? entry.averageHitInterval
+      ? Number(entry.averageHitInterval.toFixed(2))
       : computedAverageHitInterval;
 
   entry.roomId = typeof entry.roomId === 'string' && entry.roomId.length > 0 ? entry.roomId : null;
@@ -4062,7 +4070,9 @@ function buildLiveSessionSummary({
   presetId = null,
 }: BuildLiveSessionSummaryArgs): LiveSessionSummary {
   const safeStart = Number.isFinite(startTime) ? startTime : stopTime;
-  const durationSeconds = Math.max(0, Math.round((stopTime - safeStart) / 1000));
+  const durationMs = Math.max(0, stopTime - safeStart);
+  const rawDurationSeconds = durationMs / 1000;
+  const durationSeconds = Number(rawDurationSeconds.toFixed(2));
   const deviceMap = new Map(devices.map((device) => [device.deviceId, device]));
   const deviceIdSet = new Set(devices.map((device) => device.deviceId));
 
@@ -4092,7 +4102,7 @@ function buildLiveSessionSummary({
       hitCount: hitsForDevice.length,
       hitTimes: sortedHitTimes,
       averageInterval: intervals.length
-        ? intervals.reduce((sum, value) => sum + value, 0) / intervals.length
+        ? Number((intervals.reduce((sum, value) => sum + value, 0) / intervals.length).toFixed(2))
         : 0,
       firstHitTime: sortedHitTimes[0] ?? 0,
       lastHitTime: sortedHitTimes[sortedHitTimes.length - 1] ?? 0,
@@ -4101,20 +4111,21 @@ function buildLiveSessionSummary({
 
   const overallIntervals = sortedHits.slice(1).map((hit, idx) => (hit.timestamp - sortedHits[idx].timestamp) / 1000);
   const averageHitInterval = overallIntervals.length
-    ? overallIntervals.reduce((sum, value) => sum + value, 0) / overallIntervals.length
+    ? Number((overallIntervals.reduce((sum, value) => sum + value, 0) / overallIntervals.length).toFixed(2))
     : 0;
 
   const switchTimes: number[] = [];
   for (let i = 1; i < sortedHits.length; i++) {
     if (sortedHits[i].deviceId !== sortedHits[i - 1].deviceId) {
-      switchTimes.push((sortedHits[i].timestamp - sortedHits[i - 1].timestamp) / 1000);
+      const switchSpan = (sortedHits[i].timestamp - sortedHits[i - 1].timestamp) / 1000;
+      switchTimes.push(Number(switchSpan.toFixed(2)));
     }
   }
 
   const crossTargetStats = {
     totalSwitches: switchTimes.length,
     averageSwitchTime: switchTimes.length
-      ? switchTimes.reduce((sum, value) => sum + value, 0) / switchTimes.length
+      ? Number((switchTimes.reduce((sum, value) => sum + value, 0) / switchTimes.length).toFixed(2))
       : 0,
     switchTimes,
   };
@@ -4148,7 +4159,7 @@ function buildLiveSessionSummary({
   const historyEntry: GameHistory = {
     gameId,
     gameName: gameName ?? `Game ${new Date(safeStart).toLocaleTimeString()}`,
-    duration: Math.max(1, Math.ceil(durationSeconds / 60)),
+    duration: Math.max(1, Math.ceil(rawDurationSeconds / 60)),
     startTime: safeStart,
     endTime: stopTime,
     score: efficiencyScore,

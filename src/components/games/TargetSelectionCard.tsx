@@ -5,7 +5,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Wifi, WifiOff } from 'lucide-react';
 import type { NormalizedGameDevice } from '@/hooks/useGameDevices';
 import type { DeviceStatus } from '@/services/device-game-flow';
 import type { Target } from '@/store/useTargets';
@@ -27,23 +26,6 @@ interface TargetSelectionCardProps {
   totalOnlineSelectableTargets: number;
   className?: string;
 }
-
-// Derives the wifi glyph + color for a device row.
-const wifiIndicator = (strength: number | null, connectionStatus: 'online' | 'standby' | 'offline') => {
-  if (connectionStatus === 'offline') {
-    return <WifiOff className="h-4 w-4 text-red-500" />;
-  }
-  if (strength === null || Number.isNaN(strength)) {
-    return <Wifi className="h-4 w-4 text-gray-400" />;
-  }
-  if (strength >= 75) {
-    return <Wifi className="h-4 w-4 text-green-500" />;
-  }
-  if (strength >= 40) {
-    return <Wifi className="h-4 w-4 text-amber-500" />;
-  }
-  return <Wifi className="h-4 w-4 text-red-500" />;
-};
 
 // Emits the badge that summarizes the ThingsBoard status for a device.
 const deviceStatusBadge = (device: DeviceStatus, isOnline: boolean) => {
@@ -150,10 +132,6 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
                 const connectionStatus = deriveConnectionStatus(device);
                 const isOnline = connectionStatus !== 'offline';
                 const targetRecord = targetDetails.get(device.deviceId);
-                const wifiStrength = Math.max(
-                  0,
-                  Math.round((targetRecord?.wifiStrength ?? device.raw?.wifiStrength ?? device.wifiStrength ?? 0) as number),
-                );
                 const lastActivityTimestamp =
                   (typeof targetRecord?.lastActivityTime === 'number' ? targetRecord.lastActivityTime : null) ??
                   (typeof device.raw?.lastActivityTime === 'number' ? device.raw.lastActivityTime : null) ??
@@ -196,11 +174,7 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
                             <span className="inline-block h-2 w-2 rounded-full bg-current" />
                             {connectionLabel}
                           </span>
-                          <span className="flex items-center gap-1">
-                            {wifiIndicator(wifiStrength, connectionStatus)}
-                            {wifiStrength}%
-                          </span>
-                          <span>Hits {hits}</span>
+                          {hits > 0 && <span>Hits {hits}</span>}
                           <span>{formatLastSeen(lastActivityTimestamp ?? 0)}</span>
                         </div>
                       </div>

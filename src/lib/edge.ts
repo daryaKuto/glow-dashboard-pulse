@@ -836,7 +836,7 @@ export async function invokeGameControl(
 
   console.info('[Edge] game-control command result', {
     action,
-    deviceCount: payload.deviceIds.length,
+    deviceCount: payload.deviceIds?.length ?? 0,
     successCount: data.successCount ?? null,
     failureCount: data.failureCount ?? null,
   });

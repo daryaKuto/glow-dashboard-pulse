@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { 
+import {
   Plus,
   RefreshCw,
   Search,
@@ -32,18 +32,25 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { fetchAllGameHistory } from '@/services/game-history';
 // Modern Target Card Component with ThingsBoard integration
 const TargetCard: React.FC<{
   target: Target;
   room?: Room;
   onEdit: () => void;
   onDelete: () => void;
-}> = ({ target, room, onEdit, onDelete }) => {
+  totalHitCount?: number;
+  isHitTotalsLoading?: boolean;
+}> = ({ target, room, onEdit, onDelete, totalHitCount, isHitTotalsLoading }) => {
   const isMobile = useIsMobile();
   const batteryLevel = target.battery; // Real battery data or null
   const wifiStrength = target.wifiStrength; // Real WiFi strength or null
 
-  const totalShots = target.totalShots ?? 0;
+  const mergedTotalShots = Math.max(
+    typeof totalHitCount === 'number' ? totalHitCount : 0,
+    typeof target.totalShots === 'number' ? target.totalShots : 0,
+  );
+  const totalShots = mergedTotalShots;
   const lastShotTime = target.lastShotTime ?? target.lastActivityTime ?? null;
 
   const activityStatus = target.activityStatus ?? 'standby';
@@ -67,14 +74,15 @@ const TargetCard: React.FC<{
   // Log displayed values for verification (only in debug mode)
   const isDebugMode = localStorage.getItem('DEBUG_SHOT_RECORDS') === 'true';
   if (isDebugMode) {
-    console.log(`📊 [TargetCard] ${target.name} (${target.id}) - ThingsBoard data only:`, {
+    console.log(`📊 [TargetCard] ${target.name} (${target.id})`, {
       deviceId: target.id,
       deviceName: target.name,
       status: target.status,
       roomId: target.roomId,
       battery: target.battery,
       wifiStrength: target.wifiStrength,
-      totalShots: totalShots,
+      totalShots,
+      aggregatedHits: totalHitCount ?? null,
       activityStatus,
       lastShotTime: lastShotTime,
       lastShotTimeReadable: lastShotTime ? new Date(lastShotTime).toISOString() : 'Never'
@@ -150,7 +158,9 @@ const TargetCard: React.FC<{
           <div className="space-y-1 md:space-y-2 pt-1 md:pt-2 border-t border-gray-100">
             <div className="text-center">
               <div className="text-sm md:text-2xl font-bold text-brand-primary font-heading">
-                {typeof totalShots === 'number' ? totalShots : 0}
+                {isHitTotalsLoading && typeof totalHitCount !== 'number'
+                  ? '…'
+                  : (typeof totalShots === 'number' ? totalShots : 0)}
               </div>
               <div className="text-xs md:text-sm text-brand-dark/70 font-body">Total Shots{!isMobile && ' Recorded'}</div>
             </div>
@@ -262,6 +272,9 @@ const Targets: React.FC = () => {
   
   // Local state
   const [targets, setTargets] = useState<Target[]>(storeTargets);
+  const [targetHitTotals, setTargetHitTotals] = useState<Record<string, number>>({});
+  const [hitTotalsLoading, setHitTotalsLoading] = useState(false);
+  const hitTotalsSignatureRef = useRef<string | null>(null);
   const isLoading = roomsLoading || targetsStoreLoading || detailsLoading;
   
   // Use live rooms
@@ -292,8 +305,86 @@ const Targets: React.FC = () => {
 
 
   // Sync targets from the shared store and ensure edge data is loaded
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setTargets(storeTargets);
+  }, [storeTargets]);
+
+  useEffect(() => {
+    const signature = storeTargets
+      .map((target) => target.id)
+      .filter(Boolean)
+      .sort()
+      .join('|');
+
+    if (signature.length === 0) {
+      hitTotalsSignatureRef.current = signature;
+      setTargetHitTotals({});
+      return;
+    }
+
+    if (hitTotalsSignatureRef.current === signature) {
+      return;
+    }
+
+    let isCancelled = false;
+    setHitTotalsLoading(true);
+
+    const loadTargetHitTotals = async () => {
+      try {
+        const { history } = await fetchAllGameHistory({ pageSize: 50, maxPages: 10 });
+        const totals: Record<string, number> = {};
+
+        history.forEach((entry) => {
+          const seen = new Set<string>();
+          if (Array.isArray(entry.targetStats)) {
+            entry.targetStats.forEach((stat) => {
+              const deviceId = stat?.deviceId;
+              const hits = Number(stat?.hitCount ?? 0);
+              if (!deviceId || !Number.isFinite(hits)) {
+                return;
+              }
+              totals[deviceId] = (totals[deviceId] ?? 0) + hits;
+              seen.add(deviceId);
+            });
+          }
+
+          if (Array.isArray(entry.deviceResults)) {
+            entry.deviceResults.forEach((result) => {
+              const deviceId = result?.deviceId;
+              if (!deviceId || seen.has(deviceId)) {
+                return;
+              }
+              const hits = Number(result?.hitCount ?? 0);
+              if (!Number.isFinite(hits)) {
+                return;
+              }
+              totals[deviceId] = (totals[deviceId] ?? 0) + hits;
+            });
+          }
+        });
+
+        if (!isCancelled) {
+          setTargetHitTotals(totals);
+          hitTotalsSignatureRef.current = signature;
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          console.error('❌ [Targets] Failed to aggregate hit history totals', error);
+          toast.error('Unable to load target hit history from Supabase');
+        }
+      } finally {
+        if (!isCancelled) {
+          setHitTotalsLoading(false);
+        }
+      }
+    };
+
+    void loadTargetHitTotals();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [storeTargets]);
 
   const ensureTargets = useCallback(async (force = false) => {
@@ -324,7 +415,6 @@ const Targets: React.FC = () => {
   }, [fetchTargetsFromEdge, isFetchDebugEnabled]);
 
   const detailsFetchKeyRef = useRef<string>('');
-  const detailIntervalRef = useRef<number | undefined>(undefined);
 
   const targetIdsKey = useMemo(() => {
     if (!storeTargets.length) {
@@ -337,99 +427,75 @@ const Targets: React.FC = () => {
   }, [storeTargets]);
 
   useEffect(() => {
-    if (!targetIdsKey) {
-      if (detailIntervalRef.current !== undefined && typeof window !== 'undefined') {
-        window.clearInterval(detailIntervalRef.current);
-        detailIntervalRef.current = undefined;
-      }
-      detailsFetchKeyRef.current = '';
-      return;
-    }
-
     if (typeof window === 'undefined') {
       return;
     }
 
-    const ids = targetIdsKey.split(',');
+    if (!targetIdsKey) {
+      detailsFetchKeyRef.current = '';
+      return;
+    }
 
-    const fetchDetails = async (force = false) => {
-      try {
-        const result = await fetchTargetDetails(ids, {
-          includeHistory: true,
-          historyRangeMs: 24 * 60 * 60 * 1000,
-          recentWindowMs: 5 * 60 * 1000,
-          force,
-        });
-        return Boolean(result);
-      } catch (error) {
-        console.error('❌ [Targets] Failed to hydrate target details', error);
-        return false;
-      }
-    };
+    const ids = targetIdsKey.split(',').filter(Boolean);
+    if (ids.length === 0) {
+      detailsFetchKeyRef.current = '';
+      return;
+    }
 
     const shouldForce = detailsFetchKeyRef.current !== targetIdsKey;
     const debug = isFetchDebugEnabled();
 
-    const primeDetails = async () => {
+    const hydrateDetails = async () => {
       if (debug) {
         console.info('[Targets] priming target details', { idsCount: ids.length, force: shouldForce });
       }
-
-      const success = await fetchDetails(shouldForce);
-      if (success) {
-        detailsFetchKeyRef.current = targetIdsKey;
-      } else if (shouldForce) {
-        detailsFetchKeyRef.current = '';
-      }
-
-      if (!success) {
-        return;
-      }
-
-      if (detailIntervalRef.current !== undefined) {
-        window.clearInterval(detailIntervalRef.current);
-      }
-
-      detailIntervalRef.current = window.setInterval(() => {
-        void fetchDetails();
-      }, 30_000);
-    };
-
-    void primeDetails();
-
-    return () => {
-      if (detailIntervalRef.current !== undefined) {
-        window.clearInterval(detailIntervalRef.current);
-        detailIntervalRef.current = undefined;
+      try {
+        const success = await fetchTargetDetails(ids, {
+          includeHistory: true,
+          historyRangeMs: 24 * 60 * 60 * 1000,
+          recentWindowMs: 5 * 60 * 1000,
+          force: shouldForce,
+        });
+        if (success) {
+          detailsFetchKeyRef.current = targetIdsKey;
+        } else if (shouldForce) {
+          detailsFetchKeyRef.current = '';
+        }
+      } catch (error) {
+        console.error('❌ [Targets] Failed to hydrate target details', error);
       }
     };
+
+    void hydrateDetails();
   }, [targetIdsKey, fetchTargetDetails, isFetchDebugEnabled]);
 
-  // Avoid firing multiple concurrent fetches when the store is empty on mount.
   const initialFetchInFlightRef = useRef(false);
+  const hasFetchedInitialRef = useRef(false);
 
   useEffect(() => {
-    if (storeTargets.length > 0) {
-      initialFetchInFlightRef.current = false;
+    if (hasFetchedInitialRef.current) {
       return;
     }
+    hasFetchedInitialRef.current = true;
 
     if (initialFetchInFlightRef.current) {
-      if (isFetchDebugEnabled()) {
-        console.info('[Targets] initial fetch already in flight, skipping');
-      }
       return;
     }
 
     initialFetchInFlightRef.current = true;
     if (isFetchDebugEnabled()) {
-      console.info('[Targets] storeTargets empty, triggering ensureTargets(false)');
+      console.info('[Targets] Initial load - fetching fresh targets from edge');
     }
 
-    void ensureTargets(false).finally(() => {
-      initialFetchInFlightRef.current = false;
-    });
-  }, [storeTargets.length, ensureTargets, isFetchDebugEnabled]);
+    void ensureTargets(true)
+      .catch((error) => {
+        console.error('❌ [Targets] Initial fetch failed', error);
+        toast.error('Failed to load targets');
+      })
+      .finally(() => {
+        initialFetchInFlightRef.current = false;
+      });
+  }, [ensureTargets, isFetchDebugEnabled, toast]);
 
   useEffect(() => {
     if (!liveRooms.length) {
@@ -910,6 +976,7 @@ const Targets: React.FC = () => {
                         {roomTargets.map((target, index) => {
                           // Use a more reliable key
                           const targetKey = target.id || `target-${index}`;
+                          const aggregatedHits = targetHitTotals[target.id];
                           
                           return (
                             <TargetCard
@@ -922,6 +989,8 @@ const Targets: React.FC = () => {
                               onDelete={() => {
                                 toast.info('Delete functionality coming soon');
                               }}
+                              totalHitCount={aggregatedHits}
+                              isHitTotalsLoading={hitTotalsLoading}
                             />
                           );
                         })}

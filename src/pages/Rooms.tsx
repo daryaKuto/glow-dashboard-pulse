@@ -34,18 +34,18 @@ const Rooms: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-  const { 
-    rooms, 
-    isLoading, 
-    fetchRooms, 
-    createRoom, 
-    updateRoom, 
+  const {
+    rooms,
+    isLoading,
+    fetchRooms,
+    createRoom,
+    updateRoom,
     deleteRoom,
     updateRoomOrder,
     assignTargetToRoom,
     assignTargetsToRoomBatch,
     getAllTargetsWithAssignments,
-    updateRoomTargetCount
+    updateRoomTargetCount,
   } = useRooms();
   const { targets, refresh: refreshTargets } = useTargets();
   
@@ -157,12 +157,18 @@ const Rooms: React.FC = () => {
           expectedBackingSources: ['Supabase edge cache', 'ThingsBoard telemetry cache'],
         });
         
-        // Get targets with assignments (use existing data, no API call)
-        const targets = await getAllTargetsWithAssignments(false);
+        // Get targets with assignments directly from the edge-backed store
+        const targets = await getAllTargetsWithAssignments(true);
         setTargetsWithAssignments(targets);
         
         // Fetch rooms (light operation from Supabase)
         await fetchRooms();
+
+        try {
+          await refreshTargets();
+        } catch (targetError) {
+          console.warn('[Rooms] Failed to refresh target store during hydration', targetError);
+        }
         
         console.info('[Rooms] Store hydration complete', {
           targetsFromCache: targets.length,
@@ -313,8 +319,8 @@ const Rooms: React.FC = () => {
     setPendingAssignments(new Map()); // Clear pending assignments for new room
     
     console.log('Opening room details for room:', room.id);
-    console.log('Available targets with assignments:', targetsWithAssignments.length);
-    console.log('Targets for this room:', targetsWithAssignments.filter(t => t.roomId === room.id));
+    console.log('Available targets with assignments:', hydratedTargetsWithAssignments.length);
+    console.log('Targets for this room:', hydratedTargetsWithAssignments.filter((t) => t.roomId === room.id));
   };
 
   const handleTargetSelection = (targetId: string, checked: boolean) => {
@@ -395,21 +401,97 @@ const Rooms: React.FC = () => {
     }
   };
 
-  const sortedRooms = [...rooms].sort((a, b) => a.order - b.order);
+  const targetLookupById = useMemo(() => {
+    const map = new Map<string, any>();
+    targets.forEach((target) => {
+      map.set(target.id, target);
+    });
+    return map;
+  }, [targets]);
 
-  // Get truly unassigned targets (not assigned to ANY room, including pending) - memoized
+  const hydratedRooms = useMemo(() => {
+    if (rooms.length === 0) {
+      return rooms;
+    }
+
+    return rooms.map((room) => {
+      const enrichedTargets = Array.isArray(room.targets)
+        ? room.targets.map((target) => {
+            const targetId = getTargetId(target);
+            const live = targetLookupById.get(targetId);
+            if (!live) {
+              return target;
+            }
+            return {
+              ...target,
+              status: live.status ?? target.status,
+              activityStatus: live.activityStatus ?? target.activityStatus,
+              lastActivityTime: live.lastActivityTime ?? target.lastActivityTime,
+              telemetry: live.telemetry ?? target.telemetry,
+              battery: live.battery ?? target.battery,
+              wifiStrength: live.wifiStrength ?? target.wifiStrength,
+            };
+          })
+        : room.targets;
+
+      const targetCount = Array.isArray(enrichedTargets)
+        ? enrichedTargets.length
+        : room.targetCount;
+
+      return {
+        ...room,
+        targets: enrichedTargets,
+        targetCount,
+      };
+    });
+  }, [rooms, targetLookupById]);
+
+  const sortedRooms = useMemo(
+    () => [...hydratedRooms].sort((a, b) => a.order - b.order),
+    [hydratedRooms],
+  );
+
+  const hydratedTargetsWithAssignments = useMemo(() => {
+    if (targetsWithAssignments.length === 0) {
+      return targetsWithAssignments;
+    }
+
+    return targetsWithAssignments.map((target) => {
+      const targetId = getTargetId(target);
+      const live = targetLookupById.get(targetId);
+      if (!live) {
+        return target;
+      }
+
+      return {
+        ...target,
+        status: live.status ?? target.status,
+        activityStatus: live.activityStatus ?? target.activityStatus,
+        lastActivityTime: live.lastActivityTime ?? target.lastActivityTime,
+        telemetry: live.telemetry ?? target.telemetry,
+        battery: live.battery ?? target.battery,
+        wifiStrength: live.wifiStrength ?? target.wifiStrength,
+      };
+    });
+  }, [targetsWithAssignments, targetLookupById]);
+
   const unassignedTargets = useMemo(() => {
-    return targetsWithAssignments.filter(target => {
+    return hydratedTargetsWithAssignments.filter((target) => {
       const targetId = getTargetId(target);
       
       // Check if there's a pending assignment for this target
       const pendingRoomId = pendingAssignments.get(targetId);
-      const effectiveRoomId = pendingRoomId !== undefined ? pendingRoomId : target.roomId;
+        const effectiveRoomId = pendingRoomId !== undefined ? pendingRoomId : target.roomId;
       
       // Target is unassigned only if it has no room assignment (real or pending)
       return !effectiveRoomId || effectiveRoomId === null;
     });
   }, [targetsWithAssignments, pendingAssignments]);
+
+  const assignedTargetCount = useMemo(
+    () => Math.max(0, hydratedTargetsWithAssignments.length - unassignedTargets.length),
+    [hydratedTargetsWithAssignments.length, unassignedTargets.length],
+  );
 
   // Debug logging
   console.groupCollapsed('[Rooms] Snapshot', {
@@ -417,22 +499,25 @@ const Rooms: React.FC = () => {
     supabaseTables: ['public.user_rooms', 'public.user_room_targets'],
     thingsboardData: 'targets store (hydrated via fetchTargetsWithTelemetry)',
   });
-  console.info('targetsWithAssignments.total', targetsWithAssignments.length);
-  console.info('targetsWithAssignments.withRoom', targetsWithAssignments.filter(t => t.roomId).length);
-  console.info('targetsWithAssignments.withoutRoom', targetsWithAssignments.filter(t => !t.roomId).length);
+  console.info('targetsWithAssignments.total', hydratedTargetsWithAssignments.length);
+  console.info('targetsWithAssignments.withRoom', hydratedTargetsWithAssignments.filter((t) => t.roomId).length);
+  console.info('targetsWithAssignments.withoutRoom', hydratedTargetsWithAssignments.filter((t) => !t.roomId).length);
   console.info('unassignedTargets.total', unassignedTargets.length);
   console.info('rooms.total', rooms.length);
   console.info('roomForDetails', roomForDetails?.id ?? null);
-  console.info('sampleTarget', targetsWithAssignments[0] ?? null);
+  console.info('sampleTarget', hydratedTargetsWithAssignments[0] ?? null);
   if (roomForDetails) {
-    console.info('activeRoom.targetCount', targetsWithAssignments.filter(t => t.roomId === roomForDetails.id).length);
+    console.info(
+      'activeRoom.targetCount',
+      hydratedTargetsWithAssignments.filter((t) => t.roomId === roomForDetails.id).length,
+    );
   }
   console.groupEnd();
 
   // Get targets assigned to a specific room (including pending assignments) - memoized
   const getRoomTargets = useMemo(() => {
     return (roomId: string) => {
-      return targetsWithAssignments.filter(target => {
+      return hydratedTargetsWithAssignments.filter((target) => {
         const targetId = getTargetId(target);
         
         // Check if there's a pending assignment for this target
@@ -442,7 +527,7 @@ const Rooms: React.FC = () => {
         return effectiveRoomId === roomId;
       });
     };
-  }, [targetsWithAssignments, pendingAssignments]);
+  }, [hydratedTargetsWithAssignments, pendingAssignments]);
 
   // Helper function to safely get target ID for display
   const getTargetDisplayId = (target: any) => {
@@ -468,11 +553,11 @@ const Rooms: React.FC = () => {
             </div>
             
             {/* Stats Overview - Mobile Optimized */}
-            <div className="responsive-grid grid-cols-3 mb-6">
+            <div className="responsive-grid grid-cols-2 md:grid-cols-4 mb-6">
               {isLoading || targetsLoading || initialLoading ? (
                 // Loading skeleton for stats cards
                 <>
-                  {[...Array(3)].map((_, i) => (
+                  {[...Array(4)].map((_, i) => (
                     <div key={i} className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200 animate-pulse">
                       <div className="flex flex-col items-center text-center">
                         <div className="p-2 bg-gray-200 rounded-lg mb-2 w-8 h-8 md:w-10 md:h-10"></div>
@@ -500,7 +585,17 @@ const Rooms: React.FC = () => {
                         <Target className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
                       </div>
                       <p className="text-xs md:text-sm text-brand-dark/70 font-body">Targets</p>
-                      <p className="text-lg md:text-h2 font-heading text-brand-dark">{targetsWithAssignments.length}</p>
+                      <p className="text-lg md:text-h2 font-heading text-brand-dark">{hydratedTargetsWithAssignments.length}</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="p-2 bg-brand-secondary/10 rounded-lg mb-2">
+                        <Check className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
+                      </div>
+                      <p className="text-xs md:text-sm text-brand-dark/70 font-body">Assigned</p>
+                      <p className="text-lg md:text-h2 font-heading text-brand-dark">{assignedTargetCount}</p>
                     </div>
                   </div>
                   

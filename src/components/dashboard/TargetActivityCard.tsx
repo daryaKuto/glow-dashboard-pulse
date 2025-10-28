@@ -7,6 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { formatScoreValue } from '@/utils/dashboard';
 import type { Session } from '@/store/useSessions';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
 export type TimeRange = 'day' | 'week' | 'month' | 'all';
 
 type TargetStat = {
@@ -79,36 +82,48 @@ const extractTargetStats = (session: Session): TargetStat[] => {
 export const buildRangeSummaries = (sessions: Session[]): Record<TimeRange, RangeSummary> => {
   const now = Date.now();
   const summaries: Record<TimeRange, RangeSummary> = {} as Record<TimeRange, RangeSummary>;
+  const entries = sessions
+    .map((session) => {
+      const ts = Date.parse(session.startedAt);
+      if (Number.isNaN(ts)) {
+        return null;
+      }
+      return { session, ts };
+    })
+    .filter((entry): entry is { session: Session; ts: number } => entry !== null)
+    .sort((a, b) => a.ts - b.ts);
 
   RANGE_ORDER.forEach((range) => {
     const config = RANGE_CONFIG[range];
-    const windowStart =
-      config.windowMs === null
-        ? (() => {
-            const earliest = sessions.reduce<number | null>((min, session) => {
-              const ts = Date.parse(session.startedAt);
-              if (Number.isNaN(ts)) return min;
-              if (min === null || ts < min) {
-                return ts;
-              }
-              return min;
-            }, null);
-            return earliest ?? now - config.bucketMs * config.bucketCount;
-          })()
-        : now - config.windowMs;
+    const hasEntries = entries.length > 0;
+    const rangeUpperBound = hasEntries ? entries[entries.length - 1].ts : now;
+    const earliestTs = hasEntries ? entries[0].ts : rangeUpperBound;
+    const windowStartBase =
+      config.windowMs === null ? earliestTs : rangeUpperBound - config.windowMs;
 
-    const filteredSessions = sessions.filter((session) => {
-      const ts = Date.parse(session.startedAt);
-      if (Number.isNaN(ts)) return false;
-      if (config.windowMs === null) {
-        return ts <= now;
+    const bucketEnd = (() => {
+      if (!hasEntries) {
+        return config.bucketMs >= DAY_MS
+          ? dayjs(rangeUpperBound).startOf('day').valueOf()
+          : rangeUpperBound;
       }
-      return ts >= windowStart && ts <= now;
-    });
+      if (config.bucketMs >= DAY_MS) {
+        return dayjs(rangeUpperBound).startOf('day').valueOf();
+      }
+      if (config.bucketMs >= HOUR_MS) {
+        return dayjs(rangeUpperBound).startOf('hour').valueOf();
+      }
+      return rangeUpperBound;
+    })();
 
-    const bucketStart = config.windowMs === null ? windowStart : windowStart;
-    const alignedBucketStart =
-      config.windowMs === null ? now - config.bucketMs * (config.bucketCount - 1) : bucketStart;
+    const alignedBucketStart = bucketEnd - config.bucketMs * (config.bucketCount - 1);
+    const bucketRangeEnd = bucketEnd + config.bucketMs;
+    const rangeStart =
+      config.windowMs === null
+        ? Math.min(alignedBucketStart, windowStartBase)
+        : Math.max(alignedBucketStart, windowStartBase);
+    const filteredEntries = entries.filter(({ ts }) => ts >= rangeStart && ts < bucketRangeEnd);
+    const filteredSessions = filteredEntries.map(({ session }) => session);
     const bucketCount = config.bucketCount;
 
     const buckets: Array<{ start: number; label: string; hits: number }> = [];
@@ -228,7 +243,12 @@ const ActivityChart: React.FC<ActivityChartProps> = ({
       return chartData.slice(-fallbackWindow);
     }
 
-    const padding = activeRange === 'day' ? 1 : activeRange === 'month' ? 2 : 1;
+    const padding =
+      activeRange === 'day'
+        ? 1
+        : activeRange === 'month'
+          ? (activeIndexes.length <= 1 ? 0 : 2)
+          : 1;
 
     const firstIndex = Math.max(0, activeIndexes[0] - padding);
     const lastIndex = Math.min(chartData.length - 1, activeIndexes[activeIndexes.length - 1] + padding);

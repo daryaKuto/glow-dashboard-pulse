@@ -103,12 +103,36 @@ Deno.serve(async (req) => {
       assignmentByTarget.set(assignment.target_id, assignment.room_id);
     });
 
-    const params = new URLSearchParams({ pageSize: "100", page: "0" });
-    const devicesPayload = await getTenantDevices(params);
-    const devices: Array<{ id: { id: string }; name: string; type?: string; status?: string }> = devicesPayload.data ?? [];
+    const allDevices: Array<{ id: { id: string }; name: string; type?: string; status?: string }> = [];
+    const pageSize = 100;
+    let page = 0;
+    let hasNext = true;
+
+    while (hasNext) {
+      const params = new URLSearchParams({ pageSize: String(pageSize), page: String(page) });
+      const devicesPayload = await getTenantDevices(params);
+      const devices: Array<{ id: { id: string }; name: string; type?: string; status?: string }> = devicesPayload.data ?? [];
+      allDevices.push(...devices);
+
+      const totalPages = typeof devicesPayload.totalPages === "number" ? devicesPayload.totalPages : undefined;
+      const hasNextFlag = typeof devicesPayload.hasNext === "boolean" ? devicesPayload.hasNext : undefined;
+
+      if (totalPages !== undefined) {
+        hasNext = page + 1 < totalPages;
+      } else if (hasNextFlag !== undefined) {
+        hasNext = hasNextFlag;
+      } else {
+        hasNext = devices.length === pageSize;
+      }
+
+      page += 1;
+      if (!hasNext) {
+        break;
+      }
+    }
 
     const telemetryResults = await Promise.all(
-      devices.map(async (device) => {
+      allDevices.map(async (device) => {
         const deviceId = device.id?.id ?? String(device.id);
         try {
           const telemetry = await getDeviceTelemetry(deviceId, TELEMETRY_KEYS);

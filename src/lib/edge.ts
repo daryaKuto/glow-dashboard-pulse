@@ -110,9 +110,10 @@ interface RoomsFunctionResponse {
 }
 
 const sanitizeStatus = (status: unknown): 'online' | 'standby' | 'offline' => {
-  if (status === 'online') return 'online';
-  if (status === 'standby') return 'standby';
-  if (status === 'active') return 'online';
+  const statusText = typeof status === 'string' ? status.toLowerCase() : '';
+  if (statusText === 'online' || statusText === 'active_online') return 'online';
+  if (statusText === 'active') return 'online';
+  if (statusText === 'standby' || statusText === 'idle') return 'standby';
   return 'offline';
 };
 

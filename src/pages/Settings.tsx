@@ -31,10 +31,6 @@ const Settings = () => {
     email_target_offline: true,
   });
 
-  // Get token from localStorage
-  const token = localStorage.getItem('tb_access');
-  // Instead, get token from session or context (implement as needed)
-
   useEffect(() => {
     const checkUser = async () => {
       try {

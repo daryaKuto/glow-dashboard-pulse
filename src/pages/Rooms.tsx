@@ -1,12 +1,23 @@
 import React, { useEffect, useState, useMemo, startTransition } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useRooms } from '@/store/useRooms';
+import type { Room } from '@/store/useRooms';
 import { useTargets } from '@/store/useTargets';
 import { apiWrapper } from '@/services/api-wrapper';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Users, Target, RefreshCw, Eye, X, Check, ArrowRight, ArrowLeft } from 'lucide-react';
@@ -51,6 +62,8 @@ const Rooms: React.FC = () => {
   const [pendingAssignments, setPendingAssignments] = useState<Map<string, string | null>>(new Map()); // targetId -> roomId
   const [targetsLoading, setTargetsLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [roomPendingDelete, setRoomPendingDelete] = useState<Room | null>(null);
+  const [isDeletingRoom, setIsDeletingRoom] = useState(false);
 
   // Helper function to safely get target ID
   const getTargetId = (target: any) => {
@@ -93,41 +106,56 @@ const Rooms: React.FC = () => {
   // If you see errors related to isDemoMode, mockData, or demo services,
   // it's because those systems no longer exist. Use live ThingsBoard/Supabase data only.
   const refreshTargetsWithAssignments = async () => {
-    console.log('🔄 [REFRESH] UI: Starting refreshTargetsWithAssignments...');
+    console.info('[Rooms] Refresh assignments requested', {
+      source: 'useRooms.getAllTargetsWithAssignments(forceRefresh=true)',
+      supabaseEdgeFunction: 'rooms',
+      supabaseTablesRead: ['public.user_rooms', 'public.user_room_targets'],
+    });
     setTargetsLoading(true);
     try {
-      console.log('🔄 [REFRESH] UI: Using live mode - fetching real targets...');
       const targetsWithAssignmentsData = await getAllTargetsWithAssignments(true); // forceRefresh on page load
       setTargetsWithAssignments(targetsWithAssignmentsData);
-      console.log('✅ [SUCCESS] UI: Real targets with assignments refreshed:', targetsWithAssignmentsData.length);
-      console.log('📊 [DATA] UI: Sample real targets:', targetsWithAssignmentsData.slice(0, 3).map(t => ({
-        name: t.name,
-        roomId: t.roomId,
-        id: t.id
-      })));
+      console.info('[Rooms] Assignments refreshed', {
+        totalTargets: targetsWithAssignmentsData.length,
+        sourcedFrom: 'Supabase edge function "rooms"',
+        sample: targetsWithAssignmentsData.slice(0, 3).map((t) => ({
+          id: getTargetId(t),
+          name: t.name,
+          roomId: t.roomId,
+        })),
+      });
       return targetsWithAssignmentsData;
     } catch (error) {
-      console.error('❌ [ERROR] UI: Error refreshing targets with assignments:', error);
-      console.error('❌ [ERROR] UI: Error details:', {
+      console.error('[Rooms] Failed to refresh assignments', {
+        source: 'useRooms.getAllTargetsWithAssignments(forceRefresh=true)',
         message: error.message,
         stack: error.stack
       });
       setTargetsWithAssignments([]);
       return [];
     } finally {
-      console.log('🔄 [REFRESH] UI: Setting targetsLoading to false');
       setTargetsLoading(false);
     }
   };
 
   useEffect(() => {
     const loadData = async () => {
-      console.log('🔄 Rooms page: Loading data from stores...');
+      console.info('[Rooms] Hydrating page state', {
+        navigationPath: typeof window !== 'undefined' ? window.location.pathname : 'unknown',
+        dataSources: [
+          'Zustand stores (useRooms + useTargets)',
+          'Supabase edge function "rooms"',
+          'Supabase tables: user_rooms, user_room_targets',
+        ],
+      });
       setInitialLoading(true);
       
       try {
         // Use data from Zustand stores (populated by useInitialSync)
-        console.log('🔄 Reading from stores...');
+        console.info('[Rooms] Reading cached store values', {
+          store: 'useRooms / useTargets',
+          expectedBackingSources: ['Supabase edge cache', 'ThingsBoard telemetry cache'],
+        });
         
         // Get targets with assignments (use existing data, no API call)
         const targets = await getAllTargetsWithAssignments(false);
@@ -136,14 +164,18 @@ const Rooms: React.FC = () => {
         // Fetch rooms (light operation from Supabase)
         await fetchRooms();
         
-        console.log('✅ Rooms page: Data loaded successfully');
+        console.info('[Rooms] Store hydration complete', {
+          targetsFromCache: targets.length,
+          roomsFetched: rooms.length,
+          supabaseEdgeFunction: 'rooms',
+        });
       } catch (error) {
-        console.error('❌ Error loading data:', error);
+        console.error('[Rooms] Initial store hydration failed', error);
         // Fallback: try to fetch fresh data
         try {
           await refreshTargetsWithAssignments();
         } catch (assignError) {
-          console.error('❌ Error fetching assignments as fallback:', assignError);
+          console.error('[Rooms] Fallback assignment refresh failed', assignError);
         }
       } finally {
         setInitialLoading(false);
@@ -153,6 +185,23 @@ const Rooms: React.FC = () => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (targets.length === 0) {
+      refreshTargets().catch((error) => {
+        console.warn('⚠️ Rooms page: Failed to refresh targets on mount', error);
+      });
+    }
+  }, [targets.length, refreshTargets]);
+
+  useEffect(() => {
+    if (!createRoomModalOpen) {
+      return;
+    }
+    refreshTargets().catch((error) => {
+      console.warn('⚠️ Rooms page: Failed to refresh targets when opening create-room modal', error);
+    });
+  }, [createRoomModalOpen, refreshTargets]);
 
   const handleCreateRoom = (roomData: {
     name: string;
@@ -178,14 +227,25 @@ const Rooms: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this room? This action cannot be undone.")) {
-      try {
-        await deleteRoom(id);
-      } catch (error) {
-        console.error('Error deleting room:', error);
-        toast.error('Failed to delete room');
-      }
+  const handleDeleteRequest = (room: Room) => {
+    setRoomPendingDelete(room);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!roomPendingDelete) {
+      return;
+    }
+    setIsDeletingRoom(true);
+    try {
+      await deleteRoom(roomPendingDelete.id);
+      await Promise.all([fetchRooms(), refreshTargets()]);
+      await refreshTargetsWithAssignments();
+      setRoomPendingDelete(null);
+    } catch (error) {
+      console.error('Error deleting room:', error);
+      toast.error('Failed to delete room');
+    } finally {
+      setIsDeletingRoom(false);
     }
   };
 
@@ -335,14 +395,6 @@ const Rooms: React.FC = () => {
     }
   };
 
-  const handleRefresh = async () => {
-    await fetchRooms();
-    await refreshTargets();
-    await refreshTargetsWithAssignments();
-    
-    toast.success('Rooms and targets refreshed');
-  };
-
   const sortedRooms = [...rooms].sort((a, b) => a.order - b.order);
 
   // Get truly unassigned targets (not assigned to ANY room, including pending) - memoized
@@ -360,17 +412,22 @@ const Rooms: React.FC = () => {
   }, [targetsWithAssignments, pendingAssignments]);
 
   // Debug logging
-  console.log('🔍 Rooms page debug:');
-  console.log('  - targetsWithAssignments:', targetsWithAssignments.length);
-  console.log('  - Targets with roomId:', targetsWithAssignments.filter(t => t.roomId).length);
-  console.log('  - Targets without roomId:', targetsWithAssignments.filter(t => !t.roomId).length);
-  console.log('  - unassignedTargets:', unassignedTargets.length);
-  console.log('  - rooms:', rooms.length);
-  console.log('  - roomForDetails:', roomForDetails?.id);
-  console.log('  - Sample target:', targetsWithAssignments[0]);
+  console.groupCollapsed('[Rooms] Snapshot', {
+    supabaseEdgeFunction: 'rooms',
+    supabaseTables: ['public.user_rooms', 'public.user_room_targets'],
+    thingsboardData: 'targets store (hydrated via fetchTargetsWithTelemetry)',
+  });
+  console.info('targetsWithAssignments.total', targetsWithAssignments.length);
+  console.info('targetsWithAssignments.withRoom', targetsWithAssignments.filter(t => t.roomId).length);
+  console.info('targetsWithAssignments.withoutRoom', targetsWithAssignments.filter(t => !t.roomId).length);
+  console.info('unassignedTargets.total', unassignedTargets.length);
+  console.info('rooms.total', rooms.length);
+  console.info('roomForDetails', roomForDetails?.id ?? null);
+  console.info('sampleTarget', targetsWithAssignments[0] ?? null);
   if (roomForDetails) {
-    console.log('  - targets for current room:', targetsWithAssignments.filter(t => t.roomId === roomForDetails.id).length);
+    console.info('activeRoom.targetCount', targetsWithAssignments.filter(t => t.roomId === roomForDetails.id).length);
   }
+  console.groupEnd();
 
   // Get targets assigned to a specific room (including pending assignments) - memoized
   const getRoomTargets = useMemo(() => {
@@ -408,14 +465,6 @@ const Rooms: React.FC = () => {
           <div className="w-full px-4 py-2 md:container md:mx-auto md:p-4 lg:p-6 responsive-transition h-full">
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
               <h2 className="text-h1 font-heading text-brand-dark">Rooms</h2>
-              <Button 
-                onClick={handleRefresh}
-                variant="outline"
-                className="border-gray-200 text-brand-dark hover:bg-brand-secondary/10 w-full sm:w-auto"
-              >
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
-              </Button>
             </div>
             
             {/* Stats Overview - Mobile Optimized */}
@@ -483,45 +532,35 @@ const Rooms: React.FC = () => {
             
             {isLoading || initialLoading ? (
               <div className="space-y-4">
-                {/* Loading skeleton for rooms */}
                 {[...Array(3)].map((_, i) => (
-                  <div key={i} className="bg-white border border-gray-200 rounded-lg p-4 animate-pulse">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-gray-200 rounded-lg"></div>
+                  <div key={i} className="bg-white border border-gray-200 rounded-lg p-4 md:p-5 animate-pulse">
+                    <div className="flex items-start justify-between gap-3 md:gap-4">
+                      <div className="flex items-start gap-3 md:gap-4">
+                        <div className="w-10 h-10 md:w-12 md:h-12 bg-gray-200 rounded-lg" />
                         <div className="space-y-2">
-                          <div className="h-4 w-32 bg-gray-200 rounded"></div>
-                          <div className="h-3 w-20 bg-gray-200 rounded"></div>
+                          <div className="h-4 w-32 bg-gray-200 rounded" />
+                          <div className="flex items-center gap-2">
+                            <div className="h-5 w-12 bg-gray-200 rounded-full" />
+                            <div className="h-4 w-16 bg-gray-200 rounded" />
+                          </div>
+                          <div className="h-3 w-24 bg-gray-200 rounded" />
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="h-6 w-16 bg-gray-200 rounded"></div>
-                        <div className="h-8 w-8 bg-gray-200 rounded"></div>
+                        <div className="h-8 w-8 bg-gray-200 rounded-full" />
+                        <div className="h-8 w-8 bg-gray-200 rounded-full" />
+                        <div className="h-8 w-8 bg-gray-200 rounded-full" />
                       </div>
+                    </div>
+                    <div className="mt-4 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="h-4 w-20 bg-gray-200 rounded" />
+                        <div className="h-3 w-16 bg-gray-200 rounded" />
+                      </div>
+                      <div className="h-8 w-28 bg-gray-200 rounded" />
                     </div>
                   </div>
                 ))}
-                
-                {/* Loading skeleton for targets */}
-                <div className="mt-6">
-                  <div className="h-4 w-48 bg-gray-200 rounded mb-4 animate-pulse"></div>
-                  <div className="space-y-3">
-                    {[...Array(4)].map((_, i) => (
-                      <div key={i} className="bg-white border border-gray-200 rounded-lg p-3 animate-pulse">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="w-6 h-6 bg-gray-200 rounded"></div>
-                            <div className="space-y-1">
-                              <div className="h-3 w-24 bg-gray-200 rounded"></div>
-                              <div className="h-2 w-16 bg-gray-200 rounded"></div>
-                            </div>
-                          </div>
-                          <div className="h-6 w-20 bg-gray-200 rounded"></div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </div>
             ) : rooms.length === 0 ? (
               <div className="text-center py-8">
@@ -545,7 +584,7 @@ const Rooms: React.FC = () => {
                     key={room.id}
                     room={room}
                     onRename={handleRename}
-                    onDelete={handleDelete}
+                    onDelete={handleDeleteRequest}
                     onAssignTargets={() => openAssignDialog(room)}
                     onViewDetails={() => openRoomDetails(room)}
                   />
@@ -555,6 +594,73 @@ const Rooms: React.FC = () => {
           </div>
         </main>
       </div>
+
+      <AlertDialog
+        open={Boolean(roomPendingDelete)}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingRoom) {
+            setRoomPendingDelete(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete room {roomPendingDelete ? `"${roomPendingDelete.name}"` : ''}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the room and unassign any targets currently linked to it. You can reassign those targets later from the Targets page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {roomPendingDelete && (
+            <div className="space-y-3">
+              <div className="rounded-md bg-brand-secondary/5 border border-brand-secondary/20 p-3">
+                <p className="text-xs text-brand-dark/70 font-medium">
+                  Assigned targets ({roomPendingDelete.targetCount ?? roomPendingDelete.targets?.length ?? 0})
+                </p>
+                {roomPendingDelete.targets && roomPendingDelete.targets.length > 0 ? (
+                  <ul className="mt-2 max-h-36 overflow-y-auto text-sm text-brand-dark/80 space-y-1">
+                    {roomPendingDelete.targets.slice(0, 6).map((target) => (
+                      <li key={target.id} className="flex items-center gap-2">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-primary" />
+                        <span>{target.name ?? target.deviceName ?? target.id}</span>
+                      </li>
+                    ))}
+                    {roomPendingDelete.targets.length > 6 && (
+                      <li className="text-xs text-brand-dark/60">
+                        +{roomPendingDelete.targets.length - 6} more
+                      </li>
+                    )}
+                  </ul>
+                ) : roomPendingDelete.targetCount && roomPendingDelete.targetCount > 0 ? (
+                  <p className="mt-2 text-xs text-brand-dark/60">
+                    {roomPendingDelete.targetCount} target{roomPendingDelete.targetCount === 1 ? '' : 's'} assigned
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-brand-dark/60">No targets assigned.</p>
+                )}
+              </div>
+              <p className="text-xs text-brand-dark/60">
+                Deleting a room is permanent. Targets will remain in your account but will become unassigned.
+              </p>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingRoom}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                variant="destructive"
+                onClick={handleConfirmDelete}
+                disabled={isDeletingRoom}
+              >
+                {isDeletingRoom ? 'Deleting…' : 'Delete Room'}
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Target Assignment Dialog */}
       <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
@@ -713,8 +819,8 @@ const Rooms: React.FC = () => {
                             <p className="text-sm sm:text-base font-heading text-brand-dark truncate">{target.name}</p>
                             <div className="flex items-center gap-1 sm:gap-2 mt-0.5 sm:mt-1">
                               <Badge 
-                                variant={target.status === 'online' ? 'default' : 'secondary'}
-                                className={`text-xs ${target.status === 'online' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}
+                                variant={target.status === 'online' || target.status === 'standby' ? 'default' : 'secondary'}
+                                className={`text-xs ${(target.status === 'online' || target.status === 'standby') ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}
                               >
                                 {target.status}
                               </Badge>
@@ -832,8 +938,8 @@ const Rooms: React.FC = () => {
                             <p className="text-sm sm:text-base font-heading text-brand-dark truncate">{target.name}</p>
                             <div className="flex items-center gap-1 sm:gap-2 mt-0.5 sm:mt-1">
                               <Badge 
-                                variant={target.status === 'online' ? 'default' : 'secondary'}
-                                className={`text-xs ${target.status === 'online' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}
+                                variant={target.status === 'online' || target.status === 'standby' ? 'default' : 'secondary'}
+                                className={`text-xs ${(target.status === 'online' || target.status === 'standby') ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}
                               >
                                 {target.status}
                               </Badge>
@@ -878,10 +984,11 @@ const Rooms: React.FC = () => {
         isOpen={createRoomModalOpen}
         onClose={() => setCreateRoomModalOpen(false)}
         onCreateRoom={handleCreateRoom}
-        availableTargets={targets.map(target => ({
+        availableTargets={unassignedTargets.map(target => ({
           id: target.id,
           name: target.name,
-          status: target.status || 'active'
+          status: target.status ?? null,
+          activityStatus: target.activityStatus ?? null,
         }))}
       />
     </div>

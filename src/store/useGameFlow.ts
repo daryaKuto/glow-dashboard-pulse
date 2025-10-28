@@ -4,8 +4,17 @@ import {
   DeviceStatus, 
   GameSession, 
   GameHistory, 
-  DeviceGameEvent 
+  DeviceGameEvent,
+  type GameCommandWarning,
 } from '@/services/device-game-flow';
+import { fetchAllGameHistory as fetchPersistedGameHistory, saveGameHistory as persistGameHistory } from '@/services/game-history';
+
+type ConfigureDevicesResult = {
+  ok: boolean;
+  success: string[];
+  failed: string[];
+  warnings: GameCommandWarning[];
+};
 
 interface GameFlowState {
   // Current game session
@@ -28,7 +37,7 @@ interface GameFlowState {
   initializeDevices: (devices: DeviceStatus[]) => Promise<void>;
   selectDevices: (deviceIds: string[]) => void;
   createGame: (gameName: string, duration: number) => Promise<boolean>;
-  configureDevices: () => Promise<boolean>;
+  configureDevices: () => Promise<ConfigureDevicesResult>;
   startGame: () => Promise<boolean>;
   stopGame: () => Promise<boolean>;
   endGame: () => Promise<void>;
@@ -130,40 +139,40 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
   },
 
   configureDevices: async () => {
+    set({ error: null, isConfiguring: true });
+
+    const { currentSession } = get();
+    if (!currentSession) {
+      set({ error: 'No active game session', isConfiguring: false });
+      return { ok: false, success: [], failed: [], warnings: [] };
+    }
+
+    const deviceIds = currentSession.devices.map(d => d.deviceId);
     try {
-      set({ error: null, isConfiguring: true });
-      
-      const { currentSession } = get();
-      if (!currentSession) {
-        set({ error: 'No active game session', isConfiguring: false });
-        return false;
-      }
-      
-      const deviceIds = currentSession.devices.map(d => d.deviceId);
       const results = await deviceGameFlowService.configureDevices(
         deviceIds,
         currentSession.gameId,
         currentSession.duration
       );
-      
+
       if (results.failed.length > 0) {
         set({ 
           error: `Failed to configure ${results.failed.length} devices`,
           isConfiguring: false 
         });
-        return false;
+        return { ok: false, success: results.success, failed: results.failed, warnings: results.warnings };
       }
-      
+
       // Wait for device responses (info events)
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
+
       set({ isConfiguring: false });
       console.log(`Configured ${results.success.length} devices`);
-      return true;
+      return { ok: true, success: results.success, failed: results.failed, warnings: results.warnings };
     } catch (error) {
       console.error('Failed to configure devices:', error);
       set({ error: 'Failed to configure devices', isConfiguring: false });
-      return false;
+      return { ok: false, success: [], failed: deviceIds, warnings: [] };
     }
   },
 
@@ -186,6 +195,12 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
       if (results.failed.length > 0) {
         set({ error: `Failed to start game on ${results.failed.length} devices` });
         return false;
+      }
+      if (results.warnings.length > 0) {
+        console.warn(
+          '[useGameFlow] Start warnings:',
+          results.warnings.map(entry => `${entry.deviceId}:${entry.warning}`).join(', ')
+        );
       }
       
       // Update session status
@@ -232,6 +247,12 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
       if (results.failed.length > 0) {
         set({ error: `Failed to stop game on ${results.failed.length} devices` });
         return false;
+      }
+      if (results.warnings.length > 0) {
+        console.warn(
+          '[useGameFlow] Stop warnings:',
+          results.warnings.map(entry => `${entry.deviceId}:${entry.warning}`).join(', ')
+        );
       }
       
       // Stop periodic info requests
@@ -316,232 +337,129 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
   },
 
   loadGameHistory: async () => {
+    // Pulls the canonical history from Supabase so the Zustand store mirrors what the edge layer has persisted.
     try {
-      console.log('🔄 Loading game history (LIVE mode)...');
-      
-      // Demo mode removed - loading real game history only
-      console.log('🔗 LIVE: Loading real game history...');
-      const demoHistory: GameHistory[] = [
-        {
-          gameId: 'GM-demo-001',
-          gameName: 'Training Session Alpha',
-          duration: 30,
-          startTime: Date.now() - (2 * 24 * 60 * 60 * 1000), // 2 days ago
-          endTime: Date.now() - (2 * 24 * 60 * 60 * 1000) + (30 * 60 * 1000),
-          deviceResults: [
-            { deviceId: 'demo-target-alpha', deviceName: 'Training Target Alpha', hitCount: 23 },
-            { deviceId: 'demo-target-beta', deviceName: 'Training Target Beta', hitCount: 18 },
-            { deviceId: 'demo-target-gamma', deviceName: 'Training Target Gamma', hitCount: 15 }
-          ],
-          totalHits: 56,
-          actualDuration: 1800, // 30 minutes in seconds
-          averageHitInterval: 32.1,
-          targetStats: [
-            {
-              deviceId: 'demo-target-alpha',
-              deviceName: 'Training Target Alpha',
-              hitCount: 23,
-              hitTimes: [],
-              averageInterval: 78.3,
-              firstHitTime: 12.5,
-              lastHitTime: 1789.2
-            },
-            {
-              deviceId: 'demo-target-beta',
-              deviceName: 'Training Target Beta',
-              hitCount: 18,
-              hitTimes: [],
-              averageInterval: 99.4,
-              firstHitTime: 45.8,
-              lastHitTime: 1795.6
-            },
-            {
-              deviceId: 'demo-target-gamma',
-              deviceName: 'Training Target Gamma',
-              hitCount: 15,
-              hitTimes: [],
-              averageInterval: 119.3,
-              firstHitTime: 78.2,
-              lastHitTime: 1798.1
-            }
-          ],
-          crossTargetStats: {
-            totalSwitches: 12,
-            averageSwitchTime: 45.2,
-            switchTimes: []
-          }
-        },
-        {
-          gameId: 'GM-demo-002',
-          gameName: 'Quick Practice',
-          duration: 15,
-          startTime: Date.now() - (1 * 24 * 60 * 60 * 1000), // 1 day ago
-          endTime: Date.now() - (1 * 24 * 60 * 60 * 1000) + (15 * 60 * 1000),
-          deviceResults: [
-            { deviceId: 'demo-target-alpha', deviceName: 'Training Target Alpha', hitCount: 12 },
-            { deviceId: 'demo-target-beta', deviceName: 'Training Target Beta', hitCount: 9 }
-          ],
-          totalHits: 21,
-          actualDuration: 900, // 15 minutes in seconds
-          averageHitInterval: 42.9,
-          targetStats: [
-            {
-              deviceId: 'demo-target-alpha',
-              deviceName: 'Training Target Alpha',
-              hitCount: 12,
-              hitTimes: [],
-              averageInterval: 75.0,
-              firstHitTime: 8.3,
-              lastHitTime: 892.1
-            },
-            {
-              deviceId: 'demo-target-beta',
-              deviceName: 'Training Target Beta',
-              hitCount: 9,
-              hitTimes: [],
-              averageInterval: 100.0,
-              firstHitTime: 25.7,
-              lastHitTime: 896.4
-            }
-          ],
-          crossTargetStats: {
-            totalSwitches: 6,
-            averageSwitchTime: 38.5,
-            switchTimes: []
-          }
-        },
-        {
-          gameId: 'GM-demo-003',
-          gameName: 'Accuracy Challenge',
-          duration: 45,
-          startTime: Date.now() - (6 * 60 * 60 * 1000), // 6 hours ago
-          endTime: Date.now() - (6 * 60 * 60 * 1000) + (45 * 60 * 1000),
-          deviceResults: [
-            { deviceId: 'demo-target-alpha', deviceName: 'Training Target Alpha', hitCount: 34 },
-            { deviceId: 'demo-target-beta', deviceName: 'Training Target Beta', hitCount: 29 },
-            { deviceId: 'demo-target-gamma', deviceName: 'Training Target Gamma', hitCount: 27 },
-            { deviceId: 'demo-target-delta', deviceName: 'Training Target Delta', hitCount: 21 }
-          ],
-          totalHits: 111,
-          actualDuration: 2700, // 45 minutes in seconds
-          averageHitInterval: 24.3,
-          targetStats: [
-            {
-              deviceId: 'demo-target-alpha',
-              deviceName: 'Training Target Alpha',
-              hitCount: 34,
-              hitTimes: [],
-              averageInterval: 79.4,
-              firstHitTime: 5.2,
-              lastHitTime: 2695.8
-            },
-            {
-              deviceId: 'demo-target-beta',
-              deviceName: 'Training Target Beta',
-              hitCount: 29,
-              hitTimes: [],
-              averageInterval: 93.1,
-              firstHitTime: 12.8,
-              lastHitTime: 2698.2
-            },
-            {
-              deviceId: 'demo-target-gamma',
-              deviceName: 'Training Target Gamma',
-              hitCount: 27,
-              hitTimes: [],
-              averageInterval: 100.0,
-              firstHitTime: 18.5,
-              lastHitTime: 2699.1
-            },
-            {
-              deviceId: 'demo-target-delta',
-              deviceName: 'Training Target Delta',
-              hitCount: 21,
-              hitTimes: [],
-              averageInterval: 128.6,
-              firstHitTime: 35.2,
-              lastHitTime: 2699.8
-            }
-          ],
-          crossTargetStats: {
-            totalSwitches: 28,
-            averageSwitchTime: 32.1,
-            switchTimes: []
-          }
-        }
-        ];
-        
-        set({ gameHistory: demoHistory });
-        console.log('✅ LIVE: Loaded real game history:', demoHistory.length, 'games');
-        
-        // Live mode: Load real game history from Supabase
-        console.log('🔗 LIVE: Loading real game history from Supabase...');
-        
-        try {
-          const { supabaseRoomsService } = await import('@/services/supabase-rooms');
-          const gameSessions = await supabaseRoomsService.getGameSessions();
-          
-          // Transform Supabase sessions to GameHistory format
-          const realHistory: GameHistory[] = gameSessions.map(session => ({
-            gameId: session.game_id,
-            gameName: session.game_name,
-            duration: session.duration || 0,
-            startTime: session.start_time,
-            endTime: session.end_time,
-            deviceResults: [], // Will be populated if we have device details
-            totalHits: session.total_hits || 0,
-            actualDuration: session.duration || 0,
-            averageHitInterval: 0,
-            targetStats: [],
-            crossTargetStats: {
-              totalSwitches: 0,
-              averageSwitchTime: 0,
-              switchTimes: []
-            }
-          }));
-          
-          set({ gameHistory: realHistory });
-          console.log('✅ LIVE: Loaded real game history:', realHistory.length, 'games');
-          
-        } catch (error) {
-          console.error('❌ LIVE: Failed to load game history from Supabase:', error);
-          set({ gameHistory: [] });
-        }
+      const { history } = await fetchPersistedGameHistory();
+      set({ gameHistory: history });
     } catch (error) {
       console.error('Failed to load game history:', error);
-      set({ error: 'Failed to load game history' });
+      set({ gameHistory: [] });
     }
   },
 
   saveGameToHistory: (session: GameSession) => {
     if (!session.endTime) return;
     
+    // Convert the active session into the persisted summary shape before saving locally and via Supabase.
+    const targetStats = session.devices.map((device) => {
+      const hitTimes = Array.isArray(device.hitTimes) ? [...device.hitTimes] : [];
+      hitTimes.sort((a, b) => a - b);
+
+      const intervals = hitTimes.slice(1).map((timestamp, idx) => (timestamp - hitTimes[idx]) / 1000);
+
+      return {
+        deviceId: device.deviceId,
+        deviceName: device.name,
+        hitCount: device.hitCount,
+        hitTimes,
+        averageInterval: intervals.length
+          ? Number((intervals.reduce((sum, value) => sum + value, 0) / intervals.length).toFixed(2))
+          : 0,
+        firstHitTime: hitTimes[0] ?? 0,
+        lastHitTime: hitTimes[hitTimes.length - 1] ?? 0,
+      };
+    });
+
+    const totalHits = targetStats.reduce((sum, stat) => sum + stat.hitCount, 0);
+    const durationMs = Math.max(0, session.endTime - session.startTime);
+    const actualDurationSeconds = Number((durationMs / 1000).toFixed(2));
+
+    const allHits = targetStats
+      .flatMap((stat) => stat.hitTimes.map((timestamp) => ({ deviceId: stat.deviceId, timestamp })))
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    const overallIntervals = allHits
+      .slice(1)
+      .map((entry, idx) => (entry.timestamp - allHits[idx].timestamp) / 1000);
+
+    const switchTimes: number[] = [];
+    for (let i = 1; i < allHits.length; i++) {
+      if (allHits[i].deviceId !== allHits[i - 1].deviceId) {
+        const switchSpan = (allHits[i].timestamp - allHits[i - 1].timestamp) / 1000;
+        switchTimes.push(Number(switchSpan.toFixed(2)));
+      }
+    }
+
     const historyEntry: GameHistory = {
       gameId: session.gameId,
       gameName: session.gameName,
       duration: session.duration,
       startTime: session.startTime,
       endTime: session.endTime,
-      deviceResults: session.devices.map(device => ({
-        deviceId: device.deviceId,
-        deviceName: device.name,
-        hitCount: device.hitCount
-      }))
+      deviceResults: targetStats.map(({ deviceId, deviceName, hitCount }) => ({
+        deviceId,
+        deviceName,
+        hitCount,
+      })),
+      totalHits,
+      actualDuration: actualDurationSeconds,
+      averageHitInterval: overallIntervals.length
+        ? Number((overallIntervals.reduce((sum, value) => sum + value, 0) / overallIntervals.length).toFixed(2))
+        : null,
+      targetStats,
+      crossTargetStats: {
+        totalSwitches: switchTimes.length,
+        averageSwitchTime: switchTimes.length
+          ? Number((switchTimes.reduce((sum, value) => sum + value, 0) / switchTimes.length).toFixed(2))
+          : 0,
+        switchTimes,
+      },
     };
     
     set(state => ({
       gameHistory: [historyEntry, ...state.gameHistory]
     }));
-    
-    console.log(`Saved game to history: ${session.gameId}`);
+
+    void persistGameHistory(historyEntry)
+      .then(({ status, sessionPersisted, sessionPersistError }) => {
+        if (status) {
+          console.info('[useGameFlow] Game history entry', status, historyEntry.gameId);
+        }
+        if (!sessionPersisted) {
+          console.warn('[useGameFlow] Session analytics failed to persist', {
+            gameId: historyEntry.gameId,
+            sessionPersistError,
+          });
+        }
+      })
+      .catch((error) => {
+        console.warn('[useGameFlow] Failed to persist game history', error);
+      });
   },
 
   addGameToHistory: (historyEntry: GameHistory) => {
+    // Allows callers (e.g., admin tooling) to push externally sourced history into the shared store.
     set(state => ({
       gameHistory: [historyEntry, ...state.gameHistory]
     }));
     
     console.log('💾 Game added to history:', historyEntry);
+
+    void persistGameHistory(historyEntry)
+      .then(({ status, sessionPersisted, sessionPersistError }) => {
+        if (status) {
+          console.info('[useGameFlow] Manual history entry', status, historyEntry.gameId);
+        }
+        if (!sessionPersisted) {
+          console.warn('[useGameFlow] Session analytics failed to persist (manual)', {
+            gameId: historyEntry.gameId,
+            sessionPersistError,
+          });
+        }
+      })
+      .catch((error) => {
+        console.warn('[useGameFlow] Failed to persist manual history entry', error);
+      });
   },
 
   setError: (error: string | null) => {

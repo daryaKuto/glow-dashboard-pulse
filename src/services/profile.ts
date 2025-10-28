@@ -29,6 +29,7 @@ export interface RecentSession {
   scenarioName: string | null;
   scenarioType: string | null;
   roomName: string | null;
+  roomId: string | null;
   score: number;
   accuracy: number;
   duration: number;
@@ -188,6 +189,7 @@ export const fetchRecentSessions = async (userId: string, limit = 10): Promise<R
         scenario_name,
         scenario_type,
         room_name,
+        room_id,
         score,
         accuracy_percentage,
         duration_ms,
@@ -213,6 +215,7 @@ export const fetchRecentSessions = async (userId: string, limit = 10): Promise<R
       scenarioName: session.scenario_name,
       scenarioType: session.scenario_type,
       roomName: session.room_name,
+      roomId: session.room_id ?? null,
       score: session.score,
       accuracy: Math.round(session.accuracy_percentage * 100) / 100,
       duration: session.duration_ms,

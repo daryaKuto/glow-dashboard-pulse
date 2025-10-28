@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { clearTargetsCache } from '@/lib/api';
 import { fetchTargetDetails, type TargetDetail, type TargetDetailsOptions } from '@/lib/edge';
 
-const FETCH_DEBUG_DEFAULT = import.meta.env.DEV;
+const FETCH_DEBUG_DEFAULT = false;
 
 const isFetchDebugEnabled = () => {
   if (typeof window === 'undefined') {
@@ -23,7 +23,7 @@ const isFetchDebugEnabled = () => {
 export interface Target {
   id: string;
   name: string;
-  status: 'online' | 'offline';
+  status: 'online' | 'offline' | 'standby';
   battery?: number | null;          // Real battery or null
   wifiStrength?: number | null;     // Real WiFi or null
   roomId?: string | number | null;
@@ -77,7 +77,22 @@ export const useTargets = create<TargetsState>((set, get) => ({
   detailsLoading: false,
   detailsError: null,
 
-  refresh: async () => get().fetchTargetsFromEdge(true),
+  refresh: async () => {
+    const targets = await get().fetchTargetsFromEdge(true);
+    if (targets.length > 0) {
+      const deviceIds = targets.map((target) => target.id);
+      try {
+        await get().fetchTargetDetails(deviceIds, {
+          includeHistory: false,
+          telemetryKeys: ['hit_ts', 'hits', 'event'],
+          recentWindowMs: 5 * 60 * 1000,
+        });
+      } catch (error) {
+        console.warn('[useTargets] Failed to hydrate targets during refresh', error);
+      }
+    }
+    return targets;
+  },
 
   fetchTargetsFromEdge: async (force = false) => {
     const state = get();
@@ -113,9 +128,39 @@ export const useTargets = create<TargetsState>((set, get) => ({
         error: null,
         lastFetched: Date.now(),
       });
+      if (typeof window !== 'undefined') {
+        const statusCounts = targets.reduce<Record<string, number>>((acc, target) => {
+          const key = target.status ?? 'unknown';
+          acc[key] = (acc[key] ?? 0) + 1;
+          return acc;
+        }, {});
+        console.info('[Targets] Edge payload received', {
+          edgeFunction: 'targets-with-telemetry',
+          supabaseTablesQueried: ['public.user_room_targets', 'public.user_rooms', 'public.user_profiles'],
+          thingsboardTelemetryAttached: true,
+          fetchedAt: new Date().toISOString(),
+          totalTargets: targets.length,
+          statusCounts,
+          sample: targets.slice(0, 5).map(({ id, name, status, roomName }) => ({ id, name, status, roomName })),
+        });
+      }
       if (debug) {
         console.info('[useTargets] fetchTargetsFromEdge fetched targets', {
           count: targets.length,
+        });
+      }
+      if (typeof window !== 'undefined') {
+        const statusCounts = targets.reduce<Record<string, number>>((acc, target) => {
+          const key = target.status ?? 'unknown';
+          acc[key] = (acc[key] ?? 0) + 1;
+          return acc;
+        }, {});
+        console.info('[Targets] Edge payload status summary', {
+          edgeFunction: 'targets-with-telemetry',
+          fetchedAt: new Date().toISOString(),
+          totalTargets: targets.length,
+          statusCounts,
+          sample: targets.slice(0, 5).map(({ id, name, status, roomName }) => ({ id, name, status, roomName })),
         });
       }
       return targets;
@@ -163,9 +208,7 @@ export const useTargets = create<TargetsState>((set, get) => ({
 
           detailsById[target.id] = detail;
 
-          const mergedStatus = detail.status
-            ? (detail.status === 'offline' ? 'offline' : 'online')
-            : target.status;
+          const mergedStatus = detail.status ?? target.status;
           const mergedTelemetry = detail.telemetry && Object.keys(detail.telemetry).length > 0
             ? detail.telemetry
             : target.telemetry;
@@ -197,6 +240,30 @@ export const useTargets = create<TargetsState>((set, get) => ({
           detailsError: null,
         };
       });
+
+      if (typeof window !== 'undefined') {
+        const targets = get().targets;
+        const statusCounts = targets.reduce<Record<string, number>>((acc, target) => {
+          const key = target.status ?? 'unknown';
+          acc[key] = (acc[key] ?? 0) + 1;
+          return acc;
+        }, {});
+        console.info('[Targets] Hydrated ThingsBoard telemetry applied', {
+          edgeFunction: 'target-details',
+          supabaseTablesQueried: ['public.user_room_targets', 'public.user_profiles'],
+          thingsboardTelemetryApplied: true,
+          hydratedAt: new Date().toISOString(),
+          totalTargets: targets.length,
+          statusCounts,
+          sample: targets.slice(0, 5).map((target) => ({
+            id: target.id,
+            name: target.name,
+            status: target.status,
+            lastShotTime: target.lastShotTime,
+            recentShots: target.recentShotsCount,
+          })),
+        });
+      }
 
       if (isFetchDebugEnabled()) {
         console.info('[useTargets] fetchTargetDetails updated state', {

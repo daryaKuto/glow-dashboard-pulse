@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTargets } from '@/store/useTargets';
-import thingsBoardService, { openTelemetryWS } from '@/services/thingsboard';
+import { fetchTargetDetails } from '@/lib/edge';
+import { TELEMETRY_POLLING_DEFAULTS, resolveIntervalWithBackoff } from '@/config/telemetry';
 
 interface SmartPollingConfig {
-  defaultInterval: number; // 60 seconds
-  activeInterval: number;  // 30 seconds  
-  heartbeatThreshold: number; // 5 minutes - consider device inactive if no activity
+  defaultIntervalMs?: number;
+  activeIntervalMs?: number;
+  heartbeatThresholdMs?: number;
+  slowResponseWarningMs?: number;
 }
 
 interface DeviceActivity {
@@ -14,184 +16,144 @@ interface DeviceActivity {
   isActive: boolean;
 }
 
+const mapConfig = (overrides?: SmartPollingConfig) => ({
+  ...TELEMETRY_POLLING_DEFAULTS,
+  ...overrides,
+});
+
 export const useSmartPolling = (
   onUpdate: () => Promise<void>,
-  config: SmartPollingConfig = {
-    defaultInterval: 60000,  // 60 seconds
-    activeInterval: 30000,   // 30 seconds
-    heartbeatThreshold: 300000 // 5 minutes
-  }
+  overrides?: SmartPollingConfig,
 ) => {
-  const [currentInterval, setCurrentInterval] = useState(config.defaultInterval);
-  const [hasActiveTargets, setHasActiveTargets] = useState(false);
-  const [deviceActivity, setDeviceActivity] = useState<Map<string, DeviceActivity>>(new Map());
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const config = useMemo(() => mapConfig(overrides), [overrides]);
   const { targets } = useTargets();
 
-  // Check for recent device activity through telemetry
-  const checkDeviceActivity = async (): Promise<boolean> => {
-    try {
-      if (!thingsBoardService.isAuthenticated()) {
-        return false;
-      }
+  const [currentInterval, setCurrentInterval] = useState(config.defaultIntervalMs);
+  const [hasActiveTargets, setHasActiveTargets] = useState(false);
+  const [deviceActivity, setDeviceActivity] = useState<Map<string, DeviceActivity>>(new Map());
 
-      let hasRecentActivity = false;
-      const currentTime = Date.now();
-      const newActivityMap = new Map<string, DeviceActivity>();
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const runRef = useRef<() => Promise<void>>();
+  const executingRef = useRef(false);
+  const consecutiveErrorRef = useRef(0);
 
-      // Check each target for recent activity
-      for (const target of targets) {
-        try {
-          // Get latest telemetry for activity indicators
-          const telemetry = await thingsBoardService.getLatestTelemetry(target.id?.id || target.id, [
-            'lastActivityTime', 'created_at', 'event', 'hits', 'battery'
-          ]);
+  const scheduleNext = useCallback((delay: number) => {
+    const boundedDelay = Math.max(delay, config.minIntervalMs);
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = setTimeout(() => {
+      runRef.current?.().catch((error) => {
+        console.error('[SmartPolling] cycle execution failed', error);
+      });
+    }, boundedDelay);
+    setCurrentInterval(boundedDelay);
+  }, [config.minIntervalMs]);
 
-          // Determine last activity time from various telemetry sources
-          let lastActivityTime = 0;
-          
-          // Check for explicit lastActivityTime
-          if (telemetry.lastActivityTime && telemetry.lastActivityTime.length > 0) {
-            lastActivityTime = telemetry.lastActivityTime[0].ts;
-          }
-          // Fallback to created_at timestamp
-          else if (telemetry.created_at && telemetry.created_at.length > 0) {
-            lastActivityTime = telemetry.created_at[0].ts;
-          }
-          // Fallback to any recent event
-          else if (telemetry.event && telemetry.event.length > 0) {
-            lastActivityTime = telemetry.event[0].ts;
-          }
-          // Fallback to hits activity
-          else if (telemetry.hits && telemetry.hits.length > 0) {
-            lastActivityTime = telemetry.hits[0].ts;
-          }
-
-          const timeSinceActivity = currentTime - lastActivityTime;
-          const isActive = timeSinceActivity < config.heartbeatThreshold;
-
-          newActivityMap.set(target.id, {
-            deviceId: target.id,
-            lastActivity: lastActivityTime,
-            isActive
-          });
-
-          if (isActive) {
-            hasRecentActivity = true;
-            console.log(`Device ${target.name} is active - last activity: ${new Date(lastActivityTime).toISOString()}`);
-          }
-
-        } catch (error) {
-          console.log(`Could not check activity for device ${target.id}:`, error);
-          // Mark as inactive if we can't get telemetry
-          newActivityMap.set(target.id, {
-            deviceId: target.id,
-            lastActivity: 0,
-            isActive: false
-          });
-        }
-      }
-
-      setDeviceActivity(newActivityMap);
-      return hasRecentActivity;
-
-    } catch (error) {
-      console.error('Error checking device activity:', error);
+  const checkDeviceActivity = useCallback(async (): Promise<boolean> => {
+    if (targets.length === 0) {
+      setDeviceActivity(new Map());
       return false;
     }
-  };
-
-  // Update polling interval based on activity
-  const updatePollingInterval = (hasActivity: boolean) => {
-    const newInterval = hasActivity ? config.activeInterval : config.defaultInterval;
-    
-    if (newInterval !== currentInterval) {
-      setCurrentInterval(newInterval);
-      setHasActiveTargets(hasActivity);
-      
-      console.log(`📡 Polling interval updated: ${newInterval/1000}s (${hasActivity ? 'active targets detected' : 'no recent activity'})`);
-      
-      // Clear existing interval and set new one
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-      
-      // Start new interval
-      intervalRef.current = setInterval(async () => {
-        await onUpdate();
-        const activity = await checkDeviceActivity();
-        updatePollingInterval(activity);
-      }, newInterval);
-    }
-  };
-
-  // Main polling effect
-  useEffect(() => {
-    const startPolling = async () => {
-      // Initial update
-      await onUpdate();
-      
-      // Check initial activity
-      const hasActivity = await checkDeviceActivity();
-      updatePollingInterval(hasActivity);
-    };
-
-    startPolling();
-
-    // Cleanup on unmount
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [targets.length]); // Re-run when target list changes
-
-  // WebSocket heartbeat detection (if available)
-  useEffect(() => {
-    const token = localStorage.getItem('tb_access');
-    if (!token) return;
 
     try {
-      const ws = openTelemetryWS(token);
-      if (!ws) return;
+      const deviceIds = targets.map((target) => (typeof target.id === 'string' ? target.id : String(target.id?.id ?? target.id)));
+      const { details } = await fetchTargetDetails(deviceIds, {
+        includeHistory: false,
+        telemetryKeys: ['hit_ts', 'event'],
+        recentWindowMs: config.heartbeatThresholdMs,
+      });
 
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          
-          // Check for any telemetry updates as heartbeat indicators
-          if (data.data && Object.keys(data.data).length > 0) {
-            console.log('📡 WebSocket heartbeat detected:', data);
-            
-            // Immediately switch to active polling
-            setHasActiveTargets(true);
-            updatePollingInterval(true);
-          }
-        } catch (error) {
-          console.log('WebSocket message parsing error:', error);
+      const detailMap = new Map(details.map((detail) => [detail.deviceId, detail]));
+      let hasRecentActivity = false;
+      const activityMap = new Map<string, DeviceActivity>();
+
+      targets.forEach((target) => {
+        const deviceId = typeof target.id === 'string' ? target.id : String(target.id?.id ?? target.id);
+        const detail = detailMap.get(deviceId);
+
+        const lastActivity = detail?.lastShotTime ?? 0;
+        const isActive = detail?.activityStatus === 'active';
+
+        if (isActive) {
+          hasRecentActivity = true;
         }
-      };
 
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
+        activityMap.set(deviceId, {
+          deviceId,
+          lastActivity,
+          isActive,
+        });
+      });
 
-      return () => {
-        ws.close();
-      };
+      setDeviceActivity(activityMap);
+      return hasRecentActivity;
     } catch (error) {
-      console.error('Error setting up WebSocket heartbeat detection:', error);
+      consecutiveErrorRef.current += 1;
+      console.error('[SmartPolling] Unable to inspect device activity', error);
+      setDeviceActivity(new Map());
+      return false;
     }
-  }, []);
+  }, [targets, config.heartbeatThresholdMs]);
+
+  const runCycle = useCallback(async () => {
+    if (executingRef.current) {
+      return;
+    }
+    executingRef.current = true;
+    const cycleStart = performance.now();
+
+    try {
+      await onUpdate();
+      consecutiveErrorRef.current = 0;
+    } catch (error) {
+      consecutiveErrorRef.current += 1;
+      console.error('[SmartPolling] onUpdate failed', error);
+    }
+
+    const hasActivity = await checkDeviceActivity();
+
+    const cycleDuration = performance.now() - cycleStart;
+    if (cycleDuration > config.slowResponseWarningMs) {
+      console.warn('[SmartPolling] polling cycle exceeded SLA', {
+        durationMs: Math.round(cycleDuration),
+        slowdownThresholdMs: config.slowResponseWarningMs,
+      });
+    }
+
+    setHasActiveTargets(hasActivity);
+
+    const baseInterval = hasActivity ? config.activeIntervalMs : config.defaultIntervalMs;
+    const nextInterval = resolveIntervalWithBackoff(baseInterval, consecutiveErrorRef.current);
+
+    executingRef.current = false;
+    scheduleNext(nextInterval);
+  }, [checkDeviceActivity, config.activeIntervalMs, config.defaultIntervalMs, config.slowResponseWarningMs, scheduleNext, onUpdate]);
+
+  useEffect(() => {
+    runRef.current = runCycle;
+  }, [runCycle]);
+
+  useEffect(() => {
+    runCycle().catch((error) => {
+      console.error('[SmartPolling] initial cycle failed', error);
+    });
+
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, [runCycle]);
+
+  const forceUpdate = useCallback(async () => {
+    await runCycle();
+  }, [runCycle]);
 
   return {
-    currentInterval: currentInterval / 1000, // Return in seconds for display
+    currentInterval: currentInterval / 1000,
     hasActiveTargets,
     deviceActivity: Array.from(deviceActivity.values()),
-    forceUpdate: async () => {
-      await onUpdate();
-      const activity = await checkDeviceActivity();
-      updatePollingInterval(activity);
-    }
+    forceUpdate,
   };
 };

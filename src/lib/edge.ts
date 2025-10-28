@@ -27,6 +27,66 @@ export interface TargetsSummary {
   lastUpdated: number;
 }
 
+export interface DashboardMetricsTotals {
+  totalSessions: number;
+  bestScore: number | null;
+  avgScore: number | null;
+}
+
+export interface DashboardRecentSession {
+  id: string;
+  started_at: string;
+  score: number;
+  hit_count: number;
+  duration_ms: number;
+  accuracy_percentage: number | null;
+}
+
+export interface DashboardMetricsData {
+  summary: TargetsSummary;
+  totals: DashboardMetricsTotals;
+  recentSessions: DashboardRecentSession[];
+  generatedAt: number;
+}
+
+export interface ThingsboardSession {
+  token: string;
+  issuedAt: number;
+  expiresAt: number;
+  expiresIn: number;
+}
+
+type ThingsboardSessionOptions = {
+  force?: boolean;
+  invalidate?: boolean;
+};
+
+const MIN_SESSION_BUFFER_MS = 60_000;
+
+let cachedThingsboardSession:
+  | {
+      session: ThingsboardSession;
+    }
+  | null = null;
+
+const getSupabaseAuthHeaders = async (): Promise<Record<string, string>> => {
+  const headers: Record<string, string> = {};
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+  } catch (sessionError) {
+    console.warn('[Edge] Unable to retrieve Supabase session before edge function call', sessionError);
+  }
+  return headers;
+};
+
+const isSessionFresh = (session: ThingsboardSession): boolean => {
+  return session.expiresAt - Date.now() > MIN_SESSION_BUFFER_MS;
+};
+
 const mapSummary = (summary?: TargetsSummaryPayload | null): TargetsSummary | null => {
   if (!summary) {
     return null;
@@ -49,8 +109,10 @@ interface RoomsFunctionResponse {
   cached?: boolean;
 }
 
-const sanitizeStatus = (status: unknown): 'online' | 'offline' => {
+const sanitizeStatus = (status: unknown): 'online' | 'standby' | 'offline' => {
   if (status === 'online') return 'online';
+  if (status === 'standby') return 'standby';
+  if (status === 'active') return 'online';
   return 'offline';
 };
 
@@ -100,11 +162,45 @@ export async function fetchTargetsWithTelemetry(force = false): Promise<{ target
   }
 
   if (!data || !Array.isArray(data.data)) {
-    return { targets: [], cached: Boolean(data?.cached), summary: mapSummary(data?.summary) };
+    const summary = mapSummary(data?.summary);
+    const cached = Boolean(data?.cached);
+    console.info('[Edge] targets-with-telemetry fetched (no list)', {
+      supabaseEdgeFunction: 'targets-with-telemetry',
+      backingTables: ['public.user_profiles', 'public.user_rooms', 'public.user_room_targets'],
+      thingsboardInvolved: true,
+      fetchedAt: new Date().toISOString(),
+      targetCount: 0,
+      cached,
+      summary: summary
+        ? {
+            totalTargets: summary.totalTargets,
+            onlineTargets: summary.onlineTargets,
+            assignedTargets: summary.assignedTargets,
+          }
+        : null,
+    });
+    return { targets: [], cached, summary };
   }
 
   const targets = data.data.map(mapEdgeTarget);
-  return { targets, cached: Boolean(data.cached), summary: mapSummary(data.summary) };
+  const summary = mapSummary(data.summary);
+  console.info('[Edge] targets-with-telemetry fetched', {
+    supabaseEdgeFunction: 'targets-with-telemetry',
+    backingTables: ['public.user_profiles', 'public.user_rooms', 'public.user_room_targets'],
+    thingsboardInvolved: true,
+    fetchedAt: new Date().toISOString(),
+    targetCount: targets.length,
+    cached: Boolean(data.cached),
+    summary: summary
+      ? {
+          totalTargets: summary.totalTargets,
+          onlineTargets: summary.onlineTargets,
+          assignedTargets: summary.assignedTargets,
+        }
+      : null,
+    sample: targets.slice(0, 5).map((target) => ({ id: target.id, name: target.name, status: target.status, roomName: target.roomName })),
+  });
+  return { targets, cached: Boolean(data.cached), summary };
 }
 
 export async function fetchTargetsSummary(force = false): Promise<{ summary: TargetsSummary | null; cached: boolean }> {
@@ -113,16 +209,7 @@ export async function fetchTargetsSummary(force = false): Promise<{ summary: Tar
     payload.force = true;
   }
 
-  const headers: Record<string, string> = {};
-  try {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-  } catch (sessionError) {
-    console.warn('[Edge] Unable to retrieve Supabase session before summary fetch', sessionError);
-  }
+  const headers = await getSupabaseAuthHeaders();
 
   const { data, error } = await supabase.functions.invoke<TargetsFunctionResponse>('targets-with-telemetry', {
     method: 'POST',
@@ -134,10 +221,69 @@ export async function fetchTargetsSummary(force = false): Promise<{ summary: Tar
     throw error;
   }
 
+  const summary = mapSummary(data?.summary);
+  const cached = Boolean(data?.cached);
+  console.info('[Edge] targets summary fetched', {
+    fetchedAt: new Date().toISOString(),
+    cached,
+    summary: summary
+      ? {
+          totalTargets: summary.totalTargets,
+          onlineTargets: summary.onlineTargets,
+          assignedTargets: summary.assignedTargets,
+        }
+      : null,
+  });
+
   return {
-    summary: mapSummary(data?.summary),
-    cached: Boolean(data?.cached),
+    summary,
+    cached,
   };
+}
+
+export async function fetchThingsboardSession(options: ThingsboardSessionOptions = {}): Promise<ThingsboardSession> {
+  const headers = await getSupabaseAuthHeaders();
+  const method = options.invalidate || options.force ? 'POST' : 'GET';
+
+  const body =
+    method === 'POST'
+      ? {
+          force: Boolean(options.force),
+          invalidate: Boolean(options.invalidate),
+        }
+      : undefined;
+
+  const { data, error } = await supabase.functions.invoke<ThingsboardSession>('thingsboard-session', {
+    method,
+    body,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data || typeof data.token !== 'string') {
+    throw new Error('thingsboard-session did not return a token');
+  }
+
+  cachedThingsboardSession = {
+    session: data,
+  };
+
+  return data;
+}
+
+export async function ensureThingsboardSession(options: { force?: boolean } = {}): Promise<ThingsboardSession> {
+  if (!options.force && cachedThingsboardSession?.session && isSessionFresh(cachedThingsboardSession.session)) {
+    return cachedThingsboardSession.session;
+  }
+
+  return fetchThingsboardSession({ force: options.force });
+}
+
+export function invalidateThingsboardSessionCache(): void {
+  cachedThingsboardSession = null;
 }
 
 export interface EdgeRoom {
@@ -148,6 +294,114 @@ export interface EdgeRoom {
   room_type?: string | null;
   targetCount: number;
   targets: Target[];
+}
+
+interface DashboardMetricsResponse {
+  metrics?: DashboardMetricsData | null;
+  cached?: boolean;
+  source?: string;
+}
+
+export async function fetchDashboardMetrics(force = false): Promise<{ metrics: DashboardMetricsData | null; cached: boolean; source?: string }> {
+  const headers: Record<string, string> = {};
+  let token: string | undefined;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    token = sessionData.session?.access_token ?? undefined;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+  } catch (sessionError) {
+    console.warn('[Edge] Unable to retrieve Supabase session before dashboard metrics fetch', sessionError);
+  }
+
+  const invokeRequest = async () => {
+    const body: Record<string, unknown> = {};
+    if (force) {
+      body.force = true;
+    }
+
+    return supabase.functions.invoke<DashboardMetricsResponse>('dashboard-metrics', {
+      body,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+      options: {
+        cache: 'no-store',
+      },
+    });
+  };
+
+  const fetchDirect = async () => {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+    if (!supabaseUrl || !token || !anonKey) {
+      return null;
+    }
+
+    const url = new URL(`${supabaseUrl}/functions/v1/dashboard-metrics`);
+    if (force) {
+      url.searchParams.set('force', 'true');
+    }
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: anonKey,
+      },
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`dashboard-metrics ${response.status}: ${detail}`);
+    }
+
+    const payload = await response.json() as DashboardMetricsResponse;
+    return { data: payload, error: null };
+  };
+
+  let result;
+  try {
+    result = await invokeRequest();
+  } catch (invokeError) {
+    console.warn('[Edge] dashboard-metrics invoke failed, retrying via fetch', invokeError);
+    result = await fetchDirect();
+    if (!result) {
+      throw invokeError;
+    }
+  }
+
+  if (!result) {
+    throw new Error('dashboard-metrics invocation failed with no response');
+  }
+
+  if (result.error) {
+    console.warn('[Edge] dashboard-metrics invoke returned error', result.error);
+    const fallback = await fetchDirect();
+    if (fallback) {
+      result = fallback;
+    } else {
+      throw result.error;
+    }
+  }
+
+  const metrics = result.data?.metrics ?? null;
+  const cached = Boolean(result.data?.cached);
+  const source = result.data?.source ?? undefined;
+
+  console.info('[Edge] dashboard-metrics fetched', {
+    cached,
+    source: source ?? null,
+    summary: metrics ? {
+      totalTargets: metrics.summary.totalTargets,
+      onlineTargets: metrics.summary.onlineTargets,
+      assignedTargets: metrics.summary.assignedTargets,
+      totalRooms: metrics.summary.totalRooms,
+    } : null,
+    recentSessions: metrics?.recentSessions?.length ?? 0,
+  });
+
+  return { metrics, cached, source };
 }
 
 export async function fetchRoomsData(force = false): Promise<{ rooms: EdgeRoom[]; unassignedTargets: Target[]; cached: boolean }> {
@@ -186,11 +440,23 @@ export async function fetchRoomsData(force = false): Promise<{ rooms: EdgeRoom[]
     return { ...mapped, roomId: null };
   });
 
-  return {
+  const result = {
     rooms,
     unassignedTargets,
     cached: Boolean(data?.cached),
   };
+
+  console.info('[Edge] rooms payload fetched', {
+    supabaseEdgeFunction: 'rooms',
+    backingTables: ['public.user_rooms', 'public.user_room_targets'],
+    fetchedAt: new Date().toISOString(),
+    roomCount: rooms.length,
+    unassignedTargets: unassignedTargets.length,
+    cached: result.cached,
+    sample: rooms.slice(0, 5).map((room) => ({ id: room.id, name: room.name, targetCount: room.targetCount })),
+  });
+
+  return result;
 }
 
 interface TelemetryHistoryResponse {
@@ -229,10 +495,77 @@ export async function fetchTelemetryHistory(deviceIds: string[], startTs: number
     throw error;
   }
 
+  const devices = data?.devices ?? [];
+  const cached = Boolean(data?.cached);
+  console.info('[Edge] telemetry-history fetched', {
+    deviceCount: devices.length,
+    cached,
+  });
   return {
-    devices: data?.devices ?? [],
-    cached: Boolean(data?.cached),
+    devices,
+    cached,
   };
+}
+
+interface DeviceAttributesResponse {
+  deviceId?: string;
+  attributes?: Record<string, unknown> | null;
+}
+
+export async function fetchDeviceAttributes(
+  deviceId: string,
+  options: {
+    scope?: 'CLIENT_SCOPE' | 'SHARED_SCOPE' | 'SERVER_SCOPE';
+    keys?: string[];
+  } = {},
+): Promise<Record<string, unknown>> {
+  if (!deviceId) {
+    throw new Error('Device ID is required to fetch attributes');
+  }
+
+  const headers: Record<string, string> = {};
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+  } catch (sessionError) {
+    console.warn('[Edge] Unable to retrieve Supabase session before device-admin get-attributes', sessionError);
+  }
+
+  const body: Record<string, unknown> = {
+    action: 'get-attributes',
+    getAttributes: {
+      deviceId,
+    },
+  };
+
+  if (options.scope) {
+    (body.getAttributes as Record<string, unknown>).scope = options.scope;
+  }
+  if (Array.isArray(options.keys) && options.keys.length > 0) {
+    (body.getAttributes as Record<string, unknown>).keys = options.keys.map(String);
+  }
+
+  const { data, error } = await supabase.functions.invoke<DeviceAttributesResponse>('device-admin', {
+    method: 'POST',
+    body,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const attributes = data?.attributes ?? {};
+  console.info('[Edge] device-admin attributes fetched', {
+    deviceId,
+    scope: options.scope ?? null,
+    keyCount: attributes ? Object.keys(attributes).length : 0,
+  });
+
+  return attributes ?? {};
 }
 
 interface ShootingActivityResponse {
@@ -263,9 +596,15 @@ export async function fetchShootingActivity(deviceIds: string[], keys?: string[]
     throw error;
   }
 
+  const activity = data?.activity ?? [];
+  const cached = Boolean(data?.cached);
+  console.info('[Edge] shooting-activity fetched', {
+    deviceCount: activity.length,
+    cached,
+  });
   return {
-    activity: data?.activity ?? [],
-    cached: Boolean(data?.cached),
+    activity,
+    cached,
   };
 }
 
@@ -346,9 +685,27 @@ export async function fetchTargetDetails(
   const detailsArray = data?.details;
   const details = Array.isArray(detailsArray) ? detailsArray as TargetDetail[] : [];
 
+  const cached = Boolean(data?.cached);
+  console.info('[Edge] target-details fetched', {
+    supabaseEdgeFunction: 'target-details',
+    backingTables: ['public.user_profiles'],
+    thingsboardInvolved: true,
+    fetchedAt: new Date().toISOString(),
+    detailCount: details.length,
+    cached,
+    sample: details.slice(0, 5).map((detail) => ({
+      deviceId: detail.deviceId,
+      status: detail.status,
+      lastShotTime: detail.lastShotTime,
+      recentShotsCount: detail.recentShotsCount,
+      battery: detail.battery,
+      wifiStrength: detail.wifiStrength,
+    })),
+  });
+
   return {
     details,
-    cached: Boolean(data?.cached),
+    cached,
   };
 }
 
@@ -367,6 +724,7 @@ export interface GameControlDevice {
   lastEvent: string | null;
   lastSeen: number | null;
   gameStatus: string | null;
+  gameId: string | null;
 }
 
 interface GameControlStatusResponse {
@@ -379,17 +737,22 @@ export interface GameControlCommandResult {
   success: boolean;
   warning?: string;
   error?: string;
+  data?: Record<string, unknown> | null;
 }
 
 export interface GameControlCommandResponse {
-  action: 'start' | 'stop';
+  action: 'configure' | 'start' | 'stop' | 'info';
   gameId?: string | null;
+  gameDuration?: number | null;
+  configuredAt?: number;
   startedAt?: number;
   stoppedAt?: number;
+  infoAt?: number;
   deviceIds?: string[];
   successCount?: number;
   failureCount?: number;
   results?: GameControlCommandResult[];
+  warnings?: Array<{ deviceId: string; warning: string }>;
 }
 
 export async function fetchGameControlDevices(): Promise<{ devices: GameControlDevice[]; fetchedAt: number }> {
@@ -415,23 +778,35 @@ export async function fetchGameControlDevices(): Promise<{ devices: GameControlD
 
   const devices = Array.isArray(data?.devices) ? data.devices : [];
 
+  const fetchedAt = Number(data?.fetchedAt ?? Date.now());
+  console.info('[Edge] game-control status fetched', {
+    deviceCount: devices.length,
+    fetchedAt,
+  });
+
   return {
     devices,
-    fetchedAt: Number(data?.fetchedAt ?? Date.now()),
+    fetchedAt,
   };
 }
 
 export async function invokeGameControl(
-  action: 'start' | 'stop',
-  payload: { deviceIds: string[]; gameId?: string | null },
+  action: 'configure' | 'start' | 'stop' | 'info',
+  payload: { deviceIds?: string[]; gameId?: string | null; gameDuration?: number | null },
 ): Promise<GameControlCommandResponse> {
   const body: Record<string, unknown> = {
     action,
-    deviceIds: payload.deviceIds,
   };
+
+  if (Array.isArray(payload.deviceIds)) {
+    body.deviceIds = payload.deviceIds;
+  }
 
   if (payload.gameId) {
     body.gameId = payload.gameId;
+  }
+  if (typeof payload.gameDuration === 'number') {
+    body.gameDuration = payload.gameDuration;
   }
 
   const headers: Record<string, string> = {};
@@ -459,5 +834,167 @@ export async function invokeGameControl(
     throw new Error('No response from game-control function');
   }
 
+  console.info('[Edge] game-control command result', {
+    action,
+    deviceCount: payload.deviceIds?.length ?? 0,
+    successCount: data.successCount ?? null,
+    failureCount: data.failureCount ?? null,
+  });
+
   return data;
+}
+
+// Invokes the ThingsBoard info RPC through game-control so the UI can refresh ambient telemetry without a full status fetch.
+export async function fetchGameControlInfo(
+  deviceIds: string[],
+): Promise<GameControlCommandResponse> {
+  return invokeGameControl('info', { deviceIds });
+}
+
+export interface GamePreset {
+  id: string;
+  name: string;
+  description: string | null;
+  roomId: string | null;
+  roomName: string | null;
+  durationSeconds: number | null;
+  targetIds: string[];
+  settings: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type GamePresetResponse = {
+  id: string;
+  name: string;
+  description: string | null;
+  room_id: string | null;
+  room_name: string | null;
+  duration_seconds: number | null;
+  target_ids: string[];
+  settings: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+const mapGamePreset = (record: GamePresetResponse): GamePreset => ({
+  id: record.id,
+  name: record.name,
+  description: record.description,
+  roomId: record.room_id,
+  roomName: record.room_name,
+  durationSeconds: record.duration_seconds,
+  targetIds: record.target_ids ?? [],
+  settings: record.settings ?? {},
+  createdAt: record.created_at,
+  updatedAt: record.updated_at,
+});
+
+export async function fetchGamePresets(): Promise<GamePreset[]> {
+  const requestPayload = { action: 'list' as const };
+  const requestStartedAt = Date.now();
+  console.info('[Edge] Invoking game-presets list', {
+    payload: requestPayload,
+    at: new Date().toISOString(),
+  });
+  const { data, error, status, statusText } = await supabase.functions.invoke<{ presets: GamePresetResponse[] }>('game-presets', {
+    method: 'POST',
+    body: requestPayload,
+  });
+
+  if (error) {
+    console.error('[Edge] game-presets list failed', {
+      error: error.message,
+      status: error.status,
+      elapsedMs: Date.now() - requestStartedAt,
+    });
+    throw error;
+  }
+
+  const presets = Array.isArray(data?.presets) ? data!.presets.map(mapGamePreset) : [];
+  console.info('[Edge] game-presets list fetched', {
+    fetchedAt: new Date().toISOString(),
+    elapsedMs: Date.now() - requestStartedAt,
+    status,
+    statusText,
+    rawPresetCount: Array.isArray(data?.presets) ? data!.presets.length : null,
+    count: presets.length,
+    sample: presets.slice(0, 3).map((preset) => ({
+      id: preset.id,
+      name: preset.name,
+      targetCount: preset.targetIds.length,
+      durationSeconds: preset.durationSeconds,
+    })),
+  });
+
+  return presets;
+}
+
+export interface SaveGamePresetInput {
+  id?: string;
+  name: string;
+  description?: string | null;
+  roomId?: string | null;
+  roomName?: string | null;
+  durationSeconds?: number | null;
+  targetIds: string[];
+  settings?: Record<string, unknown>;
+}
+
+export async function saveGamePreset(preset: SaveGamePresetInput): Promise<GamePreset> {
+  const requestStartedAt = Date.now();
+  console.info('[Edge] Invoking game-presets save', {
+    presetName: preset.name,
+    targetCount: preset.targetIds.length,
+    includeRoom: Boolean(preset.roomId),
+    at: new Date().toISOString(),
+  });
+  const { data, error } = await supabase.functions.invoke<{ preset: GamePresetResponse }>('game-presets', {
+    method: 'POST',
+    body: {
+      action: 'save',
+      preset: {
+        id: preset.id,
+        name: preset.name,
+        description: preset.description,
+        roomId: preset.roomId,
+        roomName: preset.roomName,
+        durationSeconds: preset.durationSeconds,
+        targetIds: preset.targetIds,
+        settings: preset.settings ?? {},
+      },
+    },
+  });
+
+  if (error) {
+    console.error('[Edge] game-presets save failed', {
+      error: error.message,
+      status: error.status,
+      elapsedMs: Date.now() - requestStartedAt,
+    });
+    throw error;
+  }
+
+  const mapped = mapGamePreset(data!.preset);
+  console.info('[Edge] game-presets saved', {
+    presetId: mapped.id,
+    name: mapped.name,
+    targetCount: mapped.targetIds.length,
+    elapsedMs: Date.now() - requestStartedAt,
+  });
+
+  return mapped;
+}
+
+export async function deleteGamePreset(id: string): Promise<void> {
+  const { error } = await supabase.functions.invoke('game-presets', {
+    method: 'POST',
+    body: { action: 'delete', id },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  console.info('[Edge] game-presets deleted', { id });
 }

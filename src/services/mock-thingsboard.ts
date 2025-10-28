@@ -7,7 +7,7 @@ export interface MockTarget {
   id: string;
   name: string;
   label?: string;
-  status: 'online' | 'offline';
+  status: 'online' | 'standby' | 'offline';
   type?: string;
   roomId?: string | null;
   additionalInfo?: any;
@@ -134,11 +134,11 @@ class MockThingsBoardService {
       deviceId: target.id,
       name: target.name,
       gameStatus: 'idle',
-      wifiStrength: target.status === 'online' ? 85 : 0,
-      ambientLight: target.status === 'online' ? 'good' : 'poor',
+      wifiStrength: (target.status === 'online' || target.status === 'standby') ? 85 : 0,
+      ambientLight: (target.status === 'online' || target.status === 'standby') ? 'good' : 'poor',
       hitCount: 0,
-      lastSeen: target.status === 'online' ? Date.now() : 0,
-      isOnline: target.status === 'online',
+      lastSeen: (target.status === 'online' || target.status === 'standby') ? Date.now() : 0,
+      isOnline: target.status === 'online' || target.status === 'standby',
       hitTimes: []
     };
   }
@@ -212,7 +212,7 @@ class MockThingsBoardService {
   /**
    * Update target status
    */
-  updateTargetStatus(deviceId: string, status: 'online' | 'offline'): void {
+  updateTargetStatus(deviceId: string, status: 'online' | 'standby' | 'offline'): void {
     const target = this.targets.find(t => t.id === deviceId);
     if (target) {
       target.status = status;
@@ -262,4 +262,3 @@ class MockThingsBoardService {
 
 // Export singleton instance
 export const mockThingsBoardService = new MockThingsBoardService();
-

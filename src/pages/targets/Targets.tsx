@@ -47,7 +47,7 @@ const TargetCard: React.FC<{
   const lastShotTime = target.lastShotTime ?? target.lastActivityTime ?? null;
 
   const activityStatus = target.activityStatus ?? 'standby';
-  const isOnline = target.status === 'online';
+  const isOnline = target.status === 'online' || target.status === 'standby';
   const ConnectionIcon = isOnline ? Wifi : WifiOff;
   const connectionColor = !isOnline
     ? 'text-gray-400'
@@ -217,7 +217,7 @@ const TargetsSummary: React.FC<{
   targets: Target[];
   rooms: Room[];
 }> = ({ targets, rooms }) => {
-  const onlineTargets = targets.filter(t => t.status === 'online').length;
+  const onlineTargets = targets.filter(t => t.status === 'online' || t.status === 'standby').length;
   const standbyTargets = targets.filter(t => (t.activityStatus ?? 'standby') === 'standby').length;
   const offlineTargets = targets.filter(t => t.status === 'offline').length;
   const unassignedTargets = targets.filter(t => !t.roomId).length;
@@ -465,7 +465,7 @@ const Targets: React.FC = () => {
     console.log('📊 [VERIFICATION] System Status:', {
       mode: 'LIVE',
       totalTargets: targets.length,
-      onlineTargets: targets.filter(t => t.status === 'online').length,
+      onlineTargets: targets.filter(t => t.status === 'online' || t.status === 'standby').length,
       standbyTargets: standbyTargetsLocal.length,
       offlineTargets: targets.filter(t => t.status === 'offline').length,
       activeShooters: activeTargetsLocal.length,
@@ -622,8 +622,8 @@ const Targets: React.FC = () => {
     const targetsInGroup = groupedTargets[key];
     const sortedTargets = [...targetsInGroup].sort((a, b) => {
       // Primary sort: Online status (online first)
-      const aOnline = a.status === 'online';
-      const bOnline = b.status === 'online';
+      const aOnline = a.status === 'online' || a.status === 'standby';
+      const bOnline = b.status === 'online' || b.status === 'standby';
       
       if (aOnline && !bOnline) return -1; // Online comes first
       if (!aOnline && bOnline) return 1;  // Offline comes after
@@ -706,7 +706,7 @@ const Targets: React.FC = () => {
                           <SelectTrigger className="bg-white border-gray-200 text-brand-dark">
                             <SelectValue placeholder="Select a room" />
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent className="bg-white border border-gray-200 text-brand-dark shadow-md">
                             <SelectItem value="none">No Room</SelectItem>
                             {rooms.map(room => (
                               <SelectItem key={room.id} value={room.id.toString()}>
@@ -768,7 +768,7 @@ const Targets: React.FC = () => {
                   <SelectTrigger className="w-full md:w-48 bg-white border-gray-200 text-brand-dark">
                     <SelectValue placeholder="Filter by room" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="bg-white border border-gray-200 text-brand-dark shadow-md">
                     <SelectItem value="all">All Rooms</SelectItem>
                     <SelectItem value="unassigned">Unassigned</SelectItem>
                     {rooms.map(room => (
@@ -896,7 +896,7 @@ const Targets: React.FC = () => {
                         <div className="flex items-center gap-2 text-xs text-brand-dark/70">
                           <div className="flex items-center gap-1">
                             <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span>{roomTargets.filter(t => t.status === 'online').length} online</span>
+                            <span>{roomTargets.filter(t => t.status === 'online' || t.status === 'standby').length} online</span>
                           </div>
                           <div className="flex items-center gap-1">
                             <div className="w-2 h-2 bg-gray-400 rounded-full"></div>

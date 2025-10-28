@@ -1,0 +1,187 @@
+import type { NormalizedGameDevice } from '@/hooks/useGameDevices';
+import type { SplitRecord, TransitionRecord } from '@/hooks/useGameTelemetry';
+import type {
+  SessionSplit,
+  SessionTransition,
+  SessionHitRecord,
+  GameHistory,
+} from '@/services/device-game-flow';
+
+export interface LiveSessionSummary {
+  gameId: string;
+  gameName: string;
+  startedAt: number;
+  stoppedAt: number;
+  durationSeconds: number;
+  totalHits: number;
+  averageHitInterval: number;
+  deviceStats: GameHistory['targetStats'];
+  crossTargetStats: GameHistory['crossTargetStats'];
+  splits: SessionSplit[];
+  transitions: SessionTransition[];
+  targets: Array<{ deviceId: string; deviceName: string }>;
+  hitHistory: SessionHitRecord[];
+  historyEntry: GameHistory;
+}
+
+export interface BuildLiveSessionSummaryArgs {
+  gameId: string;
+  gameName?: string | null;
+  startTime: number;
+  stopTime: number;
+  hitHistory: SessionHitRecord[];
+  splitRecords: SplitRecord[];
+  transitionRecords: TransitionRecord[];
+  devices: NormalizedGameDevice[];
+  roomId?: string | null;
+  roomName?: string | null;
+  desiredDurationSeconds?: number | null;
+  presetId?: string | null;
+}
+
+export function buildLiveSessionSummary({
+  gameId,
+  gameName,
+  startTime,
+  stopTime,
+  hitHistory,
+  splitRecords,
+  transitionRecords,
+  devices,
+  roomId = null,
+  roomName = null,
+  desiredDurationSeconds = null,
+  presetId = null,
+}: BuildLiveSessionSummaryArgs): LiveSessionSummary {
+  const safeStart = Number.isFinite(startTime) ? startTime : stopTime;
+  const durationMs = Math.max(0, stopTime - safeStart);
+  const rawDurationSeconds = durationMs / 1000;
+  const durationSeconds = Number(rawDurationSeconds.toFixed(2));
+  const deviceMap = new Map(devices.map((device) => [device.deviceId, device]));
+  const deviceIdSet = new Set(devices.map((device) => device.deviceId));
+
+  const sortedHits = [...hitHistory]
+    .filter((hit) => deviceIdSet.size === 0 || deviceIdSet.has(hit.deviceId))
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const deviceStats = devices.map((device) => {
+    const hitsForDevice = sortedHits.filter((hit) => hit.deviceId === device.deviceId);
+    const hitTimes = hitsForDevice.map((hit) => hit.timestamp);
+    const sortedHitTimes = [...hitTimes].sort((a, b) => a - b);
+    const intervals = sortedHitTimes.slice(1).map((ts, idx) => (ts - sortedHitTimes[idx]) / 1000);
+
+    return {
+      deviceId: device.deviceId,
+      deviceName: device.name ?? device.deviceId,
+      hitCount: hitsForDevice.length,
+      hitTimes: sortedHitTimes,
+      averageInterval: intervals.length
+        ? Number((intervals.reduce((sum, value) => sum + value, 0) / intervals.length).toFixed(2))
+        : 0,
+      firstHitTime: sortedHitTimes[0] ?? 0,
+      lastHitTime: sortedHitTimes[sortedHitTimes.length - 1] ?? 0,
+    };
+  });
+
+  const totalHits = deviceStats.reduce((sum, stat) => sum + stat.hitCount, 0);
+  const overallIntervals = sortedHits.slice(1).map((hit, idx) => (hit.timestamp - sortedHits[idx].timestamp) / 1000);
+  const averageHitInterval = overallIntervals.length
+    ? Number((overallIntervals.reduce((sum, value) => sum + value, 0) / overallIntervals.length).toFixed(2))
+    : 0;
+
+  const switchTimes: number[] = [];
+  for (let i = 1; i < sortedHits.length; i++) {
+    if (sortedHits[i].deviceId !== sortedHits[i - 1].deviceId) {
+      const switchSpan = (sortedHits[i].timestamp - sortedHits[i - 1].timestamp) / 1000;
+      switchTimes.push(Number(switchSpan.toFixed(2)));
+    }
+  }
+
+  const crossTargetStats = {
+    totalSwitches: switchTimes.length,
+    averageSwitchTime: switchTimes.length
+      ? Number((switchTimes.reduce((sum, value) => sum + value, 0) / switchTimes.length).toFixed(2))
+      : 0,
+    switchTimes,
+  };
+
+  const splits: SessionSplit[] = splitRecords
+    .filter((split) => deviceIdSet.has(split.deviceId))
+    .map((split) => ({
+      deviceId: split.deviceId,
+      deviceName: split.deviceName ?? deviceMap.get(split.deviceId)?.name ?? split.deviceId,
+      splitNumber: split.splitNumber,
+      time: typeof split.time === 'number' ? split.time : Number(split.time) || 0,
+      timestamp: typeof split.timestamp === 'number' ? split.timestamp : null,
+    }))
+    .sort((a, b) => a.splitNumber - b.splitNumber);
+
+  const transitions: SessionTransition[] = transitionRecords
+    .filter((transition) => deviceIdSet.has(transition.fromDevice) || deviceIdSet.has(transition.toDevice))
+    .map((transition) => ({
+      fromDevice: transition.fromDeviceName ?? transition.fromDevice,
+      toDevice: transition.toDeviceName ?? transition.toDevice,
+      transitionNumber: transition.transitionNumber,
+      time: typeof transition.time === 'number' ? transition.time : Number(transition.time) || 0,
+    }))
+    .sort((a, b) => a.transitionNumber - b.transitionNumber);
+
+  const targets = devices.map((device) => ({
+    deviceId: device.deviceId,
+    deviceName: device.name ?? device.deviceId,
+  }));
+
+  const historyEntry: GameHistory = {
+    gameId,
+    gameName: gameName ?? `Game ${new Date(safeStart).toLocaleTimeString()}`,
+    duration: Math.max(1, Math.ceil(rawDurationSeconds / 60)),
+    startTime: safeStart,
+    endTime: stopTime,
+    score: totalHits,
+    deviceResults: deviceStats.map(({ deviceId, deviceName, hitCount }) => ({
+      deviceId,
+      deviceName,
+      hitCount,
+    })),
+    totalHits,
+    actualDuration: durationSeconds,
+    averageHitInterval,
+    targetStats: deviceStats,
+    crossTargetStats,
+  };
+  historyEntry.roomId = roomId ?? null;
+  historyEntry.roomName = roomName ?? null;
+  const normalizedDesiredDuration =
+    typeof desiredDurationSeconds === 'number' && Number.isFinite(desiredDurationSeconds) && desiredDurationSeconds > 0
+      ? Math.round(desiredDurationSeconds)
+      : null;
+  historyEntry.desiredDurationSeconds = normalizedDesiredDuration;
+  historyEntry.presetId = presetId ?? null;
+  historyEntry.targetDeviceIds = targets.map((target) => target.deviceId);
+  historyEntry.targetDeviceNames = targets.map((target) => target.deviceName);
+  historyEntry.splits = splits;
+  historyEntry.transitions = transitions;
+  historyEntry.hitHistory = sortedHits;
+
+  return {
+    gameId: historyEntry.gameId,
+    gameName: historyEntry.gameName,
+    startedAt: historyEntry.startTime,
+    stoppedAt: historyEntry.endTime,
+    durationSeconds,
+    totalHits,
+    averageHitInterval,
+    deviceStats,
+    crossTargetStats: historyEntry.crossTargetStats,
+    splits,
+    transitions,
+    targets,
+    hitHistory: historyEntry.hitHistory ?? [],
+    roomId: historyEntry.roomId ?? null,
+    roomName: historyEntry.roomName ?? null,
+    desiredDurationSeconds: historyEntry.desiredDurationSeconds ?? null,
+    targetDeviceIds: historyEntry.targetDeviceIds ?? targets.map((target) => target.deviceId),
+    presetId: historyEntry.presetId ?? null,
+    historyEntry,
+  };
+}

@@ -1,18 +1,17 @@
 import React from 'react';
-import { format } from 'date-fns';
-import { CalendarIcon, Target, Clock, Trophy, Play } from 'lucide-react';
+import { Target, Play } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import type { Scenario } from '@/types/game';
+import type { GameTemplate } from '@/types/game';
 
 interface ScenarioCardProps {
-  scenario: Scenario;
+  scenario: GameTemplate;
   onStart?: () => void;
 }
 
 const ScenarioCard: React.FC<ScenarioCardProps> = ({ scenario, onStart }) => {
-  const getDifficultyColor = (difficulty: string) => {
+  const getDifficultyColor = (difficulty: string | null) => {
     switch (difficulty) {
       case 'beginner':
         return 'bg-green-100 text-green-800 border-green-200';
@@ -38,9 +37,9 @@ const ScenarioCard: React.FC<ScenarioCardProps> = ({ scenario, onStart }) => {
                 {scenario.name}
               </CardTitle>
               <div className="flex items-center gap-1.5 md:gap-2 mt-1">
-                <Badge 
-                  variant="outline" 
-                  className={`border text-xs ${getDifficultyColor(scenario.difficulty || 'unknown')} font-body`}
+                <Badge
+                  variant="outline"
+                  className={`border text-xs ${getDifficultyColor(scenario.difficulty)} font-body`}
                 >
                   {scenario.difficulty || 'Unknown'}
                 </Badge>
@@ -55,7 +54,7 @@ const ScenarioCard: React.FC<ScenarioCardProps> = ({ scenario, onStart }) => {
       
       <CardContent className="space-y-3 md:space-y-4 p-3 md:p-4">
         {/* Stats */}
-        <div className="grid grid-cols-2 gap-2 md:gap-3 lg:gap-4">
+        <div className="grid grid-cols-3 gap-2 md:gap-3 lg:gap-4">
           <div className="text-center p-2 md:p-3 bg-brand-secondary/5 rounded-lg">
             <div className="text-lg md:text-xl lg:text-2xl font-heading text-brand-dark">
               {scenario.targetCount || 0}
@@ -64,9 +63,15 @@ const ScenarioCard: React.FC<ScenarioCardProps> = ({ scenario, onStart }) => {
           </div>
           <div className="text-center p-2 md:p-3 bg-brand-secondary/5 rounded-lg">
             <div className="text-lg md:text-xl lg:text-2xl font-heading text-brand-dark">
-              {scenario.duration || 0}
+              {scenario.shotsPerTarget || 0}
             </div>
-            <div className="text-xs md:text-sm text-brand-dark/70 font-body">Minutes</div>
+            <div className="text-xs md:text-sm text-brand-dark/70 font-body">Shots/Target</div>
+          </div>
+          <div className="text-center p-2 md:p-3 bg-brand-secondary/5 rounded-lg">
+            <div className="text-lg md:text-xl lg:text-2xl font-heading text-brand-dark">
+              {Math.round((scenario.timeLimitMs || 0) / 1000)}
+            </div>
+            <div className="text-xs md:text-sm text-brand-dark/70 font-body">Seconds</div>
           </div>
         </div>
         

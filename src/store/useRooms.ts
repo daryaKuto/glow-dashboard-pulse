@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import { supabaseRoomsService, type UserRoom, type CreateRoomData } from '@/services/supabase-rooms';
 import { fetchRoomsData } from '@/lib/edge';
-import type { Target } from '@/store/useTargets';
+import { useTargets, type Target } from '@/store/useTargets';
 import { toast } from "@/components/ui/sonner";
 
 export type Room = {
@@ -73,22 +73,14 @@ export const useRooms = create<RoomsState>((set, get) => ({
   
   createRoom: async (roomData: CreateRoomData) => {
     try {
-      const newUserRoom = await supabaseRoomsService.createRoom(roomData);
-      
-      const newRoom: Room = {
-        id: newUserRoom.id,
-        name: newUserRoom.name,
-        order: newUserRoom.order_index,
-        targetCount: newUserRoom.target_count || 0,
-        icon: newUserRoom.icon,
-        room_type: newUserRoom.room_type
-      };
-      
-      // Add the new room to state
-      set(state => ({
-        rooms: [...state.rooms, newRoom]
-      }));
-      
+      await supabaseRoomsService.createRoom(roomData);
+
+      await get().fetchRooms();
+
+      const targetsStore = useTargets.getState();
+      targetsStore.clearCache();
+      await targetsStore.refresh();
+
       toast.success('Room created successfully');
     } catch (error) {
       console.error('Error creating room:', error);
@@ -106,6 +98,14 @@ export const useRooms = create<RoomsState>((set, get) => ({
           room.id === id ? { ...room, ...updates } : room
         )
       }));
+
+      const targetsStore = useTargets.getState();
+      targetsStore.clearCache();
+      try {
+        await targetsStore.refresh();
+      } catch (error) {
+        console.warn('⚠️ useRooms: Failed to refresh targets after room update', error);
+      }
       
       toast.success('Room updated successfully');
     } catch (error) {
@@ -122,6 +122,14 @@ export const useRooms = create<RoomsState>((set, get) => ({
       set(state => ({
         rooms: state.rooms.filter(room => room.id !== id)
       }));
+
+      const targetsStore = useTargets.getState();
+      targetsStore.clearCache();
+      try {
+        await targetsStore.refresh();
+      } catch (error) {
+        console.warn('⚠️ useRooms: Failed to refresh targets after room deletion', error);
+      }
       
       toast.success('Room deleted successfully');
     } catch (error) {
@@ -164,6 +172,13 @@ export const useRooms = create<RoomsState>((set, get) => ({
       }
       
       await get().fetchRooms();
+      const targetsStore = useTargets.getState();
+      targetsStore.clearCache();
+      try {
+        await targetsStore.refresh();
+      } catch (error) {
+        console.warn('⚠️ useRooms: Failed to refresh targets after assignment', error);
+      }
       
       toast.success(`Target ${roomId === null ? 'unassigned' : 'assigned'} successfully`);
     } catch (error) {
@@ -186,6 +201,13 @@ export const useRooms = create<RoomsState>((set, get) => ({
       
       // Single refresh operation for all assignments
       await get().fetchRooms();
+      const targetsStore = useTargets.getState();
+      targetsStore.clearCache();
+      try {
+        await targetsStore.refresh();
+      } catch (error) {
+        console.warn('⚠️ useRooms: Failed to refresh targets after batch assignment', error);
+      }
       
       toast.success(`${targetIds.length} target${targetIds.length > 1 ? 's' : ''} ${roomId === null ? 'unassigned' : 'assigned'} successfully`);
     } catch (error) {

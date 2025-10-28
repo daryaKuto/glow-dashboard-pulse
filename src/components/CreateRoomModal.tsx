@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Home, Sofa, Utensils, ChefHat, Bed, Briefcase, Building, Car, TreePine, Gamepad2, Dumbbell, Music, BookOpen, Target } from 'lucide-react';
+import type { Target as TargetType } from '@/store/useTargets';
 
 interface CreateRoomModalProps {
   isOpen: boolean;
@@ -19,7 +20,8 @@ interface CreateRoomModalProps {
   availableTargets: Array<{
     id: string;
     name: string;
-    status: string;
+    status: TargetType['status'] | null | undefined;
+    activityStatus?: TargetType['activityStatus'] | null;
   }>;
 }
 
@@ -93,6 +95,39 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   };
 
   const selectedIcon = roomIcons.find(icon => icon.value === roomIcon);
+
+  const resolveStatusDisplay = useCallback(
+    (status: TargetType['status'] | null | undefined, activityStatus?: TargetType['activityStatus'] | null) => {
+      const normalizedStatus = status ?? 'offline';
+
+      if (normalizedStatus === 'offline') {
+        return {
+          label: 'Offline',
+          className: 'bg-gray-100 text-gray-800',
+        };
+      }
+
+      if (activityStatus === 'active') {
+        return {
+          label: 'Active',
+          className: 'bg-green-100 text-green-800',
+        };
+      }
+
+      if (activityStatus === 'recent') {
+        return {
+          label: 'Recently Active',
+          className: 'bg-blue-100 text-blue-800',
+        };
+      }
+
+      return {
+        label: 'Standby',
+        className: 'bg-amber-100 text-amber-700',
+      };
+    },
+    [],
+  );
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -190,8 +225,10 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-3 bg-white">
-                {availableTargets.map((target) => (
-                  <div
+                {availableTargets.map((target) => {
+                  const statusDisplay = resolveStatusDisplay(target.status, target.activityStatus);
+                  return (
+                    <div
                     key={target.id}
                     className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
                       selectedTargets.includes(target.id)
@@ -207,14 +244,10 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                       <div>
                         <p className="font-medium text-brand-dark text-sm">{target.name}</p>
                         <Badge 
-                          variant={target.status === 'online' ? 'default' : 'secondary'}
-                          className={`text-xs ${
-                            target.status === 'online' 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-gray-100 text-gray-800'
-                          }`}
+                          variant="outline"
+                          className={`text-xs ${statusDisplay.className}`}
                         >
-                          {target.status}
+                          {statusDisplay.label}
                         </Badge>
                       </div>
                     </div>
@@ -227,8 +260,9 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                         <div className="w-2 h-2 bg-white rounded-full" />
                       )}
                     </div>
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
             

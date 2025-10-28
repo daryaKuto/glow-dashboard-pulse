@@ -28,11 +28,6 @@ const Leaderboard: React.FC = () => {
   const [timeframe, setTimeframe] = useState('week');
   const [activeTab, setActiveTab] = useState('score');
 
-  // Get token from localStorage
-  const token = localStorage.getItem('tb_access');
-  // Instead, get token from session or context (implement as needed)
-  // REMOVE: useState with mock leaderboard data
-
   useEffect(() => {
     // Fetch leaderboard data based on timeframe
     console.log('Fetching leaderboard data for timeframe:', timeframe);

@@ -42,24 +42,17 @@ class CountdownService {
     };
 
     if (config.useMockData) {
-      // Mock implementation - simulate what would be sent to ThingsBoard
       console.log(`[Mock Countdown] Signal: ${signal}`, payload);
-      
-      // Simulate the API call structure
       this.mockCountdownAPI(payload);
-    } else {
-      // Real ThingsBoard implementation
-      try {
-        const thingsBoardService = (await import('@/services/thingsboard')).default;
-        
-        // Send countdown signal to all target devices
-        await this.sendToThingsBoard(thingsBoardService, payload);
-        
-        console.log(`[Live Countdown] Signal sent: ${signal}`, payload);
-      } catch (error) {
-        console.error('Failed to send countdown signal to ThingsBoard:', error);
-        throw error;
-      }
+      return;
+    }
+
+    try {
+      await this.sendViaEdge(payload);
+      console.log(`[Live Countdown] Signal sent: ${signal}`, payload);
+    } catch (error) {
+      console.error('Failed to send countdown signal:', error);
+      throw error;
     }
   }
 
@@ -95,51 +88,54 @@ class CountdownService {
   /**
    * Real ThingsBoard implementation structure
    */
-  private async sendToThingsBoard(thingsBoardService: any, payload: CountdownSignalPayload): Promise<void> {
-    // Structure for real ThingsBoard integration
-    
-    // 1. Send telemetry to each target device
-    const telemetryPromises = payload.targetDeviceIds.map(async (deviceId) => {
-      const telemetryData = {
-        // Countdown control signals
-        countdown_signal: payload.signal,
-        countdown_timestamp: payload.timestamp,
-        session_id: payload.sessionId,
-        scenario_id: payload.scenarioId,
-        
-        // Beep configuration
-        beep_frequency: this.getBeepFrequency(payload.signal),
-        beep_duration: this.getBeepDuration(payload.signal),
-        beep_enabled: true,
-        
-        // Scenario context
-        room_id: payload.roomId,
-        user_id: payload.userId,
-        target_count: payload.targetDeviceIds.length
-      };
+  private async sendViaEdge(payload: CountdownSignalPayload): Promise<void> {
+    const telemetryData = {
+      countdown_signal: payload.signal,
+      countdown_timestamp: payload.timestamp,
+      session_id: payload.sessionId,
+      scenario_id: payload.scenarioId,
+      beep_frequency: this.getBeepFrequency(payload.signal),
+      beep_duration: this.getBeepDuration(payload.signal),
+      beep_enabled: true,
+      room_id: payload.roomId,
+      user_id: payload.userId,
+      target_count: payload.targetDeviceIds.length,
+    };
 
-      return thingsBoardService.sendTelemetry(deviceId, telemetryData);
+    const { error: telemetryError } = await supabase.functions.invoke('device-command', {
+      body: {
+        action: 'send-telemetry',
+        sendTelemetry: {
+          deviceIds: payload.targetDeviceIds,
+          telemetry: telemetryData,
+        },
+      },
     });
 
-    // 2. Send scenario start command if this is the final GO signal
+    if (telemetryError) {
+      throw new Error(telemetryError.message ?? 'Failed to send countdown telemetry');
+    }
+
     if (payload.signal === 'go') {
-      const scenarioStartCommand = {
-        method: 'startScenario',
-        params: {
-          sessionId: payload.sessionId,
-          scenarioId: payload.scenarioId,
-          startTime: payload.timestamp,
-          targetDeviceIds: payload.targetDeviceIds
-        }
-      };
+      const { error: rpcError } = await supabase.functions.invoke('device-command', {
+        body: {
+          action: 'send-rpc-batch',
+          rpcBatch: {
+            deviceIds: payload.targetDeviceIds,
+            method: 'startScenario',
+            params: {
+              sessionId: payload.sessionId,
+              scenarioId: payload.scenarioId,
+              startTime: payload.timestamp,
+              targetDeviceIds: payload.targetDeviceIds,
+            },
+          },
+        },
+      });
 
-      const commandPromises = payload.targetDeviceIds.map(deviceId =>
-        thingsBoardService.sendCommand(deviceId, scenarioStartCommand)
-      );
-
-      await Promise.all([...telemetryPromises, ...commandPromises]);
-    } else {
-      await Promise.all(telemetryPromises);
+      if (rpcError) {
+        throw new Error(rpcError.message ?? 'Failed to send startScenario command');
+      }
     }
   }
 
@@ -188,28 +184,30 @@ class CountdownService {
 
     if (config.useMockData) {
       console.log('[Mock] Countdown cancelled', payload);
-    } else {
-      try {
-        const thingsBoardService = (await import('@/services/thingsboard')).default;
-        
-        // Send cancel signal to all devices
-        const cancelCommand = {
-          method: 'cancelCountdown',
-          params: {
-            sessionId: config.sessionId,
-            timestamp: payload.timestamp
-          }
-        };
+      return;
+    }
 
-        await Promise.all(
-          config.targetDeviceIds.map(deviceId =>
-            thingsBoardService.sendCommand(deviceId, cancelCommand)
-          )
-        );
-      } catch (error) {
-        console.error('Failed to cancel countdown:', error);
-        throw error;
+    try {
+      const { error: rpcError } = await supabase.functions.invoke('device-command', {
+        body: {
+          action: 'send-rpc-batch',
+          rpcBatch: {
+            deviceIds: config.targetDeviceIds,
+            method: 'cancelCountdown',
+            params: {
+              sessionId: config.sessionId,
+              timestamp: payload.timestamp,
+            },
+          },
+        },
+      });
+
+      if (rpcError) {
+        throw new Error(rpcError.message ?? 'Failed to cancel countdown');
       }
+    } catch (error) {
+      console.error('Failed to cancel countdown:', error);
+      throw error;
     }
   }
 }
@@ -217,4 +215,4 @@ class CountdownService {
 // Export singleton instance
 export const countdownService = new CountdownService();
 
-
+import { supabase } from '@/integrations/supabase/client';

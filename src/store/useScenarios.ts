@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import API from '@/lib/api';
-import { toast } from "@/components/ui/sonner";
-import type { Scenario } from '@/types/game';
+import type { GameTemplate } from '@/types/game';
 
 export type Player = {
   userId: string;
@@ -20,17 +19,17 @@ export type ScenarioHistory = {
 };
 
 interface ScenariosState {
-  scenarios: Scenario[];
+  scenarios: GameTemplate[];
   scenarioHistory: ScenarioHistory[];
   currentScenario: ScenarioHistory | null;
   players: Player[];
   isLoading: boolean;
   isActive: boolean;
   error: string | null;
-  fetchScenarios: (token: string) => Promise<void>;
-  selectScenario: (scenarioId: number, includedRoomIds: number[], token: string) => Promise<ScenarioHistory | null>;
-  endScenario: (id: number, token: string) => Promise<void>;
-  createInvite: (scenarioId: number, token: string) => Promise<string | null>;
+  fetchScenarios: () => Promise<void>;
+  selectScenario: (scenarioId: string, includedRoomIds: string[]) => Promise<ScenarioHistory | null>;
+  endScenario: (id: number) => Promise<void>;
+  createInvite: (scenarioId: string) => Promise<string | null>;
   updatePlayerScore: (userId: string, hits: number, accuracy: number) => void;
   setPlayers: (players: Player[]) => void;
   clearScenario: () => void;
@@ -46,34 +45,35 @@ export const useScenarios = create<ScenariosState>((set, get) => ({
   isActive: false,
   error: null,
 
-  fetchScenarios: async (token: string) => {
+  fetchScenarios: async () => {
+    set({ isLoading: true, error: null });
     try {
-      console.log('Fetching scenarios with token:', token);
       const scenarios = await API.listScenarios();
-      console.log('Scenarios received:', scenarios);
-      set({ 
-        scenarios: scenarios.map(s => ({
-          id: parseInt(s.id),
-          name: s.name,
-          targetCount: s.targetCount,
-        })) as Scenario[] 
+      set({
+        scenarios,
+        isLoading: false,
+        error: null,
       });
     } catch (error) {
       console.error('Error fetching scenarios:', error);
-      // toast.error('Failed to fetch scenarios'); // Disabled notifications
+      set({
+        scenarios: [],
+        isLoading: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch scenarios',
+      });
     }
   },
 
-  selectScenario: async (scenarioId: number, includedRoomIds: number[], token: string) => {
+  selectScenario: async (_scenarioId: string, _includedRoomIds: string[]) => {
     // TODO: Implement scenario selection logic
     return null;
   },
 
-  endScenario: async (id: number, token: string) => {
+  endScenario: async (id: number) => {
     // TODO: Implement scenario end logic
   },
 
-  createInvite: async (scenarioId: number, token: string) => {
+  createInvite: async (scenarioId: number) => {
     // TODO: Implement invite creation for scenarios
     return null;
   },

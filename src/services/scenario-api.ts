@@ -1,9 +1,9 @@
 /**
- * ThingsBoard Scenario API Service
- * Handles all scenario-related API communications with ThingsBoard
+ * Scenario API abstraction that proxies all device interactions through
+ * Supabase edge functions so ThingsBoard credentials stay server-side.
  */
 
-import thingsBoardService from './thingsboard';
+import { supabase } from '@/integrations/supabase/client';
 import type {
   ScenarioSession,
   ScenarioBeepEvent,
@@ -18,6 +18,36 @@ import type {
 import { SCENARIO_TELEMETRY_KEYS } from '../types/scenario-data';
 
 class ScenarioApiService {
+  private sessions: Map<string, ScenarioSession> = new Map();
+  private sessionHits: Map<string, ScenarioHitEvent[]> = new Map();
+
+  private async invokeScenarioControl(payload: Record<string, unknown>): Promise<any> {
+    try {
+      const { data, error } = await supabase.functions.invoke('scenario-control', {
+        body: payload,
+      });
+
+      if (error) {
+        throw new Error(error.message ?? 'Scenario control invocation failed');
+      }
+
+      return data;
+    } catch (error) {
+      console.error('[ScenarioApi] scenario-control invocation failed', { payload, error });
+      throw error;
+    }
+  }
+
+  private recordHitEvent(sessionId: string, event: ScenarioHitEvent): void {
+    const existing = this.sessionHits.get(sessionId) ?? [];
+    existing.push(event);
+    this.sessionHits.set(sessionId, existing);
+  }
+
+  private getSessionHits(sessionId: string): ScenarioHitEvent[] {
+    return [...(this.sessionHits.get(sessionId) ?? [])];
+  }
+
   
   /**
    * Start a new scenario session
@@ -35,16 +65,18 @@ class ScenarioApiService {
       status: 'active'
     };
 
-    // Send session start telemetry to all participating targets
-    for (const deviceId of payload.targetDeviceIds) {
-      await this.sendSessionTelemetry(deviceId, {
-        [SCENARIO_TELEMETRY_KEYS.SESSION_ID]: payload.sessionId,
-        [SCENARIO_TELEMETRY_KEYS.SESSION_STATUS]: 'active',
-        [SCENARIO_TELEMETRY_KEYS.SESSION_START]: payload.startTime,
-        [SCENARIO_TELEMETRY_KEYS.GAME_NAME]: payload.scenarioConfig.id,
-        [SCENARIO_TELEMETRY_KEYS.GAME_ID]: payload.sessionId
-      });
-    }
+    await this.invokeScenarioControl({
+      action: 'start-session',
+      session: {
+        sessionId: session.sessionId,
+        scenarioId: session.scenarioId,
+        startTime: session.startTime,
+        targetDeviceIds: session.targetDeviceIds,
+      },
+    });
+
+    this.sessions.set(session.sessionId, session);
+    this.sessionHits.set(session.sessionId, []);
 
     return session;
   }
@@ -63,35 +95,19 @@ class ScenarioApiService {
       targetNumber: payload.beepSequence // Simplified for now
     };
 
-    // Send beep command via ThingsBoard RPC
-    try {
-      const rpcResponse = await thingsBoardService.sendRpcCommand(
-        payload.targetDeviceId,
-        'beep',
-        {
-          type: payload.beepType,
-          sequence: payload.beepSequence,
-          sessionId: payload.sessionId,
-          responseWindow: payload.expectedResponseWindow,
-          timestamp: payload.timestamp
-        }
-      );
+    await this.invokeScenarioControl({
+      action: 'send-beep',
+      command: {
+        sessionId: payload.sessionId,
+        targetDeviceId: payload.targetDeviceId,
+        beepType: payload.beepType,
+        beepSequence: payload.beepSequence,
+        timestamp: payload.timestamp,
+        expectedResponseWindow: payload.expectedResponseWindow,
+      },
+    });
 
-      // Also send telemetry for tracking
-      await this.sendSessionTelemetry(payload.targetDeviceId, {
-        [SCENARIO_TELEMETRY_KEYS.BEEP_SENT]: payload.timestamp,
-        [SCENARIO_TELEMETRY_KEYS.BEEP_TYPE]: payload.beepType,
-        [SCENARIO_TELEMETRY_KEYS.BEEP_SEQUENCE]: payload.beepSequence,
-        [SCENARIO_TELEMETRY_KEYS.BEEP_TS]: payload.timestamp // Legacy compatibility
-      });
-
-      console.log(`Beep sent to ${payload.targetDeviceId}:`, rpcResponse);
-      return beepEvent;
-
-    } catch (error) {
-      console.error('Failed to send beep command:', error);
-      throw error;
-    }
+    return beepEvent;
   }
 
   /**
@@ -123,8 +139,11 @@ class ScenarioApiService {
       [SCENARIO_TELEMETRY_KEYS.SHOT_NUMBER]: payload.shotNumber,
       [SCENARIO_TELEMETRY_KEYS.HIT_TS]: payload.hitTimestamp, // Legacy compatibility
       [SCENARIO_TELEMETRY_KEYS.HITS]: payload.hitSequence, // Legacy compatibility
-      [SCENARIO_TELEMETRY_KEYS.EVENT]: 'hit' // Legacy compatibility
+      [SCENARIO_TELEMETRY_KEYS.EVENT]: 'hit',
+      [SCENARIO_TELEMETRY_KEYS.SESSION_ID]: payload.sessionId,
     });
+
+    this.recordHitEvent(payload.sessionId, hitEvent);
 
     return hitEvent;
   }
@@ -159,16 +178,28 @@ class ScenarioApiService {
     };
 
     // Send final results telemetry to all targets
-    for (const deviceId of session.targetDeviceIds) {
-      await this.sendSessionTelemetry(deviceId, {
-        [SCENARIO_TELEMETRY_KEYS.SESSION_STATUS]: payload.reason,
-        [SCENARIO_TELEMETRY_KEYS.SESSION_END]: payload.endTime,
-        [SCENARIO_TELEMETRY_KEYS.SCENARIO_SCORE]: results.score,
-        [SCENARIO_TELEMETRY_KEYS.SCENARIO_ACCURACY]: results.accuracy,
-        [SCENARIO_TELEMETRY_KEYS.TOTAL_HITS]: results.totalHits,
-        [SCENARIO_TELEMETRY_KEYS.AVERAGE_REACTION]: results.averageReactionTime
-      });
-    }
+    await this.invokeScenarioControl({
+      action: 'end-session',
+      session: {
+        sessionId: payload.sessionId,
+        endTime: payload.endTime,
+        reason: payload.reason,
+        targetDeviceIds: session.targetDeviceIds,
+        results: {
+          score: results.score,
+          accuracy: results.accuracy,
+          totalHits: results.totalHits,
+          averageReactionTime: results.averageReactionTime,
+        },
+      },
+    });
+
+    this.sessions.set(payload.sessionId, {
+      ...session,
+      status: payload.reason === 'completed' ? 'completed' : payload.reason === 'user_stopped' ? 'stopped' : 'failed',
+      completedAt: payload.endTime,
+      endTime: payload.endTime,
+    });
 
     return results;
   }
@@ -248,9 +279,15 @@ class ScenarioApiService {
   // Private helper methods
   private async sendSessionTelemetry(deviceId: string, data: Record<string, any>): Promise<void> {
     try {
-      await thingsBoardService.sendTelemetry(deviceId, data);
+      await this.invokeScenarioControl({
+        action: 'send-telemetry',
+        telemetryPayload: {
+          deviceId,
+          telemetry: data,
+        },
+      });
     } catch (error) {
-      console.error(`Failed to send telemetry to ${deviceId}:`, error);
+      console.warn('[ScenarioApi] Failed to send session telemetry', { deviceId, error });
     }
   }
 
@@ -260,18 +297,15 @@ class ScenarioApiService {
   }
 
   private getSessionStartTime(sessionId: string): number {
-    // TODO: Implement session start time lookup
-    return Date.now() - 10000; // Placeholder
+    return this.sessions.get(sessionId)?.startTime ?? Date.now();
   }
 
   private async getSessionHitEvents(sessionId: string): Promise<ScenarioHitEvent[]> {
-    // TODO: Implement hit events retrieval from ThingsBoard
-    return []; // Placeholder
+    return this.getSessionHits(sessionId);
   }
 
   private async getSessionData(sessionId: string): Promise<ScenarioSession | null> {
-    // TODO: Implement session data retrieval
-    return null; // Placeholder
+    return this.sessions.get(sessionId) ?? null;
   }
 
   private calculateAverageReactionTime(hitEvents: ScenarioHitEvent[]): number {
@@ -291,8 +325,36 @@ class ScenarioApiService {
   }
 
   private async calculateTargetResults(sessionId: string, hitEvents: ScenarioHitEvent[]) {
-    // TODO: Implement per-target result calculation
-    return [];
+    if (hitEvents.length === 0) {
+      return [];
+    }
+
+    const byTarget = new Map<string, ScenarioHitEvent[]>();
+    hitEvents.forEach((event) => {
+      const events = byTarget.get(event.targetDeviceId) ?? [];
+      events.push(event);
+      byTarget.set(event.targetDeviceId, events);
+    });
+
+    let targetNumber = 1;
+    return Array.from(byTarget.entries()).map(([deviceId, events]) => {
+      const reactionTimes = events.map((event) => event.reactionTime);
+      const averageReactionTime = reactionTimes.length > 0
+        ? reactionTimes.reduce((sum, value) => sum + value, 0) / reactionTimes.length
+        : 0;
+
+      return {
+        targetDeviceId: deviceId,
+        targetNumber: targetNumber++,
+        hitsReceived: events.length,
+        expectedHits: events.length,
+        accuracy: 100,
+        reactionTimes,
+        averageReactionTime,
+        hitSequence: events.map((event) => event.hitSequence),
+        correctSequence: true,
+      };
+    });
   }
 
   private calculateScore(hitEvents: ScenarioHitEvent[], session: ScenarioSession): number {

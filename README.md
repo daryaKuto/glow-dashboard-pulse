@@ -2,6 +2,35 @@
 
 A modern React dashboard application for managing shooting range scenarios, targets, and rooms with real-time telemetry integration via ThingsBoard IoT platform.
 
+## 🔄 Telemetry Strategy
+
+- **Dashboards & rooms** refresh from Supabase edge caches on a ≤10 s SLA using adaptive polling with exponential backoff.
+- **Live game sessions** target a ≤1 s SLA: the client upgrades to a dedicated Supabase `device-telemetry` edge WebSocket bridge during active play and falls back to polling otherwise.
+- Heartbeat and slow-cycle logging provide early warnings if either SLA is breached.
+
+### 🎯 Session Popup Flow (Games Page)
+
+- The **Start Session** dialog reuses the operator’s target selection (`src/pages/Games.tsx`) to build a ThingsBoard subscription list—no device IDs are hardcoded.
+- When the dialog enters launching/running states and a direct ThingsBoard token is available, it opens a scoped WebSocket via `tbSubscribeTelemetry` that streams only the selected targets’ telemetry.
+- Incoming `event: "hit"` records that match the active `gameId` are buffered locally inside the popup so the live feed reflects the exact stream that powered the Expo dashboard flow.
+- If the dialog closes or the target selection changes, the popup tears down the subscription and resets its local buffers to avoid replaying stale hits.
+- Supabase/edge snapshots for the cards and Target Selection panel are pulled once on first load and once after each game is finalized; everything in between is driven by cached device state plus direct ThingsBoard telemetry.
+
+### 🧩 Games Page Architecture
+
+- `src/pages/Games.tsx` now focuses solely on orchestration: it owns all Zustand/store subscriptions, derives memoized datasets (like `deviceHitSummary`, `roomSelections`, and `recentTransitions`), and wires lifecycle handlers into child components.
+- Presentational cards live in `src/components/games/` (`OperatorOverviewCard`, `LiveSessionCard`, `HitTimelineCard`, `HitDistributionCard`, `RoomSelectionCard`, `TargetSelectionCard`, `TargetTransitionsCard`). Each receives pre-computed props from `Games.tsx`, which keeps layout markup isolated from data-fetching logic.
+- The Start Session popup moved to `src/components/games/StartSessionDialog.tsx`. The page simply passes lifecycle state, direct-control flags, and the hydrated `sessionHits` array; the dialog component owns its own ThingsBoard telemetry subscription buffer to keep the live hit feed scoped.
+- Shared helpers (color palette, summary types, selection skeletons) live alongside the cards so the data flow is one-way: `Games.tsx → components`. No component reaches back into the page for state, which makes testing and Storybook coverage significantly easier.
+
+### 🎮 Game Presets Workflow
+
+- `src/store/useGamePresets.ts` fronts the Supabase `game-presets` edge function and exposes `fetchPresets`, `savePreset`, and `deletePreset`. The Games page primes the store on mount and logs all fetch lifecycles for observability.
+- `src/pages/Games.tsx` renders a dedicated `GamePresetsCard` that surfaces presets as reusable “apply / delete” actions. Applying a preset pumps the saved target IDs through the shared `openStartDialogForTargets` helper so `pendingSessionTargets`, `selectedDeviceIds`, and `currentSessionTargets` stay in sync. Room and duration metadata are merged into the `sessionRoomId`/`sessionDurationSeconds` state so downstream components reflect the preset immediately.
+- The Start Session dialog now shows the active room and editable target duration during the selecting phase (`StartSessionDialog.tsx`). Operators can stamp presets straight from the dialog via the new “Save as preset” CTA, which launches a shadcn modal managed from `Games.tsx`.
+- The save modal collects preset metadata (name, description, optional room, optional duration) and persists it through `useGamePresets.savePreset`. Successful saves trigger a toast, refresh the local store, and log the action; failures surface via toast + console in line with existing conventions.
+- Desired duration travels with the session: it’s baked into the ThingsBoard shared attributes/RPC payload (`tbSetShared` + `tbSendOneway`) and is displayed on the `LiveSessionCard` so operators can see the target run length alongside the live stopwatch.
+
 ## 🚀 Features
 
 ### Core Functionality

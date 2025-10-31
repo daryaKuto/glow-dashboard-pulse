@@ -89,7 +89,7 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
   }, [devices, selectedDeviceIds]);
 
   return (
-    <Card className={`bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg flex h-full flex-col ${className ?? ''}`}>
+    <Card className={`bg-gray-50 border-gray-200 shadow-sm rounded-md md:rounded-lg flex h-full flex-col ${className ?? ''}`}>
       <CardContent className="flex flex-1 flex-col space-y-4 p-4 md:p-5">
         <div className="space-y-2">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

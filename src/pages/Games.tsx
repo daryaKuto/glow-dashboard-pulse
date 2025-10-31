@@ -496,15 +496,15 @@ const SavePresetDialog: React.FC<SavePresetDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="text-xl font-heading">Save Session As Preset</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="max-w-[calc(100vw-30px)] sm:max-w-lg mx-auto px-4 py-4 sm:px-6 sm:py-6 rounded-lg sm:rounded-lg">
+        <DialogHeader className="space-y-1 sm:space-y-1.5">
+          <DialogTitle className="text-lg sm:text-xl font-heading">Save Session As Preset</DialogTitle>
+          <DialogDescription className="text-xs sm:text-sm">
             Capture the current target selection so operators can reapply it from the presets list.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4">
           <div className="space-y-2">
             <Label htmlFor="preset-name" className="text-sm font-medium text-brand-dark">
               Preset name
@@ -516,6 +516,7 @@ const SavePresetDialog: React.FC<SavePresetDialogProps> = ({
               onChange={(event) => onNameChange(event.target.value)}
               autoFocus
               disabled={isSaving}
+              className="w-full"
             />
           </div>
 
@@ -530,15 +531,16 @@ const SavePresetDialog: React.FC<SavePresetDialogProps> = ({
               onChange={(event) => onDescriptionChange(event.target.value)}
               disabled={isSaving}
               rows={3}
+              className="w-full resize-none"
             />
           </div>
 
-          <div className="rounded-md border border-dashed border-brand-secondary/40 bg-brand-secondary/10 px-3 py-2 text-sm text-brand-dark/70">
+          <div className="rounded-md border border-dashed border-brand-secondary/40 bg-brand-secondary/10 px-3 py-2 text-xs sm:text-sm text-brand-dark/70">
             {targetCount > 0 ? `${targetCount} target${targetCount === 1 ? '' : 's'} will be included in this preset.` : 'Select targets before saving the preset.'}
           </div>
 
-          <div className="flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-white px-3 py-3">
-            <div className="space-y-1 text-sm text-brand-dark/80">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-md border border-gray-200 bg-white px-3 py-3">
+            <div className="space-y-1 text-sm text-brand-dark/80 flex-1">
               <p className="font-medium">Attach room to preset</p>
               <p className="text-xs text-brand-dark/60">
                 {roomName ? `Current room: ${roomName}` : 'No room assigned to this selection yet.'}
@@ -549,6 +551,7 @@ const SavePresetDialog: React.FC<SavePresetDialogProps> = ({
               checked={includeRoom && canIncludeRoom}
               onCheckedChange={(value) => onIncludeRoomChange(Boolean(value))}
               disabled={isSaving || !canIncludeRoom}
+              className="shrink-0"
             />
           </div>
 
@@ -566,17 +569,27 @@ const SavePresetDialog: React.FC<SavePresetDialogProps> = ({
               onChange={(event) => onDurationValueChange(event.target.value)}
               placeholder="120"
               disabled={isSaving}
+              className="w-full"
             />
             <p className="text-[11px] text-brand-dark/60">Formatted: {formattedDuration}</p>
           </div>
 
         </div>
 
-        <DialogFooter className="mt-6">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
+        <DialogFooter className="mt-4 sm:mt-6 flex-col sm:flex-row gap-2 sm:gap-0">
+          <Button 
+            variant="outline" 
+            onClick={() => onOpenChange(false)} 
+            disabled={isSaving}
+            className="w-full sm:w-auto"
+          >
             Cancel
           </Button>
-          <Button onClick={onSubmit} disabled={disableSave} className="bg-brand-primary hover:bg-brand-primary/90">
+          <Button 
+            onClick={onSubmit} 
+            disabled={disableSave} 
+            className="w-full sm:w-auto bg-brand-primary hover:bg-brand-primary/90"
+          >
             {isSaving ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

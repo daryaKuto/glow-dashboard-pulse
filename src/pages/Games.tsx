@@ -75,7 +75,7 @@ type AxiosErrorLike = {
 
 const StepOneSkeleton: React.FC = () => (
   <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-4">
+    <CardContent className="p-[10px] space-y-4">
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Skeleton className="h-5 w-16 rounded-full bg-gray-200" />
@@ -95,7 +95,7 @@ const StepOneSkeleton: React.FC = () => (
 
 const StepTwoSkeleton: React.FC = () => (
   <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-4">
+    <CardContent className="p-[10px] space-y-4">
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Skeleton className="h-5 w-16 rounded-full bg-gray-200" />
@@ -104,7 +104,7 @@ const StepTwoSkeleton: React.FC = () => (
         <Skeleton className="h-5 w-48 bg-gray-200" />
         <Skeleton className="h-3 w-56 bg-gray-200" />
       </div>
-      <div className="space-y-4 rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
+      <div className="space-y-4 rounded-md border border-gray-200 bg-gray-50 px-[10px] py-[10px]">
         <div className="space-y-2">
           <Skeleton className="h-4 w-32 bg-gray-200" />
           <div className="flex flex-wrap gap-2">
@@ -125,7 +125,7 @@ const StepTwoSkeleton: React.FC = () => (
 
 const StepThreeSkeleton: React.FC = () => (
   <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-4">
+    <CardContent className="p-[10px] space-y-4">
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Skeleton className="h-5 w-16 rounded-full bg-gray-200" />
@@ -136,7 +136,7 @@ const StepThreeSkeleton: React.FC = () => (
       </div>
       <div className="flex flex-col gap-3 text-left items-stretch md:grid md:grid-cols-4 md:gap-4 md:overflow-visible md:pb-0">
         <div className="md:min-w-0">
-          <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+          <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-[10px] py-[10px] text-left">
             <div className="flex items-start gap-3">
               <Skeleton className="h-12 w-12 rounded-md bg-gray-200" />
               <div className="flex-1 space-y-2">
@@ -148,7 +148,7 @@ const StepThreeSkeleton: React.FC = () => (
           </div>
         </div>
         <div className="md:min-w-0">
-          <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+          <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-[10px] py-[10px] text-left">
             <div className="flex items-start gap-3">
               <Skeleton className="h-12 w-12 rounded-md bg-gray-200" />
               <div className="flex-1 space-y-2">
@@ -160,7 +160,7 @@ const StepThreeSkeleton: React.FC = () => (
           </div>
         </div>
         <div className="md:min-w-0">
-          <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+          <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-[10px] py-[10px] text-left">
             <div className="flex items-start gap-3">
               <Skeleton className="h-12 w-12 rounded-md bg-gray-200" />
               <div className="flex-1 space-y-2">
@@ -172,7 +172,7 @@ const StepThreeSkeleton: React.FC = () => (
           </div>
         </div>
         <div className="md:min-w-0">
-          <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+          <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-[10px] py-[10px] text-left">
             <div className="flex items-start gap-3">
               <Skeleton className="h-12 w-12 rounded-md bg-gray-200" />
               <div className="flex-1 space-y-2">
@@ -289,7 +289,7 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
   });
   return (
     <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-      <CardContent className="p-4 md:p-5 space-y-4">
+      <CardContent className="p-[10px] space-y-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -308,7 +308,7 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
             {Array.from({ length: 3 }).map((_, index) => (
               <div
                 key={index}
-                className="rounded-md border border-gray-200 bg-gray-50 px-4 py-4 space-y-4"
+                className="rounded-md border border-gray-200 bg-gray-50 px-[10px] py-[10px] space-y-4"
               >
                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                   <div className="space-y-2">
@@ -327,7 +327,7 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
                   {Array.from({ length: 3 }).map((__, innerIndex) => (
                     <div
                       key={innerIndex}
-                      className="rounded-md border border-gray-200 bg-white px-3 py-3 flex items-start gap-3"
+                      className="rounded-md border border-gray-200 bg-white px-[10px] py-[10px] flex items-start gap-3"
                     >
                       <Skeleton className="h-8 w-8 rounded-md bg-gray-200" />
                       <div className="space-y-2">
@@ -342,7 +342,7 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
             ))}
           </div>
         ) : presets.length === 0 ? (
-          <div className="rounded-md border border-dashed border-brand-primary/40 bg-brand-primary/10 px-4 py-3 text-sm text-brand-dark/80 text-center">
+          <div className="rounded-md border border-dashed border-brand-primary/40 bg-brand-primary/10 px-[10px] py-[10px] text-sm text-brand-dark/80 text-center">
             No presets yet
           </div>
         ) : (
@@ -353,7 +353,7 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
               return (
                 <div
                   key={preset.id}
-                  className="rounded-md border border-gray-200 bg-gray-50 px-4 py-4 space-y-4 transition hover:border-brand-primary/40"
+                  className="rounded-md border border-gray-200 bg-gray-50 px-[10px] py-[10px] space-y-4 transition hover:border-brand-primary/40"
                 >
                   <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                     <div className="space-y-1">
@@ -403,33 +403,33 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
                   </div>
 
                   <div className={`grid gap-3 ${preset.settings?.goalShotsPerTarget && Object.keys(preset.settings.goalShotsPerTarget as Record<string, number>).length > 0 ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
-                    <div className="rounded-md border border-gray-200 bg-white px-3 py-3 flex items-start gap-3">
+                    <div className="rounded-md border border-gray-200 bg-white px-[10px] py-[10px] flex items-start gap-3">
                       <div className="rounded-md bg-brand-primary/10 p-2 text-brand-primary shadow-sm">
                         <Building2 className="h-4 w-4" />
                       </div>
-                      <div className="space-y-1 text-sm">
+                      <div className="flex flex-row items-baseline gap-2 md:flex-col md:space-y-1 text-sm">
                         <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Room</p>
                         <p className="font-medium text-brand-dark">
                           {preset.roomName ?? preset.roomId ?? 'Not included'}
                         </p>
                       </div>
                     </div>
-                    <div className="rounded-md border border-gray-200 bg-white px-3 py-3 flex items-start gap-3">
+                    <div className="rounded-md border border-gray-200 bg-white px-[10px] py-[10px] flex items-start gap-3">
                       <div className="rounded-md bg-brand-primary/10 p-2 text-brand-primary shadow-sm">
                         <Clock3 className="h-4 w-4" />
                       </div>
-                      <div className="space-y-1 text-sm">
+                      <div className="flex flex-row items-baseline gap-2 md:flex-col md:space-y-1 text-sm">
                         <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Duration</p>
                         <p className="font-medium text-brand-dark">
                           {renderPresetDuration(preset.durationSeconds)}
                         </p>
                       </div>
                     </div>
-                    <div className="rounded-md border border-gray-200 bg-white px-3 py-3 flex items-start gap-3">
+                    <div className="rounded-md border border-gray-200 bg-white px-[10px] py-[10px] flex items-start gap-3">
                       <div className="rounded-md bg-brand-primary/10 p-2 text-brand-primary shadow-sm">
                         <Crosshair className="h-4 w-4" />
                       </div>
-                      <div className="space-y-1 text-sm">
+                      <div className="flex flex-row items-baseline gap-2 md:flex-col md:space-y-1 text-sm">
                         <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Targets</p>
                         <p className="font-medium text-brand-dark">{preset.targetIds.length}</p>
                       </div>
@@ -438,11 +438,11 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
                      typeof preset.settings.goalShotsPerTarget === 'object' && 
                      !Array.isArray(preset.settings.goalShotsPerTarget) &&
                      Object.keys(preset.settings.goalShotsPerTarget as Record<string, number>).length > 0 && (
-                      <div className="rounded-md border border-gray-200 bg-white px-3 py-3 flex items-start gap-3">
+                      <div className="rounded-md border border-gray-200 bg-white px-[10px] py-[10px] flex items-start gap-3">
                         <div className="rounded-md bg-brand-primary/10 p-2 text-brand-primary shadow-sm">
                           <Gamepad2 className="h-4 w-4" />
                         </div>
-                        <div className="space-y-1 text-sm">
+                        <div className="flex flex-row items-baseline gap-2 md:flex-col md:space-y-1 text-sm">
                           <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Goal Shots</p>
                           <p className="font-medium text-brand-dark">
                             {(() => {
@@ -3907,7 +3907,7 @@ const handleDeletePreset = useCallback(
                   <StepOneSkeleton />
                 ) : (
                   <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                    <CardContent className="p-4 md:p-5 space-y-4">
+                    <CardContent className="p-[10px] space-y-4">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="inline-flex items-center rounded-full bg-brand-primary/10 px-2.5 py-0.5 text-xs font-semibold text-brand-primary">
@@ -3977,7 +3977,7 @@ const handleDeletePreset = useCallback(
                   <StepTwoSkeleton />
                 ) : (
                   <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                    <CardContent className="p-4 md:p-5 space-y-4">
+                    <CardContent className="p-[10px] space-y-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
@@ -3998,7 +3998,7 @@ const handleDeletePreset = useCallback(
                         </div>
                       ) : (
                         <div className="space-y-4">
-                          <div className="space-y-4 rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
+                          <div className="space-y-4 rounded-md border border-gray-200 bg-gray-50 px-[10px] py-[10px]">
                             <div className="space-y-2">
                               <Label className="text-xs font-medium text-brand-dark">Quick selections</Label>
                               <div className="flex flex-wrap gap-2">
@@ -4061,7 +4061,7 @@ const handleDeletePreset = useCallback(
                   <StepThreeSkeleton />
                 ) : (
                   <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-                    <CardContent className="p-4 md:p-5 space-y-4">
+                    <CardContent className="p-[10px] space-y-4">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="inline-flex items-center rounded-full bg-brand-primary/10 px-2.5 py-0.5 text-xs font-semibold text-brand-primary">
@@ -4077,7 +4077,7 @@ const handleDeletePreset = useCallback(
                       <div className="space-y-4">
                         <div className="flex flex-col gap-3 text-left items-stretch md:grid md:grid-cols-4 md:gap-4 md:overflow-visible md:pb-0">
                           <div className="md:min-w-0">
-                            <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+                            <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-[10px] py-[10px] text-left">
                               <div className="flex items-start gap-3">
                                 <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
                                   <Building2 className="h-6 w-6" />
@@ -4097,7 +4097,7 @@ const handleDeletePreset = useCallback(
                             </div>
                           </div>
                           <div className="md:min-w-0">
-                            <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+                            <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-[10px] py-[10px] text-left">
                               <div className="flex flex-col gap-3 text-sm text-left">
                                 <div className="flex items-start gap-3">
                                   <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
@@ -4146,7 +4146,7 @@ const handleDeletePreset = useCallback(
                             </div>
                           </div>
                           <div className="md:min-w-0">
-                            <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+                            <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-[10px] py-[10px] text-left">
                               <div className="flex items-start gap-3">
                                 <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
                                   <Clock3 className="h-6 w-6" />
@@ -4164,7 +4164,7 @@ const handleDeletePreset = useCallback(
                             </div>
                           </div>
                           <div className="md:min-w-0">
-                            <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+                            <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-[10px] py-[10px] text-left">
                               <div className="flex flex-col gap-3 text-sm text-left">
                                 <div className="flex items-start gap-3">
                                   <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">

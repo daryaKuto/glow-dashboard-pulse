@@ -76,7 +76,7 @@ const TargetGroupCard: React.FC<TargetGroupCardProps> = ({
 
   return (
     <Card className="bg-white border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200">
-      <CardHeader className="pb-2 md:pb-3 p-3 md:p-4">
+      <CardHeader className="pb-2 md:pb-3 p-2 md:p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
             <div className="p-1.5 md:p-2 bg-brand-secondary/10 rounded-lg flex-shrink-0">
@@ -176,14 +176,14 @@ const TargetGroupCard: React.FC<TargetGroupCardProps> = ({
       </CardHeader>
       
       {group.targets && group.targets.length > 0 && (
-        <CardContent className="pt-0 p-3 md:p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3">
+        <CardContent className="pt-0 p-2 md:p-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 md:gap-2">
             {group.targets.map((target) => {
               const displayName = target.displayName || target.name;
               return (
                 <div
                   key={target.id}
-                  className="flex items-center justify-between gap-2 p-2 md:p-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="flex items-center justify-between gap-1.5 p-1.5 md:p-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
                 >
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <div className={`w-2 h-2 md:w-3 md:h-3 rounded-full flex-shrink-0 ${getStatusColor(target.status)}`}></div>
@@ -214,7 +214,7 @@ const TargetGroupCard: React.FC<TargetGroupCardProps> = ({
             {onAddTarget && (
               <button
                 onClick={() => onAddTarget(group.id)}
-                className="flex items-center justify-center gap-2 p-2 md:p-3 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg hover:bg-gray-100 hover:border-brand-primary/50 transition-colors text-brand-dark/70 hover:text-brand-primary"
+                className="flex items-center justify-center gap-1.5 p-1.5 md:p-2 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg hover:bg-gray-100 hover:border-brand-primary/50 transition-colors text-brand-dark/70 hover:text-brand-primary"
                 title="Add target to group"
               >
                 <Plus className="h-4 w-4 md:h-5 md:w-5" />
@@ -225,10 +225,10 @@ const TargetGroupCard: React.FC<TargetGroupCardProps> = ({
         </CardContent>
       )}
       {(!group.targets || group.targets.length === 0) && onAddTarget && (
-        <CardContent className="pt-0 p-3 md:p-4">
+        <CardContent className="pt-0 p-2 md:p-3">
           <button
             onClick={() => onAddTarget(group.id)}
-            className="w-full flex items-center justify-center gap-2 p-4 md:p-6 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg hover:bg-gray-100 hover:border-brand-primary/50 transition-colors text-brand-dark/70 hover:text-brand-primary"
+            className="w-full flex items-center justify-center gap-2 p-3 md:p-4 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg hover:bg-gray-100 hover:border-brand-primary/50 transition-colors text-brand-dark/70 hover:text-brand-primary"
             title="Add target to group"
           >
             <Plus className="h-5 w-5 md:h-6 md:w-6" />

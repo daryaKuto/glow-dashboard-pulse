@@ -207,7 +207,7 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
 
     return (
       <Card className="rounded-md md:rounded-lg border border-brand-primary/20 bg-gradient-to-br from-white via-brand-primary/5 to-brand-secondary/10 shadow-lg">
-        <CardContent className="p-4 md:p-5 space-y-5">
+        <CardContent className="p-3 md:p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div>
               <p className="text-[11px] uppercase tracking-[0.2em] text-brand-primary font-semibold">Last Session</p>
@@ -220,24 +220,24 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
               {formatSessionDuration(recentSummary.durationSeconds)}
             </Badge>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-3 py-2 shadow-sm">
               <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Total Hits</p>
               <p className="font-heading text-2xl text-brand-primary">{recentSummary.totalHits}</p>
             </div>
-            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
+            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-3 py-2 shadow-sm">
               <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Goal Shots</p>
               <p className="font-heading text-2xl text-brand-primary">
                 {totalGoalShots > 0 ? totalGoalShots : '—'}
               </p>
             </div>
-            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
+            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-3 py-2 shadow-sm">
               <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Avg Split</p>
               <p className="font-heading text-2xl text-brand-primary">
                 {recentSummary.averageHitInterval > 0 ? `${recentSummary.averageHitInterval.toFixed(2)}s` : '—'}
               </p>
             </div>
-            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
+            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-3 py-2 shadow-sm">
               <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Efficiency Score</p>
               <p className="font-heading text-2xl text-brand-primary">
                 {recentSummary.efficiencyScore > 0 ? recentSummary.efficiencyScore.toFixed(2) : '—'}
@@ -245,10 +245,10 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
             </div>
           </div>
           <Separator />
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50 px-4 py-4">
-                <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
+          <div className="space-y-2">
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+              <div className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                <div className="rounded-md bg-white p-2 text-brand-primary shadow-sm">
                   <Building2 className="h-5 w-5" />
                 </div>
                 <div>
@@ -256,8 +256,8 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
                   <p className="font-medium text-brand-dark">{summaryRoomLabel ?? 'No room selected'}</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50 px-4 py-4">
-                <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
+              <div className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                <div className="rounded-md bg-white p-2 text-brand-primary shadow-sm">
                   <Crosshair className="h-5 w-5" />
                 </div>
                 <div>
@@ -265,8 +265,8 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
                   <p className="font-medium text-brand-dark">{recentSummary.targets.length} staged</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50 px-4 py-4">
-                <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
+              <div className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                <div className="rounded-md bg-white p-2 text-brand-primary shadow-sm">
                   <Clock3 className="h-5 w-5" />
                 </div>
                 <div>
@@ -276,8 +276,8 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
               </div>
             </div>
             {recentSummary.presetId && (
-              <div className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50 px-4 py-4">
-                <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
+              <div className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                <div className="rounded-md bg-white p-2 text-brand-primary shadow-sm">
                   <Bookmark className="h-5 w-5" />
                 </div>
                 <div>
@@ -289,13 +289,13 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
               </div>
             )}
             {displayTargets.length === 0 ? (
-              <div className="rounded-md border border-dashed border-gray-200 bg-white px-4 py-3 text-sm text-brand-dark/60">
+              <div className="rounded-md border border-dashed border-gray-200 bg-white px-3 py-2 text-sm text-brand-dark/60">
                 No targets recorded.
               </div>
             ) : (
-              <div className="rounded-md border border-gray-200 bg-white px-4 py-4">
+              <div className="rounded-md border border-gray-200 bg-white px-3 py-2">
                 <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Target list</p>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-2 flex flex-wrap gap-2">
                   {displayTargets.map((target) => {
                     const displayName = getDisplayName(target.deviceId, target.deviceName);
                     return (
@@ -318,12 +318,12 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
             )}
           </div>
           <Separator />
-          <div className="space-y-3">
+          <div className="space-y-2">
             <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Top Targets</p>
             {topResults.length === 0 ? (
               <p className="text-sm text-brand-dark/60">No target activity captured for this session.</p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {topResults.map((result) => {
                   const goalShots = recentSummary.historyEntry.goalShotsPerTarget?.[result.deviceId];
                   const hasGoal = typeof goalShots === 'number' && goalShots > 0;
@@ -333,7 +333,7 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
                   return (
                     <div
                       key={result.deviceId}
-                      className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
+                      className={`flex items-center justify-between rounded-lg border px-2 py-1.5 ${
                         goalReached
                           ? 'border-green-300 bg-green-50/50'
                           : 'border-brand-secondary/20 bg-white/80'
@@ -382,18 +382,18 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
           {recentSplits.length > 0 && (
             <>
               <Separator />
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-brand-dark/60">
                   <span>Recent Splits</span>
                   <span className="text-brand-primary text-[10px] font-semibold">Target • Hit # • Split Time</span>
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   {recentSplits.map((split) => {
                     const displayName = getDisplayName(split.deviceId, split.deviceName);
                     return (
                       <div
                         key={`${split.deviceId}-${split.splitNumber}`}
-                        className="flex items-center justify-between rounded-lg border border-brand-primary/20 bg-brand-primary/5 px-3 py-2 text-xs text-brand-dark"
+                        className="flex items-center justify-between rounded-lg border border-brand-primary/20 bg-brand-primary/5 px-2 py-1.5 text-xs text-brand-dark"
                       >
                         <div className="flex items-center gap-2 flex-1 min-w-0">
                           <span className="font-medium text-brand-dark truncate" title={displayName !== split.deviceName ? `Original: ${split.deviceName}` : undefined}>
@@ -411,7 +411,7 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
             </>
           )}
           <Separator />
-          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:justify-end">
             <Button
               variant="default"
               onClick={onCreateNew}

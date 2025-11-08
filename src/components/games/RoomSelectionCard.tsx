@@ -42,11 +42,11 @@ export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
 
   return (
     <Card className={`bg-gray-50 border-gray-200 shadow-sm rounded-md md:rounded-lg flex h-full flex-col ${className ?? ''}`}>
-      <CardContent className="flex flex-1 flex-col space-y-3 p-4 md:p-5">
-        <div className="space-y-2">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <CardContent className="flex flex-1 flex-col space-y-2 p-[10px]">
+        <div className="space-y-1.5">
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-heading text-lg text-brand-dark truncate">Room</h2>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <Button variant="outline" size="sm" onClick={onSelectAllRooms} disabled={isSessionLocked || roomsLoading}>
                 Select all
               </Button>
@@ -67,8 +67,8 @@ export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
         ) : roomCount === 0 ? (
           <p className="flex-1 text-sm text-brand-dark/60">No rooms with assigned targets available.</p>
         ) : (
-          <ScrollArea className="flex-1 pr-2 max-h-[280px]">
-            <div className="space-y-2">
+          <ScrollArea className="flex-1 max-h-[280px]">
+            <div className="space-y-1.5">
               {rooms.map((room) => {
                 const hasSelectedTargets = room.deviceIds.some((id) => selectedDeviceIds.includes(id));
                 const isFullySelected = room.deviceIds.every((id) => selectedDeviceIds.includes(id));
@@ -79,7 +79,7 @@ export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
                 return (
                   <div
                     key={room.id}
-                    className={`flex items-center justify-between rounded-lg border px-3 py-2 transition-colors ${
+                    className={`flex items-center justify-between rounded-lg border px-[10px] py-[10px] transition-colors ${
                       isActiveRoom
                         ? 'border-brand-primary bg-brand-primary/10 shadow-sm'
                         : isRoomSelected
@@ -87,7 +87,7 @@ export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
                           : 'border-gray-200 bg-white'
                     }`}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       <Checkbox
                         id={`room-${room.id}`}
                         checked={checkboxState}
@@ -127,24 +127,24 @@ export const RoomSelectionCard: React.FC<RoomSelectionCardProps> = ({
 
 export const RoomSelectionSkeleton: React.FC = () => (
   <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg flex h-full flex-col">
-    <CardContent className="flex flex-1 flex-col space-y-3 p-4 md:p-5">
-      <div className="space-y-2">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <Skeleton className="h-5 w-36 bg-gray-200" />
-          <div className="flex items-center gap-2">
-            <Skeleton className="h-9 w-28 rounded-md bg-gray-200" />
-            <Skeleton className="h-9 w-24 rounded-md bg-gray-200" />
+      <CardContent className="flex flex-1 flex-col space-y-2 p-[10px]">
+        <div className="space-y-1.5">
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+            <Skeleton className="h-5 w-36 bg-gray-200" />
+            <div className="flex items-center gap-1.5">
+              <Skeleton className="h-9 w-28 rounded-md bg-gray-200" />
+              <Skeleton className="h-9 w-24 rounded-md bg-gray-200" />
+            </div>
           </div>
+          <Skeleton className="h-3 w-36 bg-gray-200" />
         </div>
-        <Skeleton className="h-3 w-36 bg-gray-200" />
-      </div>
-      <div className="space-y-2">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div
-            key={index}
-            className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2"
-          >
-            <div className="flex items-center gap-3">
+        <div className="space-y-1.5">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div
+              key={index}
+              className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-[10px] py-[10px]"
+            >
+              <div className="flex items-center gap-2">
               <Skeleton className="h-4 w-4 rounded-sm bg-gray-200" />
               <div className="space-y-2">
                 <Skeleton className="h-4 w-28 bg-gray-200" />

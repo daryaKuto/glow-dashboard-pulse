@@ -61,11 +61,11 @@ const Settings = () => {
       // Save to database
       if (userId) {
         await supabase
-          .from('user_settings')
-          .upsert({
-            user_id: userId,
+          .from('user_profiles')
+          .update({
             notification_settings: newSettings
-          });
+          })
+          .eq('id', userId);
       }
       
       // toast.success('Settings updated'); // Disabled notifications

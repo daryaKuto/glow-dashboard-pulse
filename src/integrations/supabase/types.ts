@@ -28,6 +28,9 @@ export type Database = {
           wifi_ssid_encrypted: string | null
           wifi_password_encrypted: string | null
           wifi_last_sync: string | null
+          subscription_tier: string
+          target_preferences: Json | null
+          notification_settings: Json | null
           created_at: string
           updated_at: string
         }
@@ -49,6 +52,9 @@ export type Database = {
           wifi_ssid_encrypted?: string | null
           wifi_password_encrypted?: string | null
           wifi_last_sync?: string | null
+          subscription_tier?: string
+          target_preferences?: Json | null
+          notification_settings?: Json | null
           created_at?: string
           updated_at?: string
         }
@@ -70,6 +76,9 @@ export type Database = {
           wifi_ssid_encrypted?: string | null
           wifi_password_encrypted?: string | null
           wifi_last_sync?: string | null
+          subscription_tier?: string
+          target_preferences?: Json | null
+          notification_settings?: Json | null
           created_at?: string
           updated_at?: string
         }
@@ -125,29 +134,6 @@ export type Database = {
           updated_at?: string | null
           thingsboard_config?: Json | null
           rules?: Json | null
-        }
-      }
-      user_settings: {
-        Row: {
-          id: string
-          user_id: string
-          target_preferences: Json
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          target_preferences?: Json
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          target_preferences?: Json
-          created_at?: string
-          updated_at?: string
         }
       }
       user_rooms: {
@@ -209,6 +195,90 @@ export type Database = {
           target_name?: string
           assigned_at?: string
           created_at?: string
+        }
+      }
+      user_target_groups: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          room_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          room_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          room_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      user_target_group_assignments: {
+        Row: {
+          id: string
+          user_id: string
+          group_id: string
+          target_id: string
+          target_name: string
+          assigned_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          group_id: string
+          target_id: string
+          target_name: string
+          assigned_at?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          group_id?: string
+          target_id?: string
+          target_name?: string
+          assigned_at?: string
+          created_at?: string
+        }
+      }
+      user_target_custom_names: {
+        Row: {
+          id: string
+          user_id: string
+          target_id: string
+          original_name: string
+          custom_name: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          target_id: string
+          original_name: string
+          custom_name: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          target_id?: string
+          original_name?: string
+          custom_name?: string
+          created_at?: string
+          updated_at?: string
         }
       }
       sessions: {

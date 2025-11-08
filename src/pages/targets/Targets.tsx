@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRooms, type Room } from '@/store/useRooms';
+import { useTargetGroups, type Group } from '@/store/useTargetGroups';
 import { toast } from '@/components/ui/sonner';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
@@ -24,7 +25,9 @@ import {
   MapPin,
   MoreVertical,
   Settings,
-  Trash2
+  Trash2,
+  Sparkles,
+  Users
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -33,18 +36,34 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { fetchAllGameHistory } from '@/services/game-history';
+import { TargetCustomizationDialog } from '@/components/targets/TargetCustomizationDialog';
+import CreateGroupModal from '@/components/targets/CreateGroupModal';
+import AddTargetsToGroupModal from '@/components/targets/AddTargetsToGroupModal';
+import TargetGroupCard from '@/components/targets/TargetGroupCard';
+import RenameTargetDialog from '@/components/targets/RenameTargetDialog';
+import { useSubscription } from '@/hooks/useSubscription';
+import { PremiumLockIcon } from '@/components/shared/SubscriptionGate';
+import { useUserPrefs } from '@/store/useUserPrefs';
+import { supabase } from '@/integrations/supabase/client';
+import { supabaseTargetCustomNamesService } from '@/services/supabase-target-custom-names';
+
 // Modern Target Card Component with ThingsBoard integration
 const TargetCard: React.FC<{
-  target: Target;
+  target: Target & { displayName?: string };
   room?: Room;
   onEdit: () => void;
   onDelete: () => void;
+  onCustomize?: () => void;
+  onRename?: () => void;
   totalHitCount?: number;
   isHitTotalsLoading?: boolean;
-}> = ({ target, room, onEdit, onDelete, totalHitCount, isHitTotalsLoading }) => {
+}> = ({ target, room, onEdit, onDelete, onCustomize, onRename, totalHitCount, isHitTotalsLoading }) => {
   const isMobile = useIsMobile();
+  const { isPremium } = useSubscription();
   const batteryLevel = target.battery; // Real battery data or null
   const wifiStrength = target.wifiStrength; // Real WiFi strength or null
+
+  const displayName = target.displayName || target.name;
 
   const mergedTotalShots = Math.max(
     typeof totalHitCount === 'number' ? totalHitCount : 0,
@@ -95,8 +114,14 @@ const TargetCard: React.FC<{
         <div className="flex items-start justify-between mb-2 md:mb-4 gap-2">
           <div className="flex-1 flex flex-col items-center min-w-0">
             <div className="flex items-center gap-1 md:gap-2 mb-1 w-full max-w-full">
-              <div className={`w-2 h-2 md:w-4 md:h-4 rounded-full flex-shrink-0 ${isOnline ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-              <h3 className="font-heading font-semibold text-brand-dark text-xs md:text-base text-center break-words overflow-hidden text-ellipsis flex-1 min-w-0" title={target.name}>{target.name}</h3>
+              <div className={`w-2 h-2 md:w-4 md:h-4 rounded-full flex-shrink-0 ${
+                target.status === 'online' 
+                  ? 'bg-green-500' 
+                  : target.status === 'standby' 
+                    ? 'bg-amber-500' 
+                    : 'bg-gray-400'
+              }`}></div>
+              <h3 className="font-heading font-semibold text-brand-dark text-xs md:text-base text-center break-words overflow-hidden text-ellipsis flex-1 min-w-0" title={displayName}>{displayName}</h3>
             </div>
           </div>
           
@@ -108,10 +133,30 @@ const TargetCard: React.FC<{
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="bg-white border border-gray-200 shadow-lg">
-              <DropdownMenuItem onClick={onEdit}>
+              <DropdownMenuItem onClick={onRename || onEdit}>
                 <Settings className="h-3 w-3 md:h-4 md:w-4 mr-2" />
-                <span className="text-xs md:text-sm">Edit</span>
+                <span className="text-xs md:text-sm">{onRename ? 'Rename' : 'Edit'}</span>
               </DropdownMenuItem>
+              {isPremium && onCustomize && (
+                <DropdownMenuItem 
+                  onClick={onCustomize}
+                  className="relative overflow-hidden premium-customize-item"
+                >
+                  <Sparkles className="h-3 w-3 md:h-4 md:w-4 mr-2 text-white relative z-10 premium-sparkle-icon" />
+                  <span className="text-xs md:text-sm relative z-10 font-medium text-white">
+                    Customize
+                  </span>
+                </DropdownMenuItem>
+              )}
+              {!isPremium && onCustomize && (
+                <DropdownMenuItem 
+                  onClick={() => toast.info('Upgrade to Premium to customize targets')}
+                  className="opacity-60"
+                >
+                  <PremiumLockIcon className="h-3 w-3 md:h-4 md:w-4 mr-2" />
+                  <span className="text-xs md:text-sm">Customize (Premium)</span>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={onDelete} className="text-red-600">
                 <Trash2 className="h-3 w-3 md:h-4 md:w-4 mr-2" />
                 <span className="text-xs md:text-sm">Delete</span>
@@ -263,6 +308,16 @@ const Targets: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const { rooms: liveRooms, isLoading: roomsLoading, fetchRooms } = useRooms();
   const {
+    groups,
+    isLoading: groupsLoading,
+    fetchGroups,
+    createGroup,
+    updateGroup,
+    deleteGroup,
+    unassignTargetsFromGroup,
+    assignTargetsToGroup,
+  } = useTargetGroups();
+  const {
     targets: storeTargets,
     fetchTargetsFromEdge,
     fetchTargetDetails,
@@ -275,15 +330,66 @@ const Targets: React.FC = () => {
   const [targetHitTotals, setTargetHitTotals] = useState<Record<string, number>>({});
   const [hitTotalsLoading, setHitTotalsLoading] = useState(false);
   const hitTotalsSignatureRef = useRef<string | null>(null);
-  const isLoading = roomsLoading || targetsStoreLoading || detailsLoading;
+  const isLoading = roomsLoading || groupsLoading || targetsStoreLoading || detailsLoading;
   
   // Use live rooms
   const rooms = liveRooms;
   const [searchTerm, setSearchTerm] = useState('');
   const [roomFilter, setRoomFilter] = useState<string>('all');
+  const [groupFilter, setGroupFilter] = useState<string>('all');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
+  const [groupIdToAddTargets, setGroupIdToAddTargets] = useState<string | null>(null);
+  const [renamingTargetId, setRenamingTargetId] = useState<string | null>(null);
   const [newTargetName, setNewTargetName] = useState('');
   const [newTargetRoomId, setNewTargetRoomId] = useState<string>('');
+  const [customizingTargetId, setCustomizingTargetId] = useState<string | null>(null);
+  const [customNames, setCustomNames] = useState<Map<string, string>>(new Map());
+  
+  const { load: loadPrefs } = useUserPrefs();
+  
+  // Check subscription status and log for debugging
+  const { isPremium, tier, isLoading: subscriptionLoading } = useSubscription();
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  
+  // Load custom names for targets
+  useEffect(() => {
+    const loadCustomNames = async () => {
+      try {
+        const names = await supabaseTargetCustomNamesService.getAllCustomNames();
+        setCustomNames(names);
+      } catch (error) {
+        console.error('Failed to load custom names:', error);
+      }
+    };
+    loadCustomNames();
+  }, []);
+  
+  // Get user email directly from Supabase (without AuthProvider dependency)
+  useEffect(() => {
+    const getUserEmail = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUserEmail(user?.email || null);
+    };
+    getUserEmail();
+  }, []);
+  
+  useEffect(() => {
+    if (!subscriptionLoading) {
+      console.log('🔐 [Targets] Subscription Status:', {
+        email: userEmail,
+        tier,
+        isPremium,
+        canCustomize: isPremium,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }, [isPremium, tier, subscriptionLoading, userEmail]);
+  
+  // Find the target being customized
+  const customizingTarget = useMemo(() => {
+    return customizingTargetId ? targets.find(t => t.id === customizingTargetId) : null;
+  }, [customizingTargetId, targets]);
 
   const FETCH_DEBUG_DEFAULT = import.meta.env.DEV;
 
@@ -303,6 +409,11 @@ const Targets: React.FC = () => {
     return FETCH_DEBUG_DEFAULT;
   }, [FETCH_DEBUG_DEFAULT]);
 
+
+  // Load user preferences on mount
+  useEffect(() => {
+    loadPrefs();
+  }, [loadPrefs]);
 
   // Sync targets from the shared store and ensure edge data is loaded
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -499,9 +610,19 @@ const Targets: React.FC = () => {
 
   useEffect(() => {
     if (!liveRooms.length) {
-      void fetchRooms();
+      fetchRooms().catch(error => {
+        console.error('Failed to fetch rooms:', error);
+      });
     }
   }, [liveRooms.length, fetchRooms]);
+
+  useEffect(() => {
+    if (!groups.length) {
+      fetchGroups().catch(error => {
+        console.error('Failed to fetch groups:', error);
+      });
+    }
+  }, [groups.length, fetchGroups]);
 
   // Consolidated verification summary for easy comparison with check script.
   useEffect(() => {
@@ -608,13 +729,76 @@ const Targets: React.FC = () => {
     }
   };
 
-  // Filter targets by search term and room
-  const filteredTargets = targets.filter(target => {
-    const matchesSearch = target.name.toLowerCase().includes(searchTerm.toLowerCase());
+  // Merge custom names with targets
+  const targetsWithCustomNames = useMemo(() => {
+    return targets.map(target => ({
+      ...target,
+      customName: customNames.get(target.id) || null,
+      displayName: customNames.get(target.id) || target.name
+    }));
+  }, [targets, customNames]);
+
+  // Merge custom names with group targets
+  const groupsWithCustomNames = useMemo(() => {
+    return groups.map(group => ({
+      ...group,
+      targets: group.targets?.map(target => {
+        const customName = customNames.get(target.id);
+        return {
+          ...target,
+          customName: customName || null,
+          displayName: customName || target.name
+        };
+      })
+    }));
+  }, [groups, customNames]);
+
+  // Get targets that belong to groups
+  const targetsInGroups = useMemo(() => {
+    const groupTargetIds = new Set<string>();
+    groupsWithCustomNames.forEach(group => {
+      group.targets?.forEach(target => {
+        groupTargetIds.add(target.id);
+      });
+    });
+    return groupTargetIds;
+  }, [groupsWithCustomNames]);
+
+  // Get available targets for adding to a specific group (excludes targets already in that group)
+  const getAvailableTargetsForGroup = useCallback((groupId: string) => {
+    const group = groupsWithCustomNames.find(g => g.id === groupId);
+    const groupTargetIds = new Set(group?.targets?.map(t => t.id) || []);
+    
+    return targetsWithCustomNames
+      .filter(target => !groupTargetIds.has(target.id))
+      .map(target => ({
+        id: target.id,
+        name: target.displayName || target.name,
+        status: target.status,
+        activityStatus: target.activityStatus,
+      }));
+  }, [targetsWithCustomNames, groupsWithCustomNames]);
+
+  // Get the current group being edited
+  const currentGroupForAdding = useMemo(() => {
+    return groupIdToAddTargets 
+      ? groupsWithCustomNames.find(g => g.id === groupIdToAddTargets)
+      : null;
+  }, [groupIdToAddTargets, groupsWithCustomNames]);
+
+  // Filter targets by search term, room, and group
+  const filteredTargets = targetsWithCustomNames.filter(target => {
+    const matchesSearch = target.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         target.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesRoom = roomFilter === 'all' || 
                        (roomFilter === 'unassigned' && !target.roomId) ||
                        (target.roomId && target.roomId.toString() === roomFilter);
-    return matchesSearch && matchesRoom;
+    const matchesGroup = groupFilter === 'all' ||
+                        (groupFilter === 'ungrouped' && !targetsInGroups.has(target.id)) ||
+                        (groupFilter === 'grouped' && targetsInGroups.has(target.id)) ||
+                        (groupFilter !== 'all' && groupFilter !== 'ungrouped' && groupFilter !== 'grouped' && 
+                         groupsWithCustomNames.some(g => g.id === groupFilter && g.targets?.some(t => t.id === target.id)));
+    return matchesSearch && matchesRoom && matchesGroup;
   });
 
 
@@ -707,6 +891,81 @@ const Targets: React.FC = () => {
     return rooms.find(room => String(room.id) === String(roomId));
   };
 
+  // Get groups for a specific room
+  const getGroupsForRoom = (roomId: string) => {
+    return groupsWithCustomNames.filter(group => group.roomId === roomId);
+  };
+
+  // Get unassigned groups (not assigned to any room)
+  const unassignedGroups = useMemo(() => {
+    return groupsWithCustomNames.filter(group => !group.roomId);
+  }, [groupsWithCustomNames]);
+
+  // Handle group creation
+  const handleCreateGroup = async (groupData: {
+    name: string;
+    roomId?: string | null;
+    targetIds: string[];
+  }) => {
+    await createGroup({
+      name: groupData.name,
+      roomId: groupData.roomId,
+      targetIds: groupData.targetIds
+    });
+  };
+
+  // Handle group deletion
+  const handleDeleteGroup = async (groupId: string) => {
+    if (confirm('Are you sure you want to delete this group? Targets will remain but will be ungrouped.')) {
+      await deleteGroup(groupId);
+    }
+  };
+
+  // Handle removing a target from a group
+  const handleRemoveTargetFromGroup = async (groupId: string, targetId: string) => {
+    try {
+      await unassignTargetsFromGroup(groupId, [targetId]);
+    } catch (error) {
+      console.error('Failed to remove target from group:', error);
+    }
+  };
+
+  // Handle adding targets to a group
+  const handleAddTargetsToGroup = async (groupId: string, targetIds: string[]) => {
+    try {
+      await assignTargetsToGroup(groupId, targetIds);
+      setGroupIdToAddTargets(null);
+    } catch (error) {
+      console.error('Failed to add targets to group:', error);
+    }
+  };
+
+  // Handle opening add targets modal
+  const handleOpenAddTargetsModal = (groupId: string) => {
+    setGroupIdToAddTargets(groupId);
+  };
+
+  // Handle group update
+  const handleUpdateGroup = async (groupId: string, updates: { name?: string; roomId?: string | null }) => {
+    await updateGroup(groupId, updates);
+  };
+
+  // Handle target rename
+  const handleRenameTarget = async (targetId: string, customName: string) => {
+    // Reload custom names
+    const names = await supabaseTargetCustomNamesService.getAllCustomNames();
+    setCustomNames(names);
+    
+    // Update targets store
+    setTargets(prevTargets => 
+      prevTargets.map(t => 
+        t.id === targetId 
+          ? { ...t, customName: customName !== t.name ? customName : null }
+          : t
+      )
+    );
+  };
+
   // Handle target actions
   const handleCreateTarget = async () => {
     if (!newTargetName.trim()) {
@@ -744,6 +1003,13 @@ const Targets: React.FC = () => {
               <div className="flex items-center justify-between gap-4">
                 <h1 className="text-3xl font-heading font-semibold text-brand-dark">Targets</h1>
                 <div className="flex items-center gap-2">
+                  <Button 
+                    onClick={() => setIsCreateGroupModalOpen(true)}
+                    className="bg-brand-secondary hover:bg-brand-secondary/90 text-white"
+                  >
+                    <Users className="h-4 w-4 mr-2" />
+                    Create Group
+                  </Button>
                   <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
                   <DialogTrigger asChild>
                     <Button className="bg-brand-primary hover:bg-brand-primary/90 text-white">
@@ -817,6 +1083,7 @@ const Targets: React.FC = () => {
               <div className="flex flex-col md:flex-row gap-4">
                 <div className="flex-1 h-10 bg-gray-200 rounded animate-pulse"></div>
                 <div className="w-full md:w-48 h-10 bg-gray-200 rounded animate-pulse"></div>
+                <div className="w-full md:w-48 h-10 bg-gray-200 rounded animate-pulse"></div>
               </div>
             ) : (
               <div className="flex flex-col md:flex-row gap-4">
@@ -840,6 +1107,22 @@ const Targets: React.FC = () => {
                     {rooms.map(room => (
                       <SelectItem key={room.id} value={room.id.toString()}>
                         {room.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select value={groupFilter} onValueChange={setGroupFilter}>
+                  <SelectTrigger className="w-full md:w-48 bg-white border-gray-200 text-brand-dark">
+                    <SelectValue placeholder="Filter by group" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white border border-gray-200 text-brand-dark shadow-md">
+                    <SelectItem value="all">All Groups</SelectItem>
+                    <SelectItem value="ungrouped">Ungrouped</SelectItem>
+                    <SelectItem value="grouped">Grouped</SelectItem>
+                    {groupsWithCustomNames.map(group => (
+                      <SelectItem key={group.id} value={group.id}>
+                        {group.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -942,8 +1225,20 @@ const Targets: React.FC = () => {
               </Card>
             ) : (
               <div className="space-y-8">
+                {/* Display rooms with their groups and targets */}
                 {Object.entries(sortedGroupedTargets).map(([roomId, roomTargets]: [string, Target[]]) => {
                   const room = roomId !== 'unassigned' ? getRoom(roomId) : null;
+                  const roomGroups = roomId !== 'unassigned' ? getGroupsForRoom(roomId) : [];
+                  
+                  // Filter out targets that are in groups
+                  const targetsInRoomGroups = new Set<string>();
+                  roomGroups.forEach(group => {
+                    group.targets?.forEach(target => {
+                      targetsInRoomGroups.add(target.id);
+                    });
+                  });
+                  
+                  const ungroupedRoomTargets = roomTargets.filter(target => !targetsInRoomGroups.has(target.id));
                   
                   return (
                     <div key={roomId}>
@@ -970,40 +1265,160 @@ const Targets: React.FC = () => {
                           </div>
                         </div>
                       </div>
-                      
-                      {/* Targets Grid */}
-                      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
-                        {roomTargets.map((target, index) => {
-                          // Use a more reliable key
-                          const targetKey = target.id || `target-${index}`;
-                          const aggregatedHits = targetHitTotals[target.id];
-                          
-                          return (
-                            <TargetCard
-                              key={targetKey}
-                              target={target}
+
+                      {/* Groups in this room */}
+                      {roomGroups.length > 0 && (
+                        <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                          {roomGroups.map(group => (
+                            <TargetGroupCard
+                              key={group.id}
+                              group={group}
                               room={room}
-                              onEdit={() => {
-                                toast.info('Edit functionality coming soon');
+                              onEdit={(groupId, newName) => {
+                                handleUpdateGroup(groupId, { name: newName });
                               }}
-                              onDelete={() => {
-                                toast.info('Delete functionality coming soon');
-                              }}
-                              totalHitCount={aggregatedHits}
-                              isHitTotalsLoading={hitTotalsLoading}
+                              onDelete={() => handleDeleteGroup(group.id)}
+                              onRemoveTarget={handleRemoveTargetFromGroup}
+                              onAddTarget={handleOpenAddTargetsModal}
                             />
-                          );
-                        })}
-                      </div>
+                          ))}
+                        </div>
+                      )}
+                      
+                      {/* Ungrouped Targets in this room */}
+                      {ungroupedRoomTargets.length > 0 && (
+                        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
+                          {ungroupedRoomTargets.map((target, index) => {
+                            const targetKey = target.id || `target-${index}`;
+                            const aggregatedHits = targetHitTotals[target.id];
+                            
+                            return (
+                              <TargetCard
+                                key={targetKey}
+                                target={target}
+                                room={room}
+                                onEdit={() => {
+                                  toast.info('Edit functionality coming soon');
+                                }}
+                                onRename={() => {
+                                  setRenamingTargetId(target.id);
+                                }}
+                                onDelete={() => {
+                                  toast.info('Delete functionality coming soon');
+                                }}
+                                onCustomize={() => {
+                                  setCustomizingTargetId(target.id);
+                                }}
+                                totalHitCount={aggregatedHits}
+                                isHitTotalsLoading={hitTotalsLoading}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
+
+                {/* Standalone Groups (not assigned to any room) */}
+                {unassignedGroups.length > 0 && (
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between mb-2 md:mb-4">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-sm md:text-xl font-heading font-semibold text-brand-dark">
+                          Groups
+                        </h2>
+                        <Badge className="bg-blue-50 border-blue-500 text-blue-700 text-xs rounded-lg md:rounded-xl">
+                          {unassignedGroups.length} group{unassignedGroups.length !== 1 ? 's' : ''}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {unassignedGroups.map(group => (
+                        <TargetGroupCard
+                          key={group.id}
+                          group={group}
+                          room={null}
+                          onEdit={(groupId, newName) => {
+                            handleUpdateGroup(groupId, { name: newName });
+                          }}
+                          onDelete={() => handleDeleteGroup(group.id)}
+                          onRemoveTarget={handleRemoveTargetFromGroup}
+                          onAddTarget={handleOpenAddTargetsModal}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
           </div>
         </main>
       </div>
+      
+      {/* Rename Target Dialog */}
+      {renamingTargetId && (() => {
+        const target = targets.find(t => t.id === renamingTargetId);
+        if (!target) return null;
+        return (
+          <RenameTargetDialog
+            isOpen={!!renamingTargetId}
+            onClose={() => setRenamingTargetId(null)}
+            targetId={target.id}
+            originalName={target.name}
+            currentCustomName={customNames.get(target.id) || null}
+            onRename={handleRenameTarget}
+          />
+        );
+      })()}
+
+      {/* Target Customization Dialog */}
+      {customizingTarget && (
+        <TargetCustomizationDialog
+          targetId={customizingTarget.id}
+          targetName={customizingTarget.name}
+          isOpen={!!customizingTargetId}
+          onClose={() => {
+            setCustomizingTargetId(null);
+            loadPrefs(); // Reload preferences after closing
+          }}
+        />
+      )}
+
+      {/* Create Group Modal */}
+      {/* Show all targets EXCEPT those already in groups. Room assignment doesn't affect visibility. */}
+      <CreateGroupModal
+        isOpen={isCreateGroupModalOpen}
+        onClose={() => setIsCreateGroupModalOpen(false)}
+        onCreateGroup={handleCreateGroup}
+        availableTargets={useMemo(() => {
+          // Show all targets that are NOT already in groups
+          // Room assignment is independent and doesn't affect visibility
+          // Use targetsWithCustomNames to ensure we have all targets including those with custom names
+          const ungroupedTargets = targetsWithCustomNames.filter(target => !targetsInGroups.has(target.id));
+          
+          return ungroupedTargets.map(target => ({
+            id: target.id,
+            name: target.displayName || target.name, // Use custom name if available, otherwise use original name
+            status: target.status,
+            activityStatus: target.activityStatus,
+          }));
+        }, [targetsWithCustomNames, targetsInGroups])}
+        rooms={rooms}
+      />
+
+      {/* Add Targets to Group Modal */}
+      {currentGroupForAdding && (
+        <AddTargetsToGroupModal
+          isOpen={!!groupIdToAddTargets}
+          onClose={() => setGroupIdToAddTargets(null)}
+          onAddTargets={(targetIds) => handleAddTargetsToGroup(currentGroupForAdding.id, targetIds)}
+          availableTargets={getAvailableTargetsForGroup(currentGroupForAdding.id)}
+          groupName={currentGroupForAdding.name}
+        />
+      )}
     </div>
   );
 };

@@ -4,7 +4,11 @@ import { toast } from "@/components/ui/sonner";
 import { cache, CACHE_KEYS } from '@/lib/cache';
 
 export interface TargetPreferences {
-  ipAddress: string;
+  ipAddress?: string;
+  customSoundUrl?: string;
+  lightColor?: string;
+  soundEnabled?: boolean;
+  lightEnabled?: boolean;
 }
 
 export interface UserPreferences {
@@ -46,16 +50,16 @@ export const useUserPrefs = create<UserPrefsState>((set, get) => ({
       }
       
       const { data, error } = await supabase
-        .from('user_settings')
+        .from('user_profiles')
         .select('target_preferences')
-        .eq('user_id', user.id)
+        .eq('id', user.id)
         .single();
       
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      if (error) {
         throw error;
       }
       
-      const preferences = data?.target_preferences || {};
+      const preferences = (data?.target_preferences as UserPreferences) || {};
       cache.set(CACHE_KEYS.USER_PREFS, preferences, 60000); // Cache for 1 minute
       set({ prefs: preferences, loading: false });
     } catch (error) {
@@ -77,12 +81,12 @@ export const useUserPrefs = create<UserPrefsState>((set, get) => ({
       }
       
       const { error } = await supabase
-        .from('user_settings')
-        .upsert({
-          user_id: user.id,
+        .from('user_profiles')
+        .update({
           target_preferences: prefs,
           updated_at: new Date().toISOString()
-        });
+        })
+        .eq('id', user.id);
       
       if (error) {
         throw error;
@@ -102,7 +106,7 @@ export const useUserPrefs = create<UserPrefsState>((set, get) => ({
     }
   },
   
-  updatePref: (targetId: string, field: keyof TargetPreferences, value: string) => {
+  updatePref: (targetId: string, field: keyof TargetPreferences, value: string | boolean) => {
     set(state => ({
       prefs: {
         ...state.prefs,

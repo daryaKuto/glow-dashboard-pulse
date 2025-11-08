@@ -15,6 +15,7 @@ import {
   type SessionLifecycle,
   type SessionHitEntry,
 } from '@/components/game-session/sessionState';
+import { supabaseTargetCustomNamesService } from '@/services/supabase-target-custom-names';
 
 export interface StartSessionDialogProps {
   open: boolean;
@@ -44,6 +45,7 @@ export interface StartSessionDialogProps {
   onDesiredDurationChange: (value: number | null) => void;
   onRequestSavePreset: () => void;
   isSavingPreset: boolean;
+  goalShotsPerTarget?: Record<string, number>;
 }
 
 // Normalizes telemetry payload values into strings for dialog subscriptions.
@@ -93,21 +95,21 @@ const SessionStopwatchCard: React.FC<{
 }> = ({ seconds, accent, statusText, showSpinner = false }) => {
   const isLive = accent === 'live';
   const containerClasses = [
-    'flex flex-col items-center justify-center rounded-2xl px-6 py-8 text-center',
+    'flex flex-col items-center justify-center rounded-xl sm:rounded-2xl px-4 py-6 sm:px-6 sm:py-8 text-center',
     isLive ? 'bg-white/10 border border-white/15 shadow-lg' : 'bg-brand-secondary/10 border border-brand-secondary/30',
   ].join(' ');
 
   return (
     <div className={containerClasses}>
-      <Timer className={`mb-4 h-10 w-10 ${isLive ? 'text-white/80' : 'text-brand-primary'}`} />
-      <div className={`text-[11px] uppercase tracking-[0.4em] font-semibold ${isLive ? 'text-white/70' : 'text-brand-dark/60'}`}>
+      <Timer className={`mb-3 sm:mb-4 h-8 w-8 sm:h-10 sm:w-10 ${isLive ? 'text-white/80' : 'text-brand-primary'}`} />
+      <div className={`text-[10px] sm:text-[11px] uppercase tracking-[0.4em] font-semibold ${isLive ? 'text-white/70' : 'text-brand-dark/60'}`}>
         Stopwatch
       </div>
-      <div className={`mt-4 font-heading ${isLive ? 'text-white text-5xl sm:text-6xl' : 'text-brand-dark text-4xl sm:text-5xl'}`}>
+      <div className={`mt-3 sm:mt-4 font-heading ${isLive ? 'text-white text-4xl sm:text-5xl md:text-6xl' : 'text-brand-dark text-3xl sm:text-4xl md:text-5xl'}`}>
         {formatSessionDuration(seconds)}
       </div>
-      <p className={`mt-3 text-xs font-medium ${isLive ? 'text-white/70' : 'text-brand-dark/60'}`}>{statusText}</p>
-      {showSpinner && <Loader2 className={`mt-3 h-5 w-5 animate-spin ${isLive ? 'text-white/70' : 'text-brand-primary'}`} />}
+      <p className={`mt-2 sm:mt-3 text-xs font-medium ${isLive ? 'text-white/70' : 'text-brand-dark/60'}`}>{statusText}</p>
+      {showSpinner && <Loader2 className={`mt-2 sm:mt-3 h-4 w-4 sm:h-5 sm:w-5 animate-spin ${isLive ? 'text-white/70' : 'text-brand-primary'}`} />}
     </div>
   );
 };
@@ -183,11 +185,20 @@ const SessionProgressMessage: React.FC<{ tone: 'default' | 'live'; message: stri
   );
 };
 
-const SessionHitFeedList: React.FC<{ hits: SessionHitEntry[]; variant: 'live' | 'finalizing'; emptyLabel: string; limit?: number }> = ({
+const SessionHitFeedList: React.FC<{ 
+  hits: SessionHitEntry[]; 
+  variant: 'live' | 'finalizing'; 
+  emptyLabel: string; 
+  limit?: number;
+  getDisplayName?: (deviceId: string, defaultName: string) => string;
+  getDeviceIdFromHit?: (hit: SessionHitEntry) => string | null;
+}> = ({
   hits,
   variant,
   emptyLabel,
   limit = 12,
+  getDisplayName,
+  getDeviceIdFromHit,
 }) => {
   const isLive = variant === 'live';
   if (hits.length === 0) {
@@ -212,8 +223,8 @@ const SessionHitFeedList: React.FC<{ hits: SessionHitEntry[]; variant: 'live' | 
     <div
       className={[
         'divide-y divide-white/10',
-        'overflow-y-auto rounded-xl border border-white/15 bg-white/10',
-        isLive ? 'max-h-60' : 'max-h-52',
+        'overflow-y-auto rounded-lg sm:rounded-xl border border-white/15 bg-white/10',
+        isLive ? 'max-h-48 sm:max-h-60' : 'max-h-40 sm:max-h-52',
       ].join(' ')}
     >
       {sliced.map((hit) => {
@@ -224,6 +235,23 @@ const SessionHitFeedList: React.FC<{ hits: SessionHitEntry[]; variant: 'live' | 
             : hit.splitSeconds <= 0.05
               ? 'bg-emerald-400/15 text-emerald-100 border-emerald-200/40'
               : 'bg-amber-400/15 text-amber-100 border-amber-200/40';
+        // Use custom name if getDisplayName is provided and we can find deviceId
+        // Note: hit.deviceName may already contain the custom name if it came from dialogSessionHits
+        // For sessionHits from props, we need to look up deviceId from deviceName
+        let displayName = hit.deviceName;
+        let originalName: string | undefined = undefined;
+        
+        if (getDisplayName && getDeviceIdFromHit) {
+          // Try to find deviceId using the helper function
+          const deviceId = getDeviceIdFromHit(hit);
+          if (deviceId) {
+            const customName = getDisplayName(deviceId, hit.deviceName);
+            if (customName !== hit.deviceName) {
+              displayName = customName;
+              originalName = hit.deviceName;
+            }
+          }
+        }
 
         return (
           <div
@@ -240,7 +268,9 @@ const SessionHitFeedList: React.FC<{ hits: SessionHitEntry[]; variant: 'live' | 
                 <Target className="h-4 w-4" />
               </div>
               <div className="flex flex-col">
-                <span className="font-semibold leading-tight">{hit.deviceName}</span>
+                <span className="font-semibold leading-tight" title={originalName ? `Original: ${originalName}` : undefined}>
+                  {displayName}
+                </span>
                 <span className="font-mono text-[11px] text-white/60">#{hit.sequence}</span>
               </div>
             </div>
@@ -288,9 +318,11 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   onDesiredDurationChange,
   onRequestSavePreset,
   isSavingPreset,
+  goalShotsPerTarget = {},
 }) => {
   const [dialogHitHistory, setDialogHitHistory] = useState<SessionHitRecord[]>([]);
   const [durationInput, setDurationInput] = useState('');
+  const [customNames, setCustomNames] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     const nextValue =
@@ -299,6 +331,63 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
         : '';
     setDurationInput(nextValue);
   }, [desiredDurationSeconds]);
+
+  // Load custom names for targets
+  useEffect(() => {
+    const loadCustomNames = async () => {
+      try {
+        const names = await supabaseTargetCustomNamesService.getAllCustomNames();
+        setCustomNames(names);
+      } catch (error) {
+        console.error('[StartSessionDialog] Failed to load custom names:', error);
+      }
+    };
+    loadCustomNames();
+  }, []);
+
+  // Create a reverse map from deviceName to deviceId for looking up custom names
+  const deviceNameToIdMap = useMemo(() => {
+    const map = new Map<string, string>();
+    targets.forEach((target) => {
+      const name = target.name ?? target.deviceId;
+      map.set(name, target.deviceId);
+      // Also map deviceId to itself in case deviceName is the deviceId
+      map.set(target.deviceId, target.deviceId);
+    });
+    return map;
+  }, [targets]);
+
+  // Helper function to get display name (custom name or default)
+  const getDisplayName = useCallback((deviceId: string, defaultName: string): string => {
+    return customNames.get(deviceId) ?? defaultName;
+  }, [customNames]);
+
+  // Helper function to get deviceId from hit (for sessionHits from props)
+  const getDeviceIdFromHit = useCallback((hit: SessionHitEntry): string | null => {
+    // First, try to look up deviceId from deviceName using the reverse map
+    const deviceIdFromName = deviceNameToIdMap.get(hit.deviceName);
+    if (deviceIdFromName) {
+      return deviceIdFromName;
+    }
+    // If deviceName is already a deviceId (matches one of our targets), return it
+    if (deviceNameToIdMap.has(hit.deviceName)) {
+      return hit.deviceName;
+    }
+    // Try to extract from hit.id format: deviceId-timestamp-index
+    // Since deviceId can contain hyphens, we can't reliably split
+    // But we can try to match against known deviceIds
+    const parts = hit.id.split('-');
+    if (parts.length >= 3) {
+      // Try each possible deviceId combination (from start, removing last parts)
+      for (let i = parts.length - 2; i >= 1; i--) {
+        const possibleDeviceId = parts.slice(0, i).join('-');
+        if (deviceNameToIdMap.has(possibleDeviceId)) {
+          return possibleDeviceId;
+        }
+      }
+    }
+    return null;
+  }, [deviceNameToIdMap]);
 
   const dialogDeviceIds = useMemo(() => targets.map((target) => target.deviceId), [targets]);
   const dialogDeviceIdSet = useMemo(() => new Set(dialogDeviceIds), [dialogDeviceIds]);
@@ -394,17 +483,18 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
       const previous = index > 0 ? dialogHitHistory[index - 1] : null;
       const sinceStartSeconds = Math.max(0, (hit.timestamp - baseTime) / 1000);
       const splitSeconds = previous ? Math.max(0, (hit.timestamp - previous.timestamp) / 1000) : null;
+      const displayName = getDisplayName(hit.deviceId, hit.deviceName);
 
       return {
         id: `${hit.deviceId}-${hit.timestamp}-${index}`,
-        deviceName: hit.deviceName,
+        deviceName: displayName,
         timestamp: hit.timestamp,
         sequence: index + 1,
         sinceStartSeconds,
         splitSeconds,
       };
     });
-  }, [dialogHitHistory]);
+  }, [dialogHitHistory, getDisplayName]);
 
   const displayedSessionHits = dialogSessionHits.length > 0 ? dialogSessionHits : sessionHits;
   const targetDurationFormatted =
@@ -543,25 +633,35 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
 
   let bodyContent: React.ReactNode;
   if (isRunningPhase) {
+    // Calculate total goal shots
+    const totalGoalShots = Object.values(goalShotsPerTarget).reduce((sum, goal) => sum + (typeof goal === 'number' ? goal : 0), 0);
+    const hasGoalShots = totalGoalShots > 0;
+    
     bodyContent = (
       <div className="space-y-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-white/20 bg-white/5 px-4 py-3 text-center">
-            <p className="text-[11px] uppercase tracking-[0.3em] text-white/60">Running Score</p>
-            <p className="font-heading text-3xl text-white">{runningScore > 0 ? runningScore.toFixed(2) : '—'}</p>
+        <div className={`grid grid-cols-1 gap-2 sm:gap-3 ${hasGoalShots ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+          <div className="rounded-lg sm:rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 sm:px-4 sm:py-3 text-center">
+            <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.3em] text-white/60">Running Score</p>
+            <p className="font-heading text-2xl sm:text-3xl text-white">{runningScore > 0 ? runningScore.toFixed(2) : '—'}</p>
           </div>
-          <div className="rounded-xl border border-white/20 bg-white/5 px-4 py-3 text-center">
-            <p className="text-[11px] uppercase tracking-[0.3em] text-white/60">Session Hits</p>
-            <p className="font-heading text-3xl text-white">{displayedSessionHits.length}</p>
+          <div className="rounded-lg sm:rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 sm:px-4 sm:py-3 text-center">
+            <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.3em] text-white/60">Session Hits</p>
+            <p className="font-heading text-2xl sm:text-3xl text-white">{displayedSessionHits.length}</p>
           </div>
+          {hasGoalShots && (
+            <div className="rounded-lg sm:rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 sm:px-4 sm:py-3 text-center">
+              <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.3em] text-white/60">Goal Targets</p>
+              <p className="font-heading text-2xl sm:text-3xl text-white">{totalGoalShots}</p>
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <Badge className="bg-white/15 text-white border-white/20 text-xs px-3 py-1">
+          <Badge className="bg-white/15 text-white border-white/20 text-xs px-2.5 py-1 sm:px-3">
             {`${targets.length} target${targets.length === 1 ? '' : 's'} armed`}
           </Badge>
         </div>
-        <h3 className="text-sm uppercase tracking-wide text-white/80">Live shot feed</h3>
-        <SessionHitFeedList hits={displayedSessionHits} variant="live" emptyLabel="Waiting for the first hit..." limit={12} />
+        <h3 className="text-xs sm:text-sm uppercase tracking-wide text-white/80">Live shot feed</h3>
+        <SessionHitFeedList hits={displayedSessionHits} variant="live" emptyLabel="Waiting for the first hit..." limit={12} getDisplayName={getDisplayName} getDeviceIdFromHit={getDeviceIdFromHit} />
       </div>
     );
   } else if (isStoppingPhase || isFinalizingPhase) {
@@ -572,7 +672,7 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
         {displayedSessionHits.length > 0 && (
           <>
             <h3 className="text-sm uppercase tracking-wide text-white/80">Recent hits</h3>
-            <SessionHitFeedList hits={displayedSessionHits} variant="finalizing" emptyLabel="Waiting for hits..." limit={6} />
+            <SessionHitFeedList hits={displayedSessionHits} variant="finalizing" emptyLabel="Waiting for hits..." limit={6} getDisplayName={getDisplayName} getDeviceIdFromHit={getDeviceIdFromHit} />
           </>
         )}
       </div>
@@ -590,11 +690,11 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   } else {
     const quickDurationOptions = [60, 120, 180, 300];
     bodyContent = (
-      <div className="space-y-4">
+      <div className="space-y-3 sm:space-y-4">
         <div className="space-y-3 rounded-lg border border-brand-secondary/30 bg-brand-secondary/10 px-3 py-3">
           <div className="flex items-center justify-between text-sm text-brand-dark/80">
             <span className="font-medium">Room</span>
-            <span className="text-brand-dark/70">{selectedRoomName ?? 'Not set'}</span>
+            <span className="text-xs sm:text-sm text-brand-dark/70 truncate ml-2">{selectedRoomName ?? 'Not set'}</span>
           </div>
           <div className="space-y-2">
             <Label htmlFor="session-duration-seconds" className="text-xs font-medium text-brand-dark uppercase tracking-wide">
@@ -606,17 +706,19 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
               onChange={handleDurationInputChange}
               placeholder="e.g. 120"
               inputMode="numeric"
+              className="w-full"
             />
-            <div className="flex flex-col gap-2 text-[11px] text-brand-dark/60 sm:flex-row sm:items-center sm:justify-between">
-              <span>Leave blank for no limit • Formatted: {targetDurationFormatted}</span>
-              <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2 text-[10px] sm:text-[11px] text-brand-dark/60">
+              <span className="block sm:hidden">Leave blank for no limit</span>
+              <span className="hidden sm:block">Leave blank for no limit • Formatted: {targetDurationFormatted}</span>
+              <div className="flex flex-wrap gap-1.5 sm:gap-2">
                 {quickDurationOptions.map((value) => (
                   <Button
                     key={value}
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-7 px-2 text-xs"
+                    className="h-7 px-2 text-xs flex-1 sm:flex-none"
                     onClick={() => handleQuickDuration(value)}
                   >
                     {formatSessionDuration(value)}
@@ -629,8 +731,8 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
 
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="font-heading text-sm uppercase tracking-wide text-brand-dark/70">Targets ({targets.length})</h3>
-            <span className="text-[11px] text-brand-dark/50">IDs logged to console</span>
+            <h3 className="font-heading text-xs sm:text-sm uppercase tracking-wide text-brand-dark/70">Targets ({targets.length})</h3>
+            <span className="hidden sm:inline text-[11px] text-brand-dark/50">IDs logged to console</span>
           </div>
           <SessionTargetList targets={targets} tone="default" />
         </div>
@@ -641,7 +743,7 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
               type="button"
               variant="outline"
               size="sm"
-              className="gap-2"
+              className="gap-2 w-full sm:w-auto"
               onClick={onRequestSavePreset}
               disabled={isSavingPreset}
             >
@@ -668,28 +770,29 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
       <DialogContent
         className={[
           'w-full',
-          'max-w-xl',
-          'ml-5',
-          'mr-8',
-          'sm:mx-auto',
+          'max-w-[calc(100vw-30px)]',
+          'sm:max-w-xl',
+          'mx-auto',
           'transition-colors',
           'duration-300',
           'shadow-xl',
           'px-4',
-          'py-5',
+          'py-4',
           'sm:px-6',
           'sm:py-6',
+          'rounded-lg',
+          'sm:rounded-lg',
           usesLivePalette
             ? 'bg-gradient-to-br from-brand-primary to-brand-secondary text-white border-white/20'
             : 'bg-white text-brand-dark border-gray-200',
         ].join(' ')}
       >
-        <DialogHeader className="space-y-1.5 sm:space-y-2">
-          <DialogTitle className="text-xl sm:text-2xl font-heading">{dialogTitle}</DialogTitle>
-          <DialogDescription className={usesLivePalette ? 'text-white/80' : 'text-brand-dark/70'}>{dialogDescription}</DialogDescription>
+        <DialogHeader className="space-y-1 sm:space-y-1.5">
+          <DialogTitle className="text-lg sm:text-xl md:text-2xl font-heading">{dialogTitle}</DialogTitle>
+          <DialogDescription className={`text-xs sm:text-sm ${usesLivePalette ? 'text-white/80' : 'text-brand-dark/70'}`}>{dialogDescription}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 sm:space-y-6">
+        <div className="space-y-3 sm:space-y-4 md:space-y-6">
           <SessionStopwatchCard
             seconds={sessionSeconds}
             accent={usesLivePalette ? 'live' : 'default'}
@@ -700,30 +803,30 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
           {bodyContent}
         </div>
 
-        <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
+        <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between mt-4 sm:mt-6">
           {showCloseButton ? (
             <Button
               variant="outline"
               onClick={onClose}
               disabled={isDismissDisabled}
-              className={
+              className={`w-full sm:w-auto ${
                 usesLivePalette
                   ? 'border-white/35 text-white hover:bg-white/10'
-                  : undefined
-              }
+                  : ''
+              }`}
             >
               {closeButtonLabel}
             </Button>
           ) : (
             <span className="hidden sm:block" aria-hidden="true" />
           )}
-          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center w-full sm:w-auto">
             {showStopButton && (
               <Button
                 variant="destructive"
                 onClick={onStop}
                 disabled={isStoppingPhase || isStopping}
-                className={`sm:min-w-[140px] ${
+                className={`w-full sm:min-w-[140px] ${
                   usesLivePalette ? 'bg-white text-brand-dark hover:bg-white/90 border-none' : ''
                 }`}
               >
@@ -744,11 +847,11 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
               <Button
                 onClick={onConfirm}
                 disabled={!canTriggerStart}
-                className={
+                className={`w-full sm:min-w-[140px] ${
                   canTriggerStart
-                    ? 'sm:min-w-[140px] bg-green-600 hover:bg-green-700'
-                    : 'sm:min-w-[140px] bg-green-600/40 text-green-900/60 cursor-not-allowed'
-                }
+                    ? 'bg-green-600 hover:bg-green-700'
+                    : 'bg-green-600/40 text-green-900/60 cursor-not-allowed'
+                }`}
               >
                 {isStarting ? (
                   <>

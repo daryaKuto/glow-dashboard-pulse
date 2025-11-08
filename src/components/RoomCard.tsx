@@ -89,7 +89,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
     <Card className={`w-full bg-white border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200 ${
       isDragging ? 'opacity-50 scale-95' : ''
     }`}>
-      <CardHeader className="pb-2 md:pb-3 p-3 md:p-4">
+      <CardHeader className="pb-2 md:pb-3 p-2 md:p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 md:gap-3">
             <div className="p-1.5 md:p-2 bg-brand-secondary/10 rounded-lg">
@@ -142,7 +142,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
       </CardHeader>
       
       {isEditing && (
-        <CardContent className="pt-0 p-3 md:p-4">
+        <CardContent className="pt-0 p-2 md:p-3">
           <div className="flex gap-1.5 md:gap-2">
             <input
               type="text"
@@ -177,7 +177,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
         </CardContent>
       )}
       
-      <CardFooter className="pt-2 md:pt-3 p-3 md:p-4">
+      <CardFooter className="pt-2 md:pt-3 p-2 md:p-3">
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-1.5 md:gap-2">
             <Users className="h-3 w-3 md:h-4 md:w-4 text-brand-primary" />

@@ -38,7 +38,7 @@ const deviceStatusBadge = (device: DeviceStatus, isOnline: boolean) => {
     case 'stop':
       return <Badge variant="secondary" className="text-xs">Stopped</Badge>;
     default:
-      return <Badge variant="outline" className="text-xs">Idle</Badge>;
+      return null;
   }
 };
 
@@ -89,12 +89,12 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
   }, [devices, selectedDeviceIds]);
 
   return (
-    <Card className={`bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg flex h-full flex-col ${className ?? ''}`}>
-      <CardContent className="flex flex-1 flex-col space-y-4 p-4 md:p-5">
-        <div className="space-y-2">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="font-heading text-lg text-brand-dark">Target Selection</h2>
-            <div className="flex items-center gap-2">
+    <Card className={`bg-gray-50 border-gray-200 shadow-sm rounded-md md:rounded-lg flex h-full flex-col ${className ?? ''}`}>
+      <CardContent className="flex flex-1 flex-col space-y-2 p-[10px]">
+        <div className="space-y-1.5">
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="font-heading text-lg text-brand-dark">Target</h2>
+            <div className="flex items-center gap-1.5">
               <Button
                 variant="outline"
                 size="sm"
@@ -125,13 +125,14 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
         ) : devices.length === 0 ? (
           <p className="flex-1 text-sm text-brand-dark/60">No ThingsBoard devices found for this tenant.</p>
         ) : (
-          <ScrollArea ref={scrollAreaRef} className="flex-1 pr-2 max-h-[280px]">
-            <div className="space-y-2">
+          <ScrollArea ref={scrollAreaRef} className="flex-1 max-h-[280px]">
+            <div className="space-y-1.5">
               {devices.map((device) => {
                 const checkboxId = `target-${device.deviceId}`;
                 const connectionStatus = deriveConnectionStatus(device);
                 const isOnline = connectionStatus !== 'offline';
                 const targetRecord = targetDetails.get(device.deviceId);
+                const displayName = targetRecord?.customName || device.name;
                 const lastActivityTimestamp =
                   (typeof targetRecord?.lastActivityTime === 'number' ? targetRecord.lastActivityTime : null) ??
                   (typeof device.raw?.lastActivityTime === 'number' ? device.raw.lastActivityTime : null) ??
@@ -154,11 +155,11 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
                 return (
                   <div
                     key={device.deviceId}
-                    className={`flex items-start justify-between rounded-lg border px-3 py-2 transition-colors overflow-hidden ${
+                    className={`flex items-start justify-between rounded-lg border px-[10px] py-[10px] transition-colors overflow-hidden ${
                       isChecked ? 'border-brand-primary/40 bg-brand-primary/5' : 'border-gray-200 bg-white'
                     }`}
                   >
-                    <div className="flex items-start gap-3">
+                    <div className="flex items-start gap-2">
                       <Checkbox
                         id={checkboxId}
                         checked={isChecked}
@@ -167,7 +168,7 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
                       />
                       <div className="space-y-1 min-w-0">
                         <label htmlFor={checkboxId} className="font-heading text-sm text-brand-dark leading-tight">
-                          <span className="block truncate max-w-[180px] text-left">{device.name}</span>
+                          <span className="block truncate max-w-[180px] text-left">{displayName}</span>
                         </label>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-brand-dark/60">
                           <span className={`flex items-center gap-1 font-medium ${connectionColor}`}>
@@ -194,24 +195,24 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
 // Placeholder while the device roster is refreshing.
 export const TargetSelectionSkeleton: React.FC = () => (
   <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg flex h-full flex-col">
-    <CardContent className="flex flex-1 flex-col space-y-4 p-4 md:p-5">
-      <div className="space-y-2">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <Skeleton className="h-5 w-40 bg-gray-200" />
-          <div className="flex items-center gap-2">
-            <Skeleton className="h-9 w-24 rounded-md bg-gray-200" />
-            <Skeleton className="h-9 w-20 rounded-md bg-gray-200" />
+      <CardContent className="flex flex-1 flex-col space-y-2 p-[10px]">
+        <div className="space-y-1.5">
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+            <Skeleton className="h-5 w-40 bg-gray-200" />
+            <div className="flex items-center gap-1.5">
+              <Skeleton className="h-9 w-24 rounded-md bg-gray-200" />
+              <Skeleton className="h-9 w-20 rounded-md bg-gray-200" />
+            </div>
           </div>
+          <Skeleton className="h-3 w-52 bg-gray-200" />
         </div>
-        <Skeleton className="h-3 w-52 bg-gray-200" />
-      </div>
-      <div className="space-y-2">
-        {Array.from({ length: 5 }).map((_, index) => (
-          <div
-            key={index}
-            className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
-          >
-            <div className="flex items-center gap-3">
+        <div className="space-y-1.5">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div
+              key={index}
+              className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-[10px] py-[10px]"
+            >
+              <div className="flex items-center gap-2">
               <Skeleton className="h-4 w-4 bg-gray-200 rounded-sm" />
               <div className="space-y-2">
                 <Skeleton className="h-4 w-32 bg-gray-200" />

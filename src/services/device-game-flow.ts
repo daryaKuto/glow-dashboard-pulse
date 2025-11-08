@@ -101,6 +101,7 @@ export interface GameHistory {
   splits?: SessionSplit[];
   transitions?: SessionTransition[];
   hitHistory?: SessionHitRecord[];
+  goalShotsPerTarget?: Record<string, number>;
 }
 
 export type GameCommandWarning = { deviceId: string; warning: string };

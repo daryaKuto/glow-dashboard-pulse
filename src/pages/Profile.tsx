@@ -227,13 +227,41 @@ const Profile: React.FC = () => {
       await savePrefs(formPrefs);
       
       
-      // Push to ThingsBoard for each target (only IP addresses)
-      const attributeUpdates: Array<{ targetId: string; ipAddress: string }> = [];
+      // Push to ThingsBoard for each target (IP addresses, sounds, and colors)
+      const attributeUpdates: Array<{ 
+        targetId: string; 
+        attributes: Record<string, unknown>;
+      }> = [];
+      
       Object.entries(formPrefs).forEach(([targetId, cfg]) => {
         if (cfg && typeof cfg === 'object' && 'ipAddress' in cfg) {
           const targetPrefs = cfg as TargetPreferences;
+          const attributes: Record<string, unknown> = {};
+          
+          // IP Address (existing)
           if (targetPrefs.ipAddress) {
-            attributeUpdates.push({ targetId, ipAddress: targetPrefs.ipAddress });
+            attributes.ipAddress = targetPrefs.ipAddress;
+          }
+          
+          // Sound customization (premium feature)
+          if (targetPrefs.soundEnabled && targetPrefs.customSoundUrl) {
+            attributes.customSoundUrl = targetPrefs.customSoundUrl;
+            attributes.soundEnabled = true;
+          } else if (targetPrefs.soundEnabled !== undefined) {
+            attributes.soundEnabled = false;
+          }
+          
+          // Light color customization (premium feature)
+          if (targetPrefs.lightEnabled && targetPrefs.lightColor) {
+            attributes.lightColor = targetPrefs.lightColor;
+            attributes.lightEnabled = true;
+          } else if (targetPrefs.lightEnabled !== undefined) {
+            attributes.lightEnabled = false;
+          }
+          
+          // Only add if there are attributes to update
+          if (Object.keys(attributes).length > 0) {
+            attributeUpdates.push({ targetId, attributes });
           }
         }
       });
@@ -244,9 +272,7 @@ const Profile: React.FC = () => {
             action: 'set-attributes',
             setAttributes: {
               deviceIds: [update.targetId],
-              attributes: {
-                ipAddress: update.ipAddress,
-              },
+              attributes: update.attributes,
             },
           },
         });

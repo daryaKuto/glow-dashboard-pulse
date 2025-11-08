@@ -24,7 +24,8 @@ import {
   MapPin,
   MoreVertical,
   Settings,
-  Trash2
+  Trash2,
+  Sparkles
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -33,16 +34,24 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { fetchAllGameHistory } from '@/services/game-history';
+import { TargetCustomizationDialog } from '@/components/targets/TargetCustomizationDialog';
+import { useSubscription } from '@/hooks/useSubscription';
+import { PremiumLockIcon } from '@/components/shared/SubscriptionGate';
+import { useUserPrefs } from '@/store/useUserPrefs';
+import { supabase } from '@/integrations/supabase/client';
+
 // Modern Target Card Component with ThingsBoard integration
 const TargetCard: React.FC<{
   target: Target;
   room?: Room;
   onEdit: () => void;
   onDelete: () => void;
+  onCustomize?: () => void;
   totalHitCount?: number;
   isHitTotalsLoading?: boolean;
-}> = ({ target, room, onEdit, onDelete, totalHitCount, isHitTotalsLoading }) => {
+}> = ({ target, room, onEdit, onDelete, onCustomize, totalHitCount, isHitTotalsLoading }) => {
   const isMobile = useIsMobile();
+  const { isPremium } = useSubscription();
   const batteryLevel = target.battery; // Real battery data or null
   const wifiStrength = target.wifiStrength; // Real WiFi strength or null
 
@@ -112,6 +121,26 @@ const TargetCard: React.FC<{
                 <Settings className="h-3 w-3 md:h-4 md:w-4 mr-2" />
                 <span className="text-xs md:text-sm">Edit</span>
               </DropdownMenuItem>
+              {isPremium && onCustomize && (
+                <DropdownMenuItem 
+                  onClick={onCustomize}
+                  className="relative overflow-hidden premium-customize-item"
+                >
+                  <Sparkles className="h-3 w-3 md:h-4 md:w-4 mr-2 text-white relative z-10 premium-sparkle-icon" />
+                  <span className="text-xs md:text-sm relative z-10 font-medium text-white">
+                    Customize
+                  </span>
+                </DropdownMenuItem>
+              )}
+              {!isPremium && onCustomize && (
+                <DropdownMenuItem 
+                  onClick={() => toast.info('Upgrade to Premium to customize targets')}
+                  className="opacity-60"
+                >
+                  <PremiumLockIcon className="h-3 w-3 md:h-4 md:w-4 mr-2" />
+                  <span className="text-xs md:text-sm">Customize (Premium)</span>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={onDelete} className="text-red-600">
                 <Trash2 className="h-3 w-3 md:h-4 md:w-4 mr-2" />
                 <span className="text-xs md:text-sm">Delete</span>
@@ -284,6 +313,39 @@ const Targets: React.FC = () => {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [newTargetName, setNewTargetName] = useState('');
   const [newTargetRoomId, setNewTargetRoomId] = useState<string>('');
+  const [customizingTargetId, setCustomizingTargetId] = useState<string | null>(null);
+  
+  const { load: loadPrefs } = useUserPrefs();
+  
+  // Check subscription status and log for debugging
+  const { isPremium, tier, isLoading: subscriptionLoading } = useSubscription();
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  
+  // Get user email directly from Supabase (without AuthProvider dependency)
+  useEffect(() => {
+    const getUserEmail = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUserEmail(user?.email || null);
+    };
+    getUserEmail();
+  }, []);
+  
+  useEffect(() => {
+    if (!subscriptionLoading) {
+      console.log('🔐 [Targets] Subscription Status:', {
+        email: userEmail,
+        tier,
+        isPremium,
+        canCustomize: isPremium,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }, [isPremium, tier, subscriptionLoading, userEmail]);
+  
+  // Find the target being customized
+  const customizingTarget = useMemo(() => {
+    return customizingTargetId ? targets.find(t => t.id === customizingTargetId) : null;
+  }, [customizingTargetId, targets]);
 
   const FETCH_DEBUG_DEFAULT = import.meta.env.DEV;
 
@@ -303,6 +365,11 @@ const Targets: React.FC = () => {
     return FETCH_DEBUG_DEFAULT;
   }, [FETCH_DEBUG_DEFAULT]);
 
+
+  // Load user preferences on mount
+  useEffect(() => {
+    loadPrefs();
+  }, [loadPrefs]);
 
   // Sync targets from the shared store and ensure edge data is loaded
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -989,6 +1056,9 @@ const Targets: React.FC = () => {
                               onDelete={() => {
                                 toast.info('Delete functionality coming soon');
                               }}
+                              onCustomize={() => {
+                                setCustomizingTargetId(target.id);
+                              }}
                               totalHitCount={aggregatedHits}
                               isHitTotalsLoading={hitTotalsLoading}
                             />
@@ -1004,6 +1074,19 @@ const Targets: React.FC = () => {
           </div>
         </main>
       </div>
+      
+      {/* Target Customization Dialog */}
+      {customizingTarget && (
+        <TargetCustomizationDialog
+          targetId={customizingTarget.id}
+          targetName={customizingTarget.name}
+          isOpen={!!customizingTargetId}
+          onClose={() => {
+            setCustomizingTargetId(null);
+            loadPrefs(); // Reload preferences after closing
+          }}
+        />
+      )}
     </div>
   );
 };

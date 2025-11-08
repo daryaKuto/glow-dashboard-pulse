@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,6 +8,7 @@ import type { NormalizedGameDevice } from '@/hooks/useGameDevices';
 import { formatSessionDuration } from '@/components/game-session/sessionState';
 import type { LiveSessionSummary } from './types';
 import { Building2, Clock3, Bookmark, Crosshair, PlusCircle, RotateCcw } from 'lucide-react';
+import { supabaseTargetCustomNamesService } from '@/services/supabase-target-custom-names';
 
 interface LiveSessionCardProps {
   isRunning: boolean;
@@ -17,6 +18,8 @@ interface LiveSessionCardProps {
   hitCounts: Record<string, number>;
   recentSummary: LiveSessionSummary | null;
   desiredDurationSeconds?: number | null;
+  goalShotsPerTarget?: Record<string, number>;
+  stoppedTargets?: Set<string>;
   onUsePrevious?: () => void;
   onCreateNew?: () => void;
   isSessionLocked?: boolean;
@@ -31,6 +34,8 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
   hitCounts,
   recentSummary,
   desiredDurationSeconds = null,
+  goalShotsPerTarget = {},
+  stoppedTargets = new Set(),
   onUsePrevious,
   onCreateNew,
   isSessionLocked = false,
@@ -76,19 +81,36 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
               <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                 {activeTargets.map((target) => {
                   const hits = hitCounts[target.deviceId] ?? target.hitCount ?? 0;
-                  console.debug('[LiveSessionCard] Tracking target', { deviceId: target.deviceId, hits });
+                  const goalShots = goalShotsPerTarget[target.deviceId];
+                  const hasGoal = typeof goalShots === 'number' && goalShots > 0;
+                  const isGoalReached = hasGoal && hits >= goalShots;
+                  const isStopped = stoppedTargets.has(target.deviceId);
+                  console.debug('[LiveSessionCard] Tracking target', { deviceId: target.deviceId, hits, goalShots, isGoalReached, isStopped });
                   return (
                     <div
                       key={target.deviceId}
-                      className="flex items-center justify-between rounded-xl border border-gray-100 bg-white px-3 py-2 shadow-sm"
+                      className={`flex items-center justify-between rounded-xl border px-3 py-2 shadow-sm ${
+                        isStopped
+                          ? 'border-green-300 bg-green-50'
+                          : isGoalReached
+                            ? 'border-green-200 bg-green-50/50'
+                            : 'border-gray-100 bg-white'
+                      }`}
                     >
-                      <div>
-                        <p className="font-medium text-brand-dark leading-tight">{target.name ?? target.deviceId}</p>
-                        <p className="text-[11px] text-brand-dark/60">Live hits updating</p>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-brand-dark leading-tight truncate">{target.name ?? target.deviceId}</p>
+                          {isStopped && (
+                            <Badge className="bg-green-600 text-white text-[10px] px-1.5 py-0">Goal Reached</Badge>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-brand-dark/60">
+                          {hasGoal ? `${hits} / ${goalShots} shots` : 'Live hits updating'}
+                        </p>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right ml-2">
                         <p className="text-[11px] text-brand-dark/60 uppercase tracking-wide">Hits</p>
-                        <p className="font-heading text-xl text-brand-primary">{hits}</p>
+                        <p className={`font-heading text-xl ${isGoalReached ? 'text-green-600' : 'text-brand-primary'}`}>{hits}</p>
                       </div>
                     </div>
                   );
@@ -100,6 +122,26 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
       </Card>
     );
   }
+
+  // Load custom names for targets
+  const [customNames, setCustomNames] = useState<Map<string, string>>(new Map());
+  
+  useEffect(() => {
+    const loadCustomNames = async () => {
+      try {
+        const names = await supabaseTargetCustomNamesService.getAllCustomNames();
+        setCustomNames(names);
+      } catch (error) {
+        console.error('[LiveSessionCard] Failed to load custom names:', error);
+      }
+    };
+    loadCustomNames();
+  }, []);
+
+  // Helper function to get display name (custom name or default)
+  const getDisplayName = (deviceId: string, defaultName: string): string => {
+    return customNames.get(deviceId) ?? defaultName;
+  };
 
   if (recentSummary) {
     console.debug('[LiveSessionCard] Rendering last session summary', { gameId: recentSummary.gameId });
@@ -115,6 +157,53 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
     const displayTargets = recentSummary.targets.slice(0, 4);
     const extraTargetCount = Math.max(0, recentSummary.targets.length - displayTargets.length);
     const actionsDisabled = isSessionLocked;
+    
+    // Calculate total goal shots from goalShotsPerTarget
+    // Check multiple possible locations for goalShotsPerTarget
+    const goalShotsPerTargetRaw = 
+      recentSummary.historyEntry?.goalShotsPerTarget ?? 
+      (recentSummary.historyEntry as any)?.goalShotsPerTarget ??
+      (recentSummary as any)?.goalShotsPerTarget ??
+      {};
+    
+    // Also check if it's stored directly in the summary (for backwards compatibility)
+    const allPossibleLocations = [
+      recentSummary.historyEntry?.goalShotsPerTarget,
+      (recentSummary.historyEntry as any)?.goalShotsPerTarget,
+      (recentSummary as any)?.goalShotsPerTarget,
+      (recentSummary as any)?.historyEntry?.goalShotsPerTarget,
+    ].filter(Boolean);
+    
+    const goalShotsPerTarget = allPossibleLocations.length > 0 
+      ? (allPossibleLocations[0] as Record<string, number>)
+      : goalShotsPerTargetRaw;
+    
+    console.debug('[LiveSessionCard] Full summary structure', {
+      historyEntry: recentSummary.historyEntry,
+      goalShotsPerTarget,
+      historyEntryKeys: recentSummary.historyEntry ? Object.keys(recentSummary.historyEntry) : [],
+      hasGoalShotsProperty: 'goalShotsPerTarget' in (recentSummary.historyEntry || {}),
+      rawGoalShots: recentSummary.historyEntry?.goalShotsPerTarget,
+      allPossibleLocations,
+      summaryKeys: Object.keys(recentSummary),
+    });
+    
+    const totalGoalShots = Object.values(goalShotsPerTarget).reduce((sum, goal) => {
+      const numGoal = typeof goal === 'number' ? goal : (typeof goal === 'string' ? parseInt(goal, 10) : 0);
+      return sum + (Number.isFinite(numGoal) && numGoal >= 0 ? numGoal : 0);
+    }, 0);
+    
+    // Debug logging to help diagnose display issues
+    console.debug('[LiveSessionCard] Summary goal shots calculation', {
+      goalShotsPerTarget,
+      totalGoalShots,
+      totalHits: recentSummary.totalHits,
+      goalShotsEntries: Object.entries(goalShotsPerTarget),
+      goalShotsKeys: Object.keys(goalShotsPerTarget),
+      goalShotsValues: Object.values(goalShotsPerTarget),
+      historyEntryGoalShots: recentSummary.historyEntry?.goalShotsPerTarget,
+      willDisplay: totalGoalShots > 0 ? totalGoalShots : '—',
+    });
 
     return (
       <Card className="rounded-md md:rounded-lg border border-brand-primary/20 bg-gradient-to-br from-white via-brand-primary/5 to-brand-secondary/10 shadow-lg">
@@ -131,10 +220,16 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
               {formatSessionDuration(recentSummary.durationSeconds)}
             </Badge>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
               <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Total Hits</p>
               <p className="font-heading text-2xl text-brand-primary">{recentSummary.totalHits}</p>
+            </div>
+            <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
+              <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Goal Shots</p>
+              <p className="font-heading text-2xl text-brand-primary">
+                {totalGoalShots > 0 ? totalGoalShots : '—'}
+              </p>
             </div>
             <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-4 py-3 shadow-sm">
               <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Avg Split</p>
@@ -201,14 +296,18 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
               <div className="rounded-md border border-gray-200 bg-white px-4 py-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Target list</p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {displayTargets.map((target) => (
-                    <span
-                      key={target.deviceId}
-                      className="inline-flex items-center rounded-full border border-brand-secondary/30 bg-gray-50 px-3 py-1 text-xs font-medium text-brand-dark"
-                    >
-                      {target.deviceName}
-                    </span>
-                  ))}
+                  {displayTargets.map((target) => {
+                    const displayName = getDisplayName(target.deviceId, target.deviceName);
+                    return (
+                      <span
+                        key={target.deviceId}
+                        className="inline-flex items-center rounded-full border border-brand-secondary/30 bg-gray-50 px-3 py-1 text-xs font-medium text-brand-dark"
+                        title={displayName !== target.deviceName ? `Original: ${target.deviceName}` : undefined}
+                      >
+                        {displayName}
+                      </span>
+                    );
+                  })}
                   {extraTargetCount > 0 && (
                     <span className="inline-flex items-center rounded-full border border-dashed border-brand-secondary/40 bg-gray-50 px-3 py-1 text-xs font-medium text-brand-dark/60">
                       +{extraTargetCount} more target{extraTargetCount === 1 ? '' : 's'}
@@ -225,15 +324,58 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
               <p className="text-sm text-brand-dark/60">No target activity captured for this session.</p>
             ) : (
               <div className="space-y-2">
-                {topResults.map((result) => (
-                  <div
-                    key={result.deviceId}
-                    className="flex items-center justify-between rounded-lg border border-brand-secondary/20 bg-white/80 px-3 py-2"
-                  >
-                    <span className="font-medium text-brand-dark">{result.deviceName}</span>
-                    <span className="font-heading text-lg text-brand-primary">{result.hitCount}</span>
-                  </div>
-                ))}
+                {topResults.map((result) => {
+                  const goalShots = recentSummary.historyEntry.goalShotsPerTarget?.[result.deviceId];
+                  const hasGoal = typeof goalShots === 'number' && goalShots > 0;
+                  const goalReached = hasGoal && (result.hitCount ?? 0) >= goalShots;
+                  const actualHits = result.hitCount ?? 0;
+                  const displayName = getDisplayName(result.deviceId, result.deviceName);
+                  return (
+                    <div
+                      key={result.deviceId}
+                      className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
+                        goalReached
+                          ? 'border-green-300 bg-green-50/50'
+                          : 'border-brand-secondary/20 bg-white/80'
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <span 
+                          className="font-medium text-brand-dark block truncate"
+                          title={displayName !== result.deviceName ? `Original: ${result.deviceName}` : undefined}
+                        >
+                          {displayName}
+                        </span>
+                        {hasGoal && (
+                          <span className="text-[10px] text-brand-dark/60">
+                            Goal: {goalShots} shots
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-right ml-2">
+                        {hasGoal ? (
+                          <>
+                            <span className={`font-heading text-lg ${goalReached ? 'text-green-600' : 'text-brand-primary'}`}>
+                              {actualHits} / {goalShots}
+                            </span>
+                            <span className="block text-[10px] text-brand-dark/60">
+                              hits
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-heading text-lg text-brand-primary">
+                              {actualHits}
+                            </span>
+                            <span className="block text-[10px] text-brand-dark/60">
+                              hits
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -243,18 +385,27 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-brand-dark/60">
                   <span>Recent Splits</span>
-                  <span className="text-brand-primary text-[10px] font-semibold">Hit number + Time Split</span>
+                  <span className="text-brand-primary text-[10px] font-semibold">Target • Hit # • Split Time</span>
                 </div>
                 <div className="space-y-1.5">
-                  {recentSplits.map((split) => (
-                    <div
-                      key={`${split.deviceId}-${split.splitNumber}`}
-                      className="flex items-center justify-between rounded-lg border border-brand-primary/20 bg-brand-primary/5 px-3 py-2 text-xs text-brand-dark"
-                    >
-                      <span className="font-medium text-brand-dark">Hit #{split.splitNumber}</span>
-                      <span className="font-heading text-sm text-brand-primary">{split.time.toFixed(2)}s</span>
-                    </div>
-                  ))}
+                  {recentSplits.map((split) => {
+                    const displayName = getDisplayName(split.deviceId, split.deviceName);
+                    return (
+                      <div
+                        key={`${split.deviceId}-${split.splitNumber}`}
+                        className="flex items-center justify-between rounded-lg border border-brand-primary/20 bg-brand-primary/5 px-3 py-2 text-xs text-brand-dark"
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <span className="font-medium text-brand-dark truncate" title={displayName !== split.deviceName ? `Original: ${split.deviceName}` : undefined}>
+                            {displayName}
+                          </span>
+                          <span className="text-brand-dark/60">•</span>
+                          <span className="font-medium text-brand-dark">Hit #{split.splitNumber}</span>
+                        </div>
+                        <span className="font-heading text-sm text-brand-primary ml-2">{split.time.toFixed(2)}s</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </>

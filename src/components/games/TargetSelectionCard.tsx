@@ -132,6 +132,7 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
                 const connectionStatus = deriveConnectionStatus(device);
                 const isOnline = connectionStatus !== 'offline';
                 const targetRecord = targetDetails.get(device.deviceId);
+                const displayName = targetRecord?.customName || device.name;
                 const lastActivityTimestamp =
                   (typeof targetRecord?.lastActivityTime === 'number' ? targetRecord.lastActivityTime : null) ??
                   (typeof device.raw?.lastActivityTime === 'number' ? device.raw.lastActivityTime : null) ??
@@ -167,7 +168,7 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
                       />
                       <div className="space-y-1 min-w-0">
                         <label htmlFor={checkboxId} className="font-heading text-sm text-brand-dark leading-tight">
-                          <span className="block truncate max-w-[180px] text-left">{device.name}</span>
+                          <span className="block truncate max-w-[180px] text-left">{displayName}</span>
                         </label>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-brand-dark/60">
                           <span className={`flex items-center gap-1 font-medium ${connectionColor}`}>

@@ -48,6 +48,7 @@ import {
 import { useSessionActivation } from '@/hooks/useSessionActivation';
 import { useAuth } from '@/providers/AuthProvider';
 import { fetchRecentSessions, type RecentSession } from '@/services/profile';
+import { supabaseTargetCustomNamesService } from '@/services/supabase-target-custom-names';
 import {
   LiveSessionCard,
   LiveSessionCardSkeleton,
@@ -133,7 +134,7 @@ const StepThreeSkeleton: React.FC = () => (
         <Skeleton className="h-5 w-56 bg-gray-200" />
         <Skeleton className="h-3 w-64 bg-gray-200" />
       </div>
-      <div className="flex flex-col gap-3 text-left items-stretch md:grid md:grid-cols-3 md:gap-4 md:overflow-visible md:pb-0">
+      <div className="flex flex-col gap-3 text-left items-stretch md:grid md:grid-cols-4 md:gap-4 md:overflow-visible md:pb-0">
         <div className="md:min-w-0">
           <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
             <div className="flex items-start gap-3">
@@ -154,6 +155,18 @@ const StepThreeSkeleton: React.FC = () => (
                 <Skeleton className="h-3 w-28 bg-gray-200" />
                 <Skeleton className="h-4 w-36 bg-gray-200" />
                 <Skeleton className="h-3 w-40 bg-gray-200" />
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="md:min-w-0">
+          <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+            <div className="flex items-start gap-3">
+              <Skeleton className="h-12 w-12 rounded-md bg-gray-200" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-3 w-28 bg-gray-200" />
+                <Skeleton className="h-4 w-36 bg-gray-200" />
+                <Skeleton className="h-3 w-32 bg-gray-200" />
               </div>
             </div>
           </div>
@@ -389,7 +402,7 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
                     </div>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-3">
+                  <div className={`grid gap-3 ${preset.settings?.goalShotsPerTarget && Object.keys(preset.settings.goalShotsPerTarget as Record<string, number>).length > 0 ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
                     <div className="rounded-md border border-gray-200 bg-white px-3 py-3 flex items-start gap-3">
                       <div className="rounded-md bg-brand-primary/10 p-2 text-brand-primary shadow-sm">
                         <Building2 className="h-4 w-4" />
@@ -421,6 +434,35 @@ const GamePresetsCard: React.FC<GamePresetsCardProps> = ({
                         <p className="font-medium text-brand-dark">{preset.targetIds.length}</p>
                       </div>
                     </div>
+                    {preset.settings?.goalShotsPerTarget && 
+                     typeof preset.settings.goalShotsPerTarget === 'object' && 
+                     !Array.isArray(preset.settings.goalShotsPerTarget) &&
+                     Object.keys(preset.settings.goalShotsPerTarget as Record<string, number>).length > 0 && (
+                      <div className="rounded-md border border-gray-200 bg-white px-3 py-3 flex items-start gap-3">
+                        <div className="rounded-md bg-brand-primary/10 p-2 text-brand-primary shadow-sm">
+                          <Gamepad2 className="h-4 w-4" />
+                        </div>
+                        <div className="space-y-1 text-sm">
+                          <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Goal Shots</p>
+                          <p className="font-medium text-brand-dark">
+                            {(() => {
+                              const goalShots = preset.settings.goalShotsPerTarget as Record<string, number>;
+                              const goalValues = Object.values(goalShots);
+                              if (goalValues.length === 0) return '—';
+                              // If all targets have the same goal, show that number
+                              const uniqueGoals = [...new Set(goalValues)];
+                              if (uniqueGoals.length === 1) {
+                                return uniqueGoals[0].toString();
+                              }
+                              // Otherwise show range or count
+                              const min = Math.min(...goalValues);
+                              const max = Math.max(...goalValues);
+                              return min === max ? min.toString() : `${min}-${max}`;
+                            })()}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {preset.description && (
@@ -732,6 +774,29 @@ const Games: React.FC = () => {
   const [sessionRoomId, setSessionRoomId] = useState<string | null>(null);
   // Tracks which group (if any) is currently associated with the staged session.
   const [sessionGroupId, setSessionGroupId] = useState<string | null>(null);
+  // Goal shots per target - maps deviceId to goal shot count (optional)
+  const [goalShotsPerTarget, setGoalShotsPerTarget] = useState<Record<string, number>>({});
+  // Use a ref to store goalShotsPerTarget to avoid infinite loops in useEffect dependencies
+  const goalShotsPerTargetRef = useRef<Record<string, number>>({});
+  useEffect(() => {
+    goalShotsPerTargetRef.current = goalShotsPerTarget;
+  }, [goalShotsPerTarget]);
+  // Tracks which targets have reached their goal and been stopped
+  const [stoppedTargets, setStoppedTargets] = useState<Set<string>>(new Set());
+  // Use refs to avoid infinite loops in useEffect dependencies
+  const stoppedTargetsRef = useRef<Set<string>>(new Set());
+  const currentSessionTargetsRef = useRef<NormalizedGameDevice[]>([]);
+  useEffect(() => {
+    stoppedTargetsRef.current = stoppedTargets;
+  }, [stoppedTargets]);
+  useEffect(() => {
+    currentSessionTargetsRef.current = currentSessionTargets;
+  }, [currentSessionTargets]);
+  // Refs to track previous telemetry values to prevent infinite loops
+  const prevHitCountsRef = useRef<Record<string, number>>({});
+  const prevHitHistoryRef = useRef<SessionHitRecord[]>([]);
+  // Custom names for targets
+  const [customNames, setCustomNames] = useState<Map<string, string>>(new Map());
   // Snapshot of the most recent completed game, displayed in the post-session summary card.
   const [recentSessionSummary, setRecentSessionSummary] = useState<LiveSessionSummary | null>(null);
   useEffect(() => {
@@ -829,6 +894,8 @@ const Games: React.FC = () => {
   const resetSetupFlow = useCallback(() => {
     setSetupStep('select-targets');
     setStagedPresetId(null);
+    setGoalShotsPerTarget({});
+    setStoppedTargets(new Set());
   }, []);
   const directStartStatesRef = useRef<Record<string, 'idle' | 'pending' | 'success' | 'error'>>({});
   const updateDirectStartStates = useCallback((
@@ -865,6 +932,8 @@ const Games: React.FC = () => {
   } = useSessionActivation();
   // Lets async callbacks check the latest confirmation state without waiting for React re-render.
   const sessionConfirmedRef = useRef<boolean>(false);
+  // Track if we've already called markTelemetryConfirmed to prevent infinite loops
+  const hasMarkedTelemetryConfirmedRef = useRef<boolean>(false);
 
   // currentGameDevicesRef keeps a stable list of armed targets so stop/finalize logic can reference them after state resets.
   const currentGameDevicesRef = useRef<string[]>([]);
@@ -881,6 +950,8 @@ const Games: React.FC = () => {
   const { session: tbSession, refresh: refreshThingsboardSession } = useThingsboardToken();
   // Prevents duplicate auto-stop triggers once the desired duration elapses.
   const autoStopTriggeredRef = useRef(false);
+  // Prevents duplicate game termination when all targets reach their goals
+  const goalTerminationTriggeredRef = useRef(false);
 
   const isSelectingLifecycle = sessionLifecycle === 'selecting';
   const isLaunchingLifecycle = sessionLifecycle === 'launching';
@@ -916,6 +987,7 @@ const Games: React.FC = () => {
   useEffect(() => {
     if (!isRunningLifecycle) {
       autoStopTriggeredRef.current = false;
+      goalTerminationTriggeredRef.current = false;
     }
   }, [isRunningLifecycle]);
 
@@ -1011,6 +1083,10 @@ const Games: React.FC = () => {
 
   useEffect(() => {
     sessionConfirmedRef.current = sessionConfirmed;
+    // Reset the flag when sessionConfirmed changes to false (new session starting)
+    if (!sessionConfirmed) {
+      hasMarkedTelemetryConfirmedRef.current = false;
+    }
   }, [sessionConfirmed]);
 
   const refreshDirectAuthToken = useCallback(async () => {
@@ -1274,6 +1350,12 @@ const Games: React.FC = () => {
         ensureNumber(getSummaryValue('accuracy')) ??
         (typeof session.accuracy === 'number' && Number.isFinite(session.accuracy) ? session.accuracy : null);
 
+      const rawGoalShotsPerTarget = getSummaryValue('goalShotsPerTarget');
+      const goalShotsPerTarget: Record<string, number> | undefined =
+        rawGoalShotsPerTarget && typeof rawGoalShotsPerTarget === 'object' && rawGoalShotsPerTarget !== null
+          ? (rawGoalShotsPerTarget as Record<string, number>)
+          : undefined;
+
       const summaryPayload: GameHistorySummaryPayload = {
         gameId,
         gameName,
@@ -1299,6 +1381,7 @@ const Games: React.FC = () => {
         splits,
         transitions,
         hitHistory: hitHistoryRecords,
+        goalShotsPerTarget,
       };
 
       return mapSummaryToGameHistory(summaryPayload);
@@ -1307,11 +1390,18 @@ const Games: React.FC = () => {
   );
 
   // Pulls persisted history rows so the dashboard reflects stored and recent game sessions.
+  const isLoadingHistoryRef = useRef(false);
   const loadGameHistory = useCallback(async () => {
-    if (!user) {
+    if (!user?.id) {
       return;
     }
 
+    // Prevent concurrent calls (fix infinite loop)
+    if (isLoadingHistoryRef.current) {
+      return;
+    }
+
+    isLoadingHistoryRef.current = true;
     setIsHistoryLoading(true);
     try {
       const [historyResult, sessionsResult] = await Promise.allSettled([
@@ -1324,18 +1414,7 @@ const Games: React.FC = () => {
       if (historyResult.status === 'rejected') {
         console.warn('[Games] Failed to load persisted game history', historyResult.reason);
       }
-      if (historyResult.status === 'fulfilled') {
-        console.info('[Games] Persisted game history fetched from Supabase', {
-          fetchedAt: new Date().toISOString(),
-          count: persistedHistory.length,
-          sample: persistedHistory.slice(0, 3).map((entry) => ({
-            gameId: entry.gameId,
-            score: entry.score,
-            totalHits: entry.totalHits,
-            startTime: entry.startTime,
-          })),
-        });
-      }
+      // History fetched successfully (console log removed to prevent notifications)
 
       const sessionHistory =
         sessionsResult.status === 'fulfilled'
@@ -1344,19 +1423,7 @@ const Games: React.FC = () => {
       if (sessionsResult.status === 'rejected') {
         console.warn('[Games] Failed to load session history', sessionsResult.reason);
       }
-      if (sessionsResult.status === 'fulfilled') {
-        console.info('[Games] Recent sessions fetched from Supabase', {
-          fetchedAt: new Date().toISOString(),
-          count: sessionsResult.value.length,
-          sample: sessionsResult.value.slice(0, 3).map((session) => ({
-            id: session.id,
-            scenarioName: session.scenarioName,
-            score: session.score,
-            startedAt: session.startedAt,
-            hitCount: session.hitCount,
-          })),
-        });
-      }
+      // Recent sessions fetched successfully (console log removed to prevent notifications)
 
       const historyMap = new Map<string, GameHistory>();
       persistedHistory.forEach((entry) => {
@@ -1377,8 +1444,17 @@ const Games: React.FC = () => {
       );
 
       setGameHistory(combinedHistory);
+      
+      // Only update summary if it actually changed (prevent infinite loop)
       if (combinedHistory.length > 0) {
-        setRecentSessionSummary(convertHistoryEntryToLiveSummary(combinedHistory[0]));
+        const newSummary = convertHistoryEntryToLiveSummary(combinedHistory[0]);
+        setRecentSessionSummary((prev) => {
+          // Compare gameId and startedAt to detect actual changes
+          if (!prev || prev.gameId !== newSummary.gameId || prev.startedAt !== newSummary.startedAt) {
+            return newSummary;
+          }
+          return prev; // Return same reference if unchanged
+        });
       } else {
         setRecentSessionSummary(null);
       }
@@ -1387,18 +1463,19 @@ const Games: React.FC = () => {
       setGameHistory([]);
     } finally {
       setIsHistoryLoading(false);
+      isLoadingHistoryRef.current = false;
     }
-  }, [convertSessionToHistory, user]);
+  }, [convertSessionToHistory, user?.id]);
 
   useEffect(() => {
-    if (!user) {
+    if (!user?.id) {
       setGameHistory([]);
       setIsHistoryLoading(false);
       setRecentSessionSummary(null);
       return;
     }
     void loadGameHistory();
-  }, [loadGameHistory, user]);
+  }, [loadGameHistory, user?.id]);
 
   const currentGameId: string | null = null;
   const isStarting = isLaunchingLifecycle;
@@ -1461,28 +1538,10 @@ const Games: React.FC = () => {
           });
         }
 
-        if (showToast) {
-          const onlineCount = mapped.filter((device) => device.isOnline).length;
-          const total = mapped.length;
-          const offlineCount = total - onlineCount;
-
-          if (total === 0) {
-            toast.warning('🔗 No devices found in ThingsBoard');
-          } else if (onlineCount === 0) {
-            toast.warning('🔗 All devices are currently offline', {
-              description: 'At least one online device is required to start a game.',
-            });
-          } else if (offlineCount > 0) {
-            toast.info(`🔗 ${onlineCount} online, ${offlineCount} offline devices found`);
-          } else {
-            toast.success(`🔗 ${onlineCount} devices online and ready for games`);
-          }
-        }
+        // Toast notifications removed per user request
       } catch (error) {
         console.error('❌ Failed to load live device data:', error);
-        if (showToast) {
-          toast.error('Failed to refresh device list');
-        }
+        // Toast notification removed per user request
         if (!silent) {
           setErrorMessage('Failed to load live device data. Please try again.');
         }
@@ -1526,7 +1585,21 @@ const Games: React.FC = () => {
       }
     };
 
+    const loadCustomNames = async () => {
+      try {
+        const names = await supabaseTargetCustomNamesService.getAllCustomNames();
+        if (!cancelled) {
+          setCustomNames(names);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[Games] Failed to load custom target names', err);
+        }
+      }
+    };
+
     void loadRooms();
+    void loadCustomNames();
 
     return () => {
       cancelled = true;
@@ -1637,10 +1710,14 @@ useEffect(() => {
   const targetById = useMemo(() => {
     const map = new Map<string, Target>();
     targetsSnapshot.forEach((target) => {
-      map.set(target.id, target);
+      const customName = customNames.get(target.id);
+      map.set(target.id, {
+        ...target,
+        customName: customName || null,
+      });
     });
     return map;
-  }, [targetsSnapshot]);
+  }, [targetsSnapshot, customNames]);
 
   const deviceNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -2206,6 +2283,15 @@ useEffect(() => {
 
     setSessionRoomId(recentSessionSummary.roomId ?? null);
     setSessionDurationSeconds(summaryDuration);
+    
+    // Load goal shots from recent session summary if available
+    const summaryGoalShots = recentSessionSummary.historyEntry?.goalShotsPerTarget;
+    if (summaryGoalShots && typeof summaryGoalShots === 'object' && !Array.isArray(summaryGoalShots)) {
+      setGoalShotsPerTarget(summaryGoalShots as Record<string, number>);
+    } else {
+      setGoalShotsPerTarget({});
+    }
+    
     setStagedPresetId(recentSessionSummary.presetId ?? null);
     advanceToReviewStep();
     toast.success('Previous session settings staged. Review and launch when ready.');
@@ -2412,6 +2498,9 @@ const handleDeletePreset = useCallback(
     if (resolvedRoomId) {
       settings.roomId = resolvedRoomId;
     }
+    if (Object.keys(goalShotsPerTarget).length > 0) {
+      settings.goalShotsPerTarget = goalShotsPerTarget;
+    }
 
     console.info('[Games] Saving preset request', {
       name: trimmedName,
@@ -2538,46 +2627,149 @@ const handleDeletePreset = useCallback(
       void refreshThingsboardSession({ force: true });
     },
     onError: (reason) => {
-      console.warn('[Games] Telemetry stream degraded', reason);
+      // Telemetry error handled silently (console log removed to prevent notifications)
     },
   });
 
   const isDirectFlow = isDirectTelemetryLifecycle && directTelemetryEnabled;
   const telemetryState = isDirectFlow ? directTelemetryState : standardTelemetryState;
+  
+  // Refs to track latest telemetry state (avoid dependency array issues)
+  const telemetryStateRef = useRef(telemetryState);
+  useEffect(() => {
+    telemetryStateRef.current = telemetryState;
+  }, [telemetryState]);
+
+  // Stops an individual target when it reaches its goal
+  const stopTargetWhenGoalReached = useCallback(
+    async (deviceId: string, deviceName: string, goalShots: number) => {
+      if (stoppedTargets.has(deviceId)) {
+        return; // Already stopped
+      }
+
+      const gameId = directSessionGameId || currentGameId;
+      if (!gameId) {
+        console.warn('[Games] Cannot stop target: no game ID', { deviceId });
+        return;
+      }
+
+      try {
+        console.info('[Games] Stopping target due to goal reached', {
+          deviceId,
+          deviceName,
+          goalShots,
+          gameId,
+        });
+
+        const stopTimestamp = Date.now();
+        await tbSendOneway(deviceId, 'stop', {
+          ts: stopTimestamp,
+          values: {
+            gameId,
+            reason: 'goal_reached',
+            goalShots,
+          },
+        });
+
+        const newStoppedTargets = new Set(stoppedTargets).add(deviceId);
+        setStoppedTargets(newStoppedTargets);
+
+        toast.success(`${deviceName} reached goal of ${goalShots} shots`);
+      } catch (error) {
+        console.error('[Games] Failed to stop target when goal reached', {
+          deviceId,
+          deviceName,
+          error,
+        });
+        toast.error(`Failed to stop ${deviceName}. Please stop manually.`);
+      }
+    },
+    [stoppedTargets, directSessionGameId, currentGameId],
+  );
 
   useEffect(() => {
     if ((isLaunchingLifecycle || isRunningLifecycle) && (currentGameId || isDirectFlow)) {
-      setHitCounts(telemetryState.hitCounts);
-      setHitHistory(telemetryState.hitHistory);
+      const currentTelemetry = telemetryState;
+      
+      // Only update hitCounts if content actually changed (prevent infinite loop)
+      const currentHitCounts = currentTelemetry.hitCounts;
+      const hitCountsChanged = JSON.stringify(prevHitCountsRef.current) !== JSON.stringify(currentHitCounts);
+      if (hitCountsChanged) {
+        setHitCounts(currentHitCounts);
+        prevHitCountsRef.current = currentHitCounts;
+      }
 
-      setAvailableDevices((prev) => {
-        const next = prev.map((device) => {
-          const count = telemetryState.hitCounts[device.deviceId] ?? device.hitCount;
-          const hitTimes = telemetryState.hitTimesByDevice[device.deviceId];
-          if (typeof count !== 'number' && !hitTimes) {
-            return device;
-          }
-
-          return {
-            ...device,
-            hitCount: typeof count === 'number' ? count : device.hitCount,
-            hitTimes: hitTimes ?? device.hitTimes,
-          };
+      // Only update hitHistory if content actually changed (prevent infinite loop)
+      const currentHitHistory = currentTelemetry.hitHistory;
+      const hitHistoryChanged = 
+        prevHitHistoryRef.current.length !== currentHitHistory.length ||
+        prevHitHistoryRef.current.some((prev, i) => {
+          const curr = currentHitHistory[i];
+          return !curr || prev.timestamp !== curr.timestamp || prev.deviceId !== curr.deviceId;
         });
-        availableDevicesRef.current = next;
-        return next;
-      });
+      if (hitHistoryChanged) {
+        setHitHistory(currentHitHistory);
+        prevHitHistoryRef.current = currentHitHistory;
+      }
 
-      if (!sessionConfirmed) {
-        const latestTelemetryTimestamp = (() => {
-          if (typeof telemetryState.sessionEventTimestamp === 'number') {
-            return telemetryState.sessionEventTimestamp;
+      // Only update availableDevices if hitCounts or hitTimesByDevice changed
+      if (hitCountsChanged || hitHistoryChanged) {
+        setAvailableDevices((prev) => {
+          const next = prev.map((device) => {
+            const count = currentTelemetry.hitCounts[device.deviceId] ?? device.hitCount;
+            const hitTimes = currentTelemetry.hitTimesByDevice[device.deviceId];
+            if (typeof count !== 'number' && !hitTimes) {
+              return device;
+            }
+
+            const newHitCount = typeof count === 'number' ? count : device.hitCount;
+            const newHitTimes = hitTimes ?? device.hitTimes;
+            
+            // Only create new object if values actually changed
+            if (newHitCount === device.hitCount && newHitTimes === device.hitTimes) {
+              return device;
+            }
+
+            return {
+              ...device,
+              hitCount: newHitCount,
+              hitTimes: newHitTimes,
+            };
+          });
+          
+          // Only update if array actually changed
+          const hasChanges = next.some((device, i) => device !== prev[i]);
+          if (hasChanges) {
+            availableDevicesRef.current = next;
+            return next;
           }
-          const fromHistory = telemetryState.hitHistory.at(-1)?.timestamp;
+          return prev; // Return same reference if no changes
+        });
+      }
+
+      // Check if any targets have reached their goal shots
+      if (isRunningLifecycle && Object.keys(goalShotsPerTargetRef.current).length > 0) {
+        Object.entries(goalShotsPerTargetRef.current).forEach(([deviceId, goalShots]) => {
+          const currentHits = currentTelemetry.hitCounts[deviceId] ?? 0;
+          if (currentHits >= goalShots && !stoppedTargetsRef.current.has(deviceId)) {
+            const device = currentSessionTargetsRef.current.find((d) => d.deviceId === deviceId) ||
+              availableDevicesRef.current.find((d) => d.deviceId === deviceId);
+            const deviceName = device?.name ?? deviceId;
+            void stopTargetWhenGoalReached(deviceId, deviceName, goalShots);
+          }
+        });
+      }
+
+      if (!sessionConfirmed && !hasMarkedTelemetryConfirmedRef.current) {
+        const latestTelemetryTimestamp = (() => {
+          if (typeof currentTelemetry.sessionEventTimestamp === 'number') {
+            return currentTelemetry.sessionEventTimestamp;
+          }
+          const fromHistory = currentTelemetry.hitHistory.at(-1)?.timestamp;
           if (typeof fromHistory === 'number') {
             return fromHistory;
           }
-          const flattened = Object.values(telemetryState.hitTimesByDevice)
+          const flattened = Object.values(currentTelemetry.hitTimesByDevice)
             .flat()
             .filter((value): value is number => typeof value === 'number');
           if (flattened.length > 0) {
@@ -2587,12 +2779,28 @@ const handleDeletePreset = useCallback(
         })();
 
         if (latestTelemetryTimestamp !== null) {
+          hasMarkedTelemetryConfirmedRef.current = true;
           markTelemetryConfirmed(latestTelemetryTimestamp);
         }
       }
     } else if (sessionLifecycle === 'idle') {
-      setHitCounts((prev) => (Object.keys(prev).length > 0 ? {} : prev));
-      setHitHistory([]);
+      // Only reset if we actually have data to clear (prevent unnecessary updates)
+      setHitCounts((prev) => {
+        if (Object.keys(prev).length === 0) {
+          return prev; // Already empty, return same reference
+        }
+        return {};
+      });
+      setHitHistory((prev) => {
+        if (prev.length === 0) {
+          return prev; // Already empty, return same reference
+        }
+        return [];
+      });
+      setStoppedTargets((prev) => (prev.size > 0 ? new Set() : prev)); // Only update if not already empty
+      // Reset refs when session ends
+      prevHitCountsRef.current = {};
+      prevHitHistoryRef.current = [];
     }
   }, [
     activeDeviceIds,
@@ -2600,13 +2808,11 @@ const handleDeletePreset = useCallback(
     isRunningLifecycle,
     isLaunchingLifecycle,
     sessionLifecycle,
-    telemetryState.hitCounts,
-    telemetryState.hitHistory,
-    telemetryState.hitTimesByDevice,
     sessionConfirmed,
     markTelemetryConfirmed,
-    telemetryState.sessionEventTimestamp,
     isDirectFlow,
+    stopTargetWhenGoalReached,
+    telemetryState,
   ]);
 
   useEffect(() => {
@@ -2654,6 +2860,7 @@ const handleDeletePreset = useCallback(
       roomName,
       desiredDurationSeconds,
       presetId,
+      goalShotsPerTarget,
     }: {
       resolvedGameId: string;
       sessionLabel: string;
@@ -2667,6 +2874,7 @@ const handleDeletePreset = useCallback(
       roomName: string | null;
       desiredDurationSeconds: number | null;
       presetId: string | null;
+      goalShotsPerTarget?: Record<string, number>;
     }) => {
       const sessionSummary = buildLiveSessionSummary({
         gameId: resolvedGameId,
@@ -2681,6 +2889,7 @@ const handleDeletePreset = useCallback(
         roomName,
         desiredDurationSeconds,
         presetId,
+        goalShotsPerTarget: goalShotsPerTarget ?? {},
       });
 
       console.info('[Games] Session summary prepared', {
@@ -2850,6 +3059,7 @@ const handleDeletePreset = useCallback(
         roomName: sessionRoomName,
         desiredDurationSeconds: sessionDurationSeconds,
         presetId: activePresetId,
+        goalShotsPerTarget,
       });
 
       console.info('[Games] Direct session persisted successfully', {
@@ -2930,6 +3140,37 @@ const handleDeletePreset = useCallback(
     console.info('[Games] Forwarding stop request to direct ThingsBoard handler');
     await handleStopDirectGame();
   }, [isRunningLifecycle, isStopping, isStoppingLifecycle, isFinalizingLifecycle, handleStopDirectGame]);
+
+  // Monitor if all targets with goals have been stopped and terminate game if needed
+  useEffect(() => {
+    if (!isRunningLifecycle || activeDeviceIds.length === 0 || Object.keys(goalShotsPerTarget).length === 0) {
+      return;
+    }
+
+    if (goalTerminationTriggeredRef.current) {
+      return;
+    }
+
+    const activeTargetsWithGoals = activeDeviceIds.filter((id) => goalShotsPerTarget[id] !== undefined);
+    const allTargetsWithGoalsStopped = activeTargetsWithGoals.length > 0 && activeTargetsWithGoals.every((id) => stoppedTargets.has(id));
+    const isSingleTarget = activeDeviceIds.length === 1;
+
+    if ((isSingleTarget || allTargetsWithGoalsStopped) && stoppedTargets.size > 0) {
+      goalTerminationTriggeredRef.current = true;
+      console.info('[Games] All targets with goals reached their goals. Terminating game.', {
+        isSingleTarget,
+        allTargetsWithGoalsStopped,
+        activeDeviceIds,
+        stoppedTargets: Array.from(stoppedTargets),
+        activeTargetsWithGoals,
+      });
+      toast.success('All targets reached their goals. Game ending...');
+      // Small delay to ensure stop commands are sent before terminating
+      setTimeout(() => {
+        void handleStopGame();
+      }, 500);
+    }
+  }, [isRunningLifecycle, activeDeviceIds, goalShotsPerTarget, stoppedTargets, handleStopGame]);
 
   useEffect(() => {
     if (!isRunningLifecycle) {
@@ -3208,6 +3449,7 @@ const handleDeletePreset = useCallback(
       setGameStopTime(null);
       setHitCounts(Object.fromEntries(launchDeviceIds.map((id) => [id, 0])));
       setHitHistory([]);
+      setStoppedTargets(new Set()); // Reset stopped targets when starting new session
       setErrorMessage(null);
       setDirectControlError(null);
 
@@ -3315,6 +3557,15 @@ const handleDeletePreset = useCallback(
 
         const desiredDurationSeconds = resolvePresetDurationSeconds(preset);
         setSessionDurationSeconds(desiredDurationSeconds);
+        
+        // Load goal shots from preset settings if available
+        const presetGoalShots = preset.settings?.goalShotsPerTarget;
+        if (presetGoalShots && typeof presetGoalShots === 'object' && !Array.isArray(presetGoalShots)) {
+          setGoalShotsPerTarget(presetGoalShots as Record<string, number>);
+        } else {
+          setGoalShotsPerTarget({});
+        }
+        
         setStagedPresetId(preset.id);
         setActivePresetId(preset.id);
         toast.success(`Preset "${preset.name}" applied. Launching session...`);
@@ -3824,7 +4075,7 @@ const handleDeletePreset = useCallback(
                         <p className="text-xs text-brand-dark/60 text-left">Confirm the selection before starting the game.</p>
                       </div>
                       <div className="space-y-4">
-                        <div className="flex flex-col gap-3 text-left items-stretch md:grid md:grid-cols-3 md:gap-4 md:overflow-visible md:pb-0">
+                        <div className="flex flex-col gap-3 text-left items-stretch md:grid md:grid-cols-4 md:gap-4 md:overflow-visible md:pb-0">
                           <div className="md:min-w-0">
                             <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
                               <div className="flex items-start gap-3">
@@ -3912,6 +4163,76 @@ const handleDeletePreset = useCallback(
                               </div>
                             </div>
                           </div>
+                          <div className="md:min-w-0">
+                            <div className="h-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-left md:px-4 md:py-4">
+                              <div className="flex flex-col gap-3 text-sm text-left">
+                                <div className="flex items-start gap-3">
+                                  <div className="rounded-md bg-white p-3 text-brand-primary shadow-sm">
+                                    <Gamepad2 className="h-6 w-6" />
+                                  </div>
+                                  <div className="flex-1 space-y-1">
+                                    <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Goal Shots</p>
+                                    <p className="text-xs text-brand-dark/60">
+                                      Optional: Set target goals
+                                    </p>
+                                  </div>
+                                </div>
+                                {selectedDevices.length === 0 ? (
+                                  <div className="text-xs text-brand-dark/60">
+                                    Select targets first
+                                  </div>
+                                ) : (
+                                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                                    {selectedDevices.slice(0, 5).map((device) => {
+                                      const goalValue = goalShotsPerTarget[device.deviceId] ?? '';
+                                      const targetRecord = targetById.get(device.deviceId);
+                                      const displayName = targetRecord?.customName || device.name || device.deviceId;
+                                      return (
+                                        <div key={`goal-${device.deviceId}`} className="flex items-center gap-2">
+                                          <Label htmlFor={`goal-${device.deviceId}`} className="text-xs text-brand-dark/70 min-w-[80px] truncate">
+                                            {displayName}
+                                          </Label>
+                                          <Input
+                                            id={`goal-${device.deviceId}`}
+                                            type="number"
+                                            min="1"
+                                            step="1"
+                                            value={goalValue}
+                                            onChange={(e) => {
+                                              const value = e.target.value;
+                                              if (value === '') {
+                                                setGoalShotsPerTarget((prev) => {
+                                                  const next = { ...prev };
+                                                  delete next[device.deviceId];
+                                                  return next;
+                                                });
+                                              } else {
+                                                const numValue = parseInt(value, 10);
+                                                if (!isNaN(numValue) && numValue > 0) {
+                                                  setGoalShotsPerTarget((prev) => ({
+                                                    ...prev,
+                                                    [device.deviceId]: numValue,
+                                                  }));
+                                                }
+                                              }
+                                            }}
+                                            disabled={isSessionLocked}
+                                            placeholder="—"
+                                            className="h-7 text-xs"
+                                          />
+                                        </div>
+                                      );
+                                    })}
+                                    {selectedDevices.length > 5 && (
+                                      <p className="text-xs text-brand-dark/60 italic">
+                                        +{selectedDevices.length - 5} more targets
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
                       <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
@@ -3961,6 +4282,8 @@ const handleDeletePreset = useCallback(
                     hitCounts={hitCounts}
                     recentSummary={recentSessionSummary}
                     desiredDurationSeconds={sessionDurationSeconds}
+                    goalShotsPerTarget={goalShotsPerTarget}
+                    stoppedTargets={stoppedTargets}
                     onUsePrevious={handleUsePreviousSettings}
                     onCreateNew={handleCreateNewSetup}
                     isSessionLocked={isSessionLocked}
@@ -3998,6 +4321,7 @@ const handleDeletePreset = useCallback(
           onDesiredDurationChange={handleDesiredDurationChange}
           onRequestSavePreset={handleRequestSavePreset}
           isSavingPreset={presetsSaving}
+          goalShotsPerTarget={goalShotsPerTarget}
         />
         <SavePresetDialog
           open={isSavePresetDialogOpen}
@@ -4177,7 +4501,11 @@ function convertHistoryEntryToLiveSummary(entry: GameHistory): LiveSessionSummar
     desiredDurationSeconds: entry.desiredDurationSeconds ?? null,
     targetDeviceIds: entry.targetDeviceIds ?? targets.map((target) => target.deviceId),
     presetId: entry.presetId ?? null,
-    historyEntry: entry,
+    historyEntry: {
+      ...entry,
+      // Ensure goalShotsPerTarget is preserved
+      goalShotsPerTarget: entry.goalShotsPerTarget ?? undefined,
+    },
     efficiencyScore,
   };
 }
@@ -4195,6 +4523,7 @@ interface BuildLiveSessionSummaryArgs {
   roomName?: string | null;
   desiredDurationSeconds?: number | null;
   presetId?: string | null;
+  goalShotsPerTarget?: Record<string, number>;
 }
 
 // Consolidates telemetry streams and device metadata into a reusable session report.
@@ -4211,6 +4540,7 @@ function buildLiveSessionSummary({
   roomName = null,
   desiredDurationSeconds = null,
   presetId = null,
+  goalShotsPerTarget = {},
 }: BuildLiveSessionSummaryArgs): LiveSessionSummary {
   const safeStart = Number.isFinite(startTime) ? startTime : stopTime;
   const durationMs = Math.max(0, stopTime - safeStart);
@@ -4325,6 +4655,9 @@ function buildLiveSessionSummary({
       : null;
   historyEntry.desiredDurationSeconds = normalizedDesiredDuration;
   historyEntry.presetId = presetId ?? null;
+  if (Object.keys(goalShotsPerTarget).length > 0) {
+    historyEntry.goalShotsPerTarget = goalShotsPerTarget;
+  }
   historyEntry.targetDeviceIds = targets.map((target) => target.deviceId);
   historyEntry.targetDeviceNames = targets.map((target) => target.deviceName);
   historyEntry.splits = splits;

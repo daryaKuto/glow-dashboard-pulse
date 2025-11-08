@@ -15,6 +15,7 @@ import {
   type SessionLifecycle,
   type SessionHitEntry,
 } from '@/components/game-session/sessionState';
+import { supabaseTargetCustomNamesService } from '@/services/supabase-target-custom-names';
 
 export interface StartSessionDialogProps {
   open: boolean;
@@ -44,6 +45,7 @@ export interface StartSessionDialogProps {
   onDesiredDurationChange: (value: number | null) => void;
   onRequestSavePreset: () => void;
   isSavingPreset: boolean;
+  goalShotsPerTarget?: Record<string, number>;
 }
 
 // Normalizes telemetry payload values into strings for dialog subscriptions.
@@ -183,11 +185,20 @@ const SessionProgressMessage: React.FC<{ tone: 'default' | 'live'; message: stri
   );
 };
 
-const SessionHitFeedList: React.FC<{ hits: SessionHitEntry[]; variant: 'live' | 'finalizing'; emptyLabel: string; limit?: number }> = ({
+const SessionHitFeedList: React.FC<{ 
+  hits: SessionHitEntry[]; 
+  variant: 'live' | 'finalizing'; 
+  emptyLabel: string; 
+  limit?: number;
+  getDisplayName?: (deviceId: string, defaultName: string) => string;
+  getDeviceIdFromHit?: (hit: SessionHitEntry) => string | null;
+}> = ({
   hits,
   variant,
   emptyLabel,
   limit = 12,
+  getDisplayName,
+  getDeviceIdFromHit,
 }) => {
   const isLive = variant === 'live';
   if (hits.length === 0) {
@@ -224,6 +235,23 @@ const SessionHitFeedList: React.FC<{ hits: SessionHitEntry[]; variant: 'live' | 
             : hit.splitSeconds <= 0.05
               ? 'bg-emerald-400/15 text-emerald-100 border-emerald-200/40'
               : 'bg-amber-400/15 text-amber-100 border-amber-200/40';
+        // Use custom name if getDisplayName is provided and we can find deviceId
+        // Note: hit.deviceName may already contain the custom name if it came from dialogSessionHits
+        // For sessionHits from props, we need to look up deviceId from deviceName
+        let displayName = hit.deviceName;
+        let originalName: string | undefined = undefined;
+        
+        if (getDisplayName && getDeviceIdFromHit) {
+          // Try to find deviceId using the helper function
+          const deviceId = getDeviceIdFromHit(hit);
+          if (deviceId) {
+            const customName = getDisplayName(deviceId, hit.deviceName);
+            if (customName !== hit.deviceName) {
+              displayName = customName;
+              originalName = hit.deviceName;
+            }
+          }
+        }
 
         return (
           <div
@@ -240,7 +268,9 @@ const SessionHitFeedList: React.FC<{ hits: SessionHitEntry[]; variant: 'live' | 
                 <Target className="h-4 w-4" />
               </div>
               <div className="flex flex-col">
-                <span className="font-semibold leading-tight">{hit.deviceName}</span>
+                <span className="font-semibold leading-tight" title={originalName ? `Original: ${originalName}` : undefined}>
+                  {displayName}
+                </span>
                 <span className="font-mono text-[11px] text-white/60">#{hit.sequence}</span>
               </div>
             </div>
@@ -288,9 +318,11 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   onDesiredDurationChange,
   onRequestSavePreset,
   isSavingPreset,
+  goalShotsPerTarget = {},
 }) => {
   const [dialogHitHistory, setDialogHitHistory] = useState<SessionHitRecord[]>([]);
   const [durationInput, setDurationInput] = useState('');
+  const [customNames, setCustomNames] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     const nextValue =
@@ -299,6 +331,63 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
         : '';
     setDurationInput(nextValue);
   }, [desiredDurationSeconds]);
+
+  // Load custom names for targets
+  useEffect(() => {
+    const loadCustomNames = async () => {
+      try {
+        const names = await supabaseTargetCustomNamesService.getAllCustomNames();
+        setCustomNames(names);
+      } catch (error) {
+        console.error('[StartSessionDialog] Failed to load custom names:', error);
+      }
+    };
+    loadCustomNames();
+  }, []);
+
+  // Create a reverse map from deviceName to deviceId for looking up custom names
+  const deviceNameToIdMap = useMemo(() => {
+    const map = new Map<string, string>();
+    targets.forEach((target) => {
+      const name = target.name ?? target.deviceId;
+      map.set(name, target.deviceId);
+      // Also map deviceId to itself in case deviceName is the deviceId
+      map.set(target.deviceId, target.deviceId);
+    });
+    return map;
+  }, [targets]);
+
+  // Helper function to get display name (custom name or default)
+  const getDisplayName = useCallback((deviceId: string, defaultName: string): string => {
+    return customNames.get(deviceId) ?? defaultName;
+  }, [customNames]);
+
+  // Helper function to get deviceId from hit (for sessionHits from props)
+  const getDeviceIdFromHit = useCallback((hit: SessionHitEntry): string | null => {
+    // First, try to look up deviceId from deviceName using the reverse map
+    const deviceIdFromName = deviceNameToIdMap.get(hit.deviceName);
+    if (deviceIdFromName) {
+      return deviceIdFromName;
+    }
+    // If deviceName is already a deviceId (matches one of our targets), return it
+    if (deviceNameToIdMap.has(hit.deviceName)) {
+      return hit.deviceName;
+    }
+    // Try to extract from hit.id format: deviceId-timestamp-index
+    // Since deviceId can contain hyphens, we can't reliably split
+    // But we can try to match against known deviceIds
+    const parts = hit.id.split('-');
+    if (parts.length >= 3) {
+      // Try each possible deviceId combination (from start, removing last parts)
+      for (let i = parts.length - 2; i >= 1; i--) {
+        const possibleDeviceId = parts.slice(0, i).join('-');
+        if (deviceNameToIdMap.has(possibleDeviceId)) {
+          return possibleDeviceId;
+        }
+      }
+    }
+    return null;
+  }, [deviceNameToIdMap]);
 
   const dialogDeviceIds = useMemo(() => targets.map((target) => target.deviceId), [targets]);
   const dialogDeviceIdSet = useMemo(() => new Set(dialogDeviceIds), [dialogDeviceIds]);
@@ -394,17 +483,18 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
       const previous = index > 0 ? dialogHitHistory[index - 1] : null;
       const sinceStartSeconds = Math.max(0, (hit.timestamp - baseTime) / 1000);
       const splitSeconds = previous ? Math.max(0, (hit.timestamp - previous.timestamp) / 1000) : null;
+      const displayName = getDisplayName(hit.deviceId, hit.deviceName);
 
       return {
         id: `${hit.deviceId}-${hit.timestamp}-${index}`,
-        deviceName: hit.deviceName,
+        deviceName: displayName,
         timestamp: hit.timestamp,
         sequence: index + 1,
         sinceStartSeconds,
         splitSeconds,
       };
     });
-  }, [dialogHitHistory]);
+  }, [dialogHitHistory, getDisplayName]);
 
   const displayedSessionHits = dialogSessionHits.length > 0 ? dialogSessionHits : sessionHits;
   const targetDurationFormatted =
@@ -543,9 +633,13 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
 
   let bodyContent: React.ReactNode;
   if (isRunningPhase) {
+    // Calculate total goal shots
+    const totalGoalShots = Object.values(goalShotsPerTarget).reduce((sum, goal) => sum + (typeof goal === 'number' ? goal : 0), 0);
+    const hasGoalShots = totalGoalShots > 0;
+    
     bodyContent = (
       <div className="space-y-3">
-        <div className="grid grid-cols-1 gap-2 sm:gap-3 sm:grid-cols-2">
+        <div className={`grid grid-cols-1 gap-2 sm:gap-3 ${hasGoalShots ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
           <div className="rounded-lg sm:rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 sm:px-4 sm:py-3 text-center">
             <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.3em] text-white/60">Running Score</p>
             <p className="font-heading text-2xl sm:text-3xl text-white">{runningScore > 0 ? runningScore.toFixed(2) : '—'}</p>
@@ -554,6 +648,12 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
             <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.3em] text-white/60">Session Hits</p>
             <p className="font-heading text-2xl sm:text-3xl text-white">{displayedSessionHits.length}</p>
           </div>
+          {hasGoalShots && (
+            <div className="rounded-lg sm:rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 sm:px-4 sm:py-3 text-center">
+              <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.3em] text-white/60">Goal Targets</p>
+              <p className="font-heading text-2xl sm:text-3xl text-white">{totalGoalShots}</p>
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap items-center justify-center gap-2">
           <Badge className="bg-white/15 text-white border-white/20 text-xs px-2.5 py-1 sm:px-3">
@@ -561,7 +661,7 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
           </Badge>
         </div>
         <h3 className="text-xs sm:text-sm uppercase tracking-wide text-white/80">Live shot feed</h3>
-        <SessionHitFeedList hits={displayedSessionHits} variant="live" emptyLabel="Waiting for the first hit..." limit={12} />
+        <SessionHitFeedList hits={displayedSessionHits} variant="live" emptyLabel="Waiting for the first hit..." limit={12} getDisplayName={getDisplayName} getDeviceIdFromHit={getDeviceIdFromHit} />
       </div>
     );
   } else if (isStoppingPhase || isFinalizingPhase) {
@@ -572,7 +672,7 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
         {displayedSessionHits.length > 0 && (
           <>
             <h3 className="text-sm uppercase tracking-wide text-white/80">Recent hits</h3>
-            <SessionHitFeedList hits={displayedSessionHits} variant="finalizing" emptyLabel="Waiting for hits..." limit={6} />
+            <SessionHitFeedList hits={displayedSessionHits} variant="finalizing" emptyLabel="Waiting for hits..." limit={6} getDisplayName={getDisplayName} getDeviceIdFromHit={getDeviceIdFromHit} />
           </>
         )}
       </div>

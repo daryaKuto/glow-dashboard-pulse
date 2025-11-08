@@ -31,6 +31,7 @@ export interface GameHistorySummaryPayload {
   splits?: SessionSplit[];
   transitions?: SessionTransition[];
   hitHistory?: SessionHitRecord[];
+  goalShotsPerTarget?: Record<string, number>;
 }
 
 interface GameHistoryResponse {
@@ -87,6 +88,7 @@ export function mapSummaryToGameHistory(summary: GameHistorySummaryPayload): Gam
     splits: summary.splits ?? [],
     transitions: summary.transitions ?? [],
     hitHistory: summary.hitHistory ?? [],
+    goalShotsPerTarget: summary.goalShotsPerTarget,
   };
 }
 
@@ -117,6 +119,7 @@ export async function saveGameHistory(summary: GameHistory): Promise<SaveGameHis
     splits: summary.splits ?? [],
     transitions: summary.transitions ?? [],
     hitHistory: summary.hitHistory ?? [],
+    goalShotsPerTarget: summary.goalShotsPerTarget,
   };
 
   const { data, error } = await supabase.functions.invoke<GameHistoryResponse>('game-control', {

@@ -197,6 +197,90 @@ export type Database = {
           created_at?: string
         }
       }
+      user_target_groups: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          room_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          room_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          room_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      user_target_group_assignments: {
+        Row: {
+          id: string
+          user_id: string
+          group_id: string
+          target_id: string
+          target_name: string
+          assigned_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          group_id: string
+          target_id: string
+          target_name: string
+          assigned_at?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          group_id?: string
+          target_id?: string
+          target_name?: string
+          assigned_at?: string
+          created_at?: string
+        }
+      }
+      user_target_custom_names: {
+        Row: {
+          id: string
+          user_id: string
+          target_id: string
+          original_name: string
+          custom_name: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          target_id: string
+          original_name: string
+          custom_name: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          target_id?: string
+          original_name?: string
+          custom_name?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
       sessions: {
         Row: {
           id: string

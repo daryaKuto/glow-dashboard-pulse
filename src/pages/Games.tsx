@@ -30,6 +30,7 @@ import type {
 import { useGameDevices, type NormalizedGameDevice, DEVICE_ONLINE_STALE_THRESHOLD_MS } from '@/hooks/useGameDevices';
 import { useTargets, type Target } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
+import { useTargetGroups } from '@/store/useTargetGroups';
 import { useGameTelemetry, type SplitRecord, type TransitionRecord } from '@/hooks/useGameTelemetry';
 import { useThingsboardToken } from '@/hooks/useThingsboardToken';
 import { useDirectTbTelemetry } from '@/hooks/useDirectTbTelemetry';
@@ -54,6 +55,8 @@ import {
   TargetSelectionSkeleton,
   RoomSelectionCard,
   RoomSelectionSkeleton,
+  GroupSelectionCard,
+  GroupSelectionSkeleton,
   StartSessionDialog,
 } from '@/components/games';
 import type { LiveSessionSummary } from '@/components/games/types';
@@ -80,8 +83,9 @@ const StepOneSkeleton: React.FC = () => (
         <Skeleton className="h-5 w-52 bg-gray-200" />
         <Skeleton className="h-3 w-60 bg-gray-200" />
       </div>
-      <div className="grid gap-4 md:grid-cols-2 md:items-start">
+      <div className="grid gap-4 md:grid-cols-3 md:items-start">
         <RoomSelectionSkeleton />
+        <GroupSelectionSkeleton />
         <TargetSelectionSkeleton />
       </div>
     </CardContent>
@@ -689,6 +693,9 @@ const Games: React.FC = () => {
   const rooms = useRooms((state) => state.rooms);
   const roomsLoading = useRooms((state) => state.isLoading);
   const fetchRooms = useRooms((state) => state.fetchRooms);
+  const groups = useTargetGroups((state) => state.groups);
+  const groupsLoading = useTargetGroups((state) => state.isLoading);
+  const fetchGroups = useTargetGroups((state) => state.fetchGroups);
   const gamePresets = useGamePresets((state) => state.presets);
   const presetsLoading = useGamePresets((state) => state.isLoading);
   const presetsSaving = useGamePresets((state) => state.isSaving);
@@ -723,6 +730,8 @@ const Games: React.FC = () => {
   const [sessionDurationSeconds, setSessionDurationSeconds] = useState<number | null>(null);
   // Tracks which room (if any) is currently associated with the staged session.
   const [sessionRoomId, setSessionRoomId] = useState<string | null>(null);
+  // Tracks which group (if any) is currently associated with the staged session.
+  const [sessionGroupId, setSessionGroupId] = useState<string | null>(null);
   // Snapshot of the most recent completed game, displayed in the post-session summary card.
   const [recentSessionSummary, setRecentSessionSummary] = useState<LiveSessionSummary | null>(null);
   useEffect(() => {
@@ -1509,9 +1518,10 @@ const Games: React.FC = () => {
     const loadRooms = async () => {
       try {
         await fetchRooms();
+        await fetchGroups();
       } catch (err) {
         if (!cancelled) {
-          console.warn('[Games] Failed to fetch rooms for selection card', err);
+          console.warn('[Games] Failed to fetch rooms/groups for selection card', err);
         }
       }
     };
@@ -1521,7 +1531,7 @@ const Games: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [fetchRooms]);
+  }, [fetchRooms, fetchGroups]);
 
   useEffect(() => {
     if (hasFetchedPresetsRef.current) {
@@ -1741,6 +1751,41 @@ useEffect(() => {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [rooms, availableDeviceMap, deriveConnectionStatus]);
 
+  const groupSelections = useMemo(() => {
+    return groups
+      .map((group) => {
+        const targets = Array.isArray(group.targets) ? group.targets : [];
+        const deviceIds = targets
+          .map((target) => target.id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0);
+        if (deviceIds.length === 0) {
+          return null;
+        }
+        let onlineCount = 0;
+        deviceIds.forEach((deviceId) => {
+          const device = availableDeviceMap.get(deviceId);
+          if (device && deriveConnectionStatus(device) !== 'offline') {
+            onlineCount += 1;
+          }
+        });
+        return {
+          id: group.id,
+          name: group.name,
+          deviceIds,
+          targetCount: deviceIds.length,
+          onlineCount,
+        };
+      })
+      .filter((group): group is {
+        id: string;
+        name: string;
+        deviceIds: string[];
+        targetCount: number;
+        onlineCount: number;
+      } => group !== null)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [groups, availableDeviceMap, deriveConnectionStatus]);
+
   const deriveIsOnline = useCallback(
     (device: NormalizedGameDevice) => deriveConnectionStatus(device) !== 'offline',
     [deriveConnectionStatus],
@@ -1953,15 +1998,28 @@ useEffect(() => {
           return hasAnySelected ? currentRoomId : null;
         });
 
+        setSessionGroupId((currentGroupId) => {
+          if (!currentGroupId) {
+            return null;
+          }
+          const currentGroup = groupSelections.find((group) => group.id === currentGroupId);
+          if (!currentGroup) {
+            return null;
+          }
+          const hasAnySelected = currentGroup.deviceIds.some((id) => next.includes(id));
+          return hasAnySelected ? currentGroupId : null;
+        });
+
         return next;
       });
     },
-    [roomSelections],
+    [roomSelections, groupSelections],
   );
 
   const handleSelectAllDevices = useCallback(() => {
     selectionManuallyModifiedRef.current = true;
     setSessionRoomId(null);
+    setSessionGroupId(null);
     setStagedPresetId(null);
     const next = availableDevicesRef.current
       .filter((device) => deriveIsOnline(device))
@@ -1972,6 +2030,7 @@ useEffect(() => {
   const handleClearDeviceSelection = useCallback(() => {
     selectionManuallyModifiedRef.current = true;
     setSessionRoomId(null);
+    setSessionGroupId(null);
     setStagedPresetId(null);
     setSelectedDeviceIds([]);
   }, []);
@@ -1999,6 +2058,7 @@ useEffect(() => {
       });
       if (checked) {
         setSessionRoomId(roomId);
+        setSessionGroupId(null); // Clear group selection when room is selected
       } else if (sessionRoomId === roomId) {
         setSessionRoomId(null);
       }
@@ -2009,6 +2069,7 @@ useEffect(() => {
   const handleSelectAllRooms = useCallback(() => {
     selectionManuallyModifiedRef.current = true;
     setSessionRoomId(null);
+    setSessionGroupId(null);
     setStagedPresetId(null);
     const roomDeviceIds = roomSelections.flatMap((room) => room.deviceIds);
     if (roomDeviceIds.length === 0) {
@@ -2020,6 +2081,7 @@ useEffect(() => {
   const handleClearRoomSelection = useCallback(() => {
     selectionManuallyModifiedRef.current = true;
     setSessionRoomId(null);
+    setSessionGroupId(null);
     setStagedPresetId(null);
     const roomDeviceIds = roomSelections.flatMap((room) => room.deviceIds);
     if (roomDeviceIds.length === 0) {
@@ -2028,6 +2090,61 @@ useEffect(() => {
     const deviceIdsToRemove = new Set(roomDeviceIds);
     setSelectedDeviceIds((prev) => prev.filter((id) => !deviceIdsToRemove.has(id)));
   }, [roomSelections]);
+
+  const handleToggleGroupTargets = useCallback(
+    (groupId: string, checked: boolean) => {
+      selectionManuallyModifiedRef.current = true;
+      setStagedPresetId(null);
+      const group = groupSelections.find((entry) => entry.id === groupId);
+      if (!group) {
+        return;
+      }
+      const groupDeviceIds = group.deviceIds;
+      if (groupDeviceIds.length === 0) {
+        return;
+      }
+      setSelectedDeviceIds((prev) => {
+        if (checked) {
+          const merged = new Set(prev);
+          groupDeviceIds.forEach((id) => merged.add(id));
+          return Array.from(merged);
+        }
+        const deviceIdsToRemove = new Set(groupDeviceIds);
+        return prev.filter((id) => !deviceIdsToRemove.has(id));
+      });
+      if (checked) {
+        setSessionGroupId(groupId);
+        setSessionRoomId(null); // Clear room selection when group is selected
+      } else if (sessionGroupId === groupId) {
+        setSessionGroupId(null);
+      }
+    },
+    [groupSelections, sessionGroupId],
+  );
+
+  const handleSelectAllGroups = useCallback(() => {
+    selectionManuallyModifiedRef.current = true;
+    setSessionGroupId(null);
+    setSessionRoomId(null);
+    setStagedPresetId(null);
+    const groupDeviceIds = groupSelections.flatMap((group) => group.deviceIds);
+    if (groupDeviceIds.length === 0) {
+      return;
+    }
+    setSelectedDeviceIds((prev) => Array.from(new Set([...prev, ...groupDeviceIds])));
+  }, [groupSelections]);
+
+  const handleClearGroupSelection = useCallback(() => {
+    selectionManuallyModifiedRef.current = true;
+    setSessionGroupId(null);
+    setStagedPresetId(null);
+    const groupDeviceIds = groupSelections.flatMap((group) => group.deviceIds);
+    if (groupDeviceIds.length === 0) {
+      return;
+    }
+    const deviceIdsToRemove = new Set(groupDeviceIds);
+    setSelectedDeviceIds((prev) => prev.filter((id) => !deviceIdsToRemove.has(id)));
+  }, [groupSelections]);
 
   // Re-fetches the preset catalog on demand so operators can sync recent changes.
   const handleRefreshPresets = useCallback(async () => {
@@ -3549,11 +3666,11 @@ const handleDeletePreset = useCallback(
                             Targets & Room
                           </span>
                         </div>
-                        <h2 className="font-heading text-lg text-brand-dark text-left">Select targets & assign a room</h2>
+                        <h2 className="font-heading text-lg text-brand-dark text-left">Select targets, group, or room</h2>
                         <p className="text-xs text-brand-dark/60 text-left">Choose at least one online target to continue.</p>
                       </div>
                       <div className="space-y-4">
-                        <div className="grid gap-4 md:grid-cols-2 md:items-start">
+                        <div className="grid gap-4 md:grid-cols-3 md:items-start">
                           <div className="h-full">
                             <RoomSelectionCard
                               roomsLoading={roomsLoading}
@@ -3564,6 +3681,19 @@ const handleDeletePreset = useCallback(
                               onSelectAllRooms={handleSelectAllRooms}
                               onClearRooms={handleClearRoomSelection}
                               onToggleRoomTargets={handleToggleRoomTargets}
+                              className="h-full"
+                            />
+                          </div>
+                          <div className="h-full">
+                            <GroupSelectionCard
+                              groupsLoading={groupsLoading}
+                              groups={groupSelections}
+                              selectedDeviceIds={selectedDeviceIds}
+                              isSessionLocked={isSessionLocked}
+                              activeGroupId={sessionGroupId}
+                              onSelectAllGroups={handleSelectAllGroups}
+                              onClearGroups={handleClearGroupSelection}
+                              onToggleGroupTargets={handleToggleGroupTargets}
                               className="h-full"
                             />
                           </div>

@@ -23,6 +23,7 @@ const isFetchDebugEnabled = () => {
 export interface Target {
   id: string;
   name: string;
+  customName?: string | null; // User-defined custom name
   status: 'online' | 'offline' | 'standby';
   battery?: number | null;          // Real battery or null
   wifiStrength?: number | null;     // Real WiFi or null

@@ -27,9 +27,10 @@ import {
   Music,
   BookOpen,
   Target,
-  Eye
+  Eye,
+  Layout
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Room } from '@/store/useRooms';
 
 interface RoomCardProps {
@@ -49,8 +50,13 @@ const RoomCard: React.FC<RoomCardProps> = ({
   onAssignTargets,
   onViewDetails
 }) => {
+  const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(room.name);
+
+  const handleDesignLayout = () => {
+    navigate(`/dashboard/rooms/${room.id}`);
+  };
 
   const handleRename = () => {
     if (isEditing) {
@@ -186,15 +192,27 @@ const RoomCard: React.FC<RoomCardProps> = ({
             </span>
           </div>
           
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onViewDetails}
-            className="border-gray-200 text-brand-dark hover:bg-brand-secondary/10 text-xs md:text-sm"
-          >
-            <Eye className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
-            View Details
-          </Button>
+          <div className="flex items-center gap-1.5 md:gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDesignLayout}
+              className="border-brand-primary text-brand-primary hover:bg-brand-secondary/10 text-xs md:text-sm"
+              title="Design room layout"
+            >
+              <Layout className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
+              Design
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onViewDetails}
+              className="border-gray-200 text-brand-dark hover:bg-brand-secondary/10 text-xs md:text-sm"
+            >
+              <Eye className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
+              View Details
+            </Button>
+          </div>
         </div>
       </CardFooter>
     </Card>

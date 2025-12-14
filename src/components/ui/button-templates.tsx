@@ -144,7 +144,7 @@ export const SuccessButton: React.FC<ButtonTemplateProps> = ({
   return (
     <Button
       className={cn(
-        'bg-green-600 hover:bg-green-700 text-white font-body transition-colors',
+        'bg-brand-success hover:bg-brand-success/90 text-white font-body transition-colors',
         className
       )}
       {...props}

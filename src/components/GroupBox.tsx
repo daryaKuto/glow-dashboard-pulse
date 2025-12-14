@@ -8,7 +8,7 @@ interface GroupBoxProps {
   group: TargetGroup;
   targets: TargetLayout[];
   isSelected?: boolean;
-  onClick: (e: React.MouseEvent, groupId: number) => void;
+  onClick: (e: React.MouseEvent, groupId: string) => void;
 }
 
 const GroupBox: React.FC<GroupBoxProps> = ({ 

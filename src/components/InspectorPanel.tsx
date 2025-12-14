@@ -18,6 +18,10 @@ const InspectorPanel: React.FC = () => {
     selectedIds,
     selectedGroupId,
     groups,
+    floorPlan,
+    selectedFloorPlanElement,
+    updateFloorPlanElement,
+    deleteFloorPlanElement,
     createGroup,
     renameGroup,
     ungroupTargets
@@ -81,16 +85,43 @@ const InspectorPanel: React.FC = () => {
     setGroupName('');
   };
   
+  // Get selected floor plan element
+  const getSelectedFloorPlanElement = () => {
+    if (!selectedFloorPlanElement || !floorPlan) return null;
+
+    const wall = floorPlan.walls?.find(w => w.id === selectedFloorPlanElement);
+    if (wall) return { type: 'wall', element: wall };
+
+    const room = floorPlan.rooms?.find(r => r.id === selectedFloorPlanElement);
+    if (room) return { type: 'room', element: room };
+
+    const door = floorPlan.doors?.find(d => d.id === selectedFloorPlanElement);
+    if (door) return { type: 'door', element: door };
+
+    const window = floorPlan.windows?.find(w => w.id === selectedFloorPlanElement);
+    if (window) return { type: 'window', element: window };
+
+    return null;
+  };
+
+  const selectedFloorElement = getSelectedFloorPlanElement();
+
+  // Handle delete floor plan element
+  const handleDeleteFloorElement = () => {
+    if (!selectedFloorElement) return;
+    deleteFloorPlanElement(selectedFloorElement.element.id, selectedFloorElement.type as 'wall' | 'room' | 'door' | 'window');
+  };
+
   // Render inspector content based on selection
   const renderContent = () => {
-    // No selection
+    // Floor plan element selected - show nothing (removed per user request)
+    if (selectedFloorElement) {
+      return null;
+    }
+
+    // No selection - return null to remove empty state
     if (selectedIds.length === 0 && !selectedGroup) {
-      return (
-        <div className="text-center py-8 text-brand-fg-secondary">
-          <Target size={32} className="mx-auto mb-3 text-brand-lavender/50" />
-          <p>Select a target or group to inspect</p>
-        </div>
-      );
+      return null;
     }
     
     // Group selected
@@ -238,7 +269,7 @@ const InspectorPanel: React.FC = () => {
   };
   
   return (
-    <div className="h-full p-4 overflow-y-auto">
+    <div className="p-6">
       {renderContent()}
     </div>
   );

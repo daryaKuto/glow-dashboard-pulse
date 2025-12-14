@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import API from '@/lib/api';
 import { toast } from "@/components/ui/sonner";
-import { RoomLayoutResponse } from '@/lib/types';
+import { RoomLayoutResponse, FloorPlanLayout, Wall, RoomShape, Door, Window } from '@/lib/types';
 
 export type Position = {
   x: number;
@@ -9,53 +9,105 @@ export type Position = {
 };
 
 export type TargetLayout = {
-  id: number;
+  id: string;
   x: number;
   y: number;
 };
 
 export type TargetGroup = {
-  id: number;
+  id: string;
   name: string;
-  targetIds: number[];
+  targetIds: string[];
 };
 
+export type DrawingMode = 'wall' | 'room' | 'door' | 'window' | 'target' | null;
+
 type UndoAction = {
-  type: 'move' | 'group' | 'ungroup' | 'rename';
+  type: 'move' | 'group' | 'ungroup' | 'rename' | 'floorplan';
   previous: any;
   current: any;
 };
 
 interface RoomDesignerState {
-  roomId: number | null;
+  roomId: string | null;
   layout: TargetLayout[];
   groups: TargetGroup[];
-  selectedIds: number[];
-  selectedGroupId: number | null;
+  selectedIds: string[];
+  selectedGroupId: string | null;
   snapToGrid: boolean;
   gridSize: number;
   undoStack: UndoAction[];
   redoStack: UndoAction[];
+  floorPlan: FloorPlanLayout | null;
+  drawingMode: DrawingMode;
+  selectedFloorPlanElement: string | null;
   
   // Methods
-  setRoom: (roomId: number) => void;
+  setRoom: (roomId: string) => void;
   fetchLayout: (token: string) => Promise<void>;
-  moveTarget: (id: number, position: Position, token: string) => Promise<void>;
-  createGroup: (name: string, targetIds: number[], token: string) => Promise<void>;
-  renameGroup: (groupId: number, name: string, token: string) => Promise<void>;
-  ungroupTargets: (groupId: number, token: string) => Promise<void>;
-  selectTargets: (ids: number[]) => void;
-  selectGroup: (groupId: number | null) => void;
+  placeTarget: (targetId: string, position: Position, token: string) => Promise<void>;
+  moveTarget: (id: string, position: Position, token: string) => Promise<void>;
+  createGroup: (name: string, targetIds: string[], token: string) => Promise<void>;
+  renameGroup: (groupId: string, name: string, token: string) => Promise<void>;
+  ungroupTargets: (groupId: string, token: string) => Promise<void>;
+  selectTargets: (ids: string[]) => void;
+  selectGroup: (groupId: string | null) => void;
   toggleSnapToGrid: () => void;
   setGridSize: (size: number) => void;
   undo: (token: string) => Promise<void>;
   redo: (token: string) => Promise<void>;
   saveLayout: (token: string) => Promise<boolean>;
+  // Floor plan methods
+  setDrawingMode: (mode: DrawingMode) => void;
+  addWall: (wall: Wall) => void;
+  saveLayout: (token: string) => Promise<boolean>;
+  addRoom: (room: RoomShape, token: string) => Promise<void>;
+  addDoor: (door: Door, token: string) => Promise<void>;
+  addWindow: (window: Window, token: string) => Promise<void>;
+  deleteFloorPlanElement: (id: string, type: 'wall' | 'room' | 'door' | 'window') => void;
+  updateFloorPlanElement: (id: string, type: 'wall' | 'room' | 'door' | 'window', updates: any, token: string) => Promise<void>;
+  rotateFloorPlanElement: (id: string, type: 'wall' | 'room' | 'door' | 'window', token: string) => Promise<void>;
+  selectFloorPlanElement: (id: string | null) => void;
 }
 
 // Helper to snap values to grid
 export const gridSnap = (value: number, gridSize: number): number => {
-  return Math.round(value / gridSize) * gridSize;
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRoomDesigner.ts:gridSnap',message:'gridSnap called',data:{value,gridSize,valueType:typeof value,gridSizeType:typeof gridSize,isNaNValue:isNaN(value),isNaNGridSize:isNaN(gridSize),isFiniteValue:isFinite(value),isFiniteGridSize:isFinite(gridSize)},timestamp:Date.now(),sessionId:'debug-session',runId:'snap-debug',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
+  
+  // Validate inputs
+  if (typeof value !== 'number' || isNaN(value) || !isFinite(value)) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRoomDesigner.ts:gridSnap',message:'Invalid value in gridSnap',data:{value,gridSize},timestamp:Date.now(),sessionId:'debug-session',runId:'snap-debug',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+    console.warn('gridSnap: Invalid value', value);
+    return 0; // Return safe default
+  }
+  
+  if (typeof gridSize !== 'number' || isNaN(gridSize) || !isFinite(gridSize) || gridSize <= 0) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRoomDesigner.ts:gridSnap',message:'Invalid gridSize in gridSnap',data:{value,gridSize},timestamp:Date.now(),sessionId:'debug-session',runId:'snap-debug',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
+    console.warn('gridSnap: Invalid gridSize', gridSize);
+    return value; // Return original value if gridSize is invalid
+  }
+  
+  const result = Math.round(value / gridSize) * gridSize;
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRoomDesigner.ts:gridSnap',message:'gridSnap result',data:{value,gridSize,result,isNaNResult:isNaN(result),isFiniteResult:isFinite(result)},timestamp:Date.now(),sessionId:'debug-session',runId:'snap-debug',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
+  
+  // Validate result
+  if (isNaN(result) || !isFinite(result)) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRoomDesigner.ts:gridSnap',message:'gridSnap produced invalid result',data:{value,gridSize,result},timestamp:Date.now(),sessionId:'debug-session',runId:'snap-debug',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
+    console.warn('gridSnap: Invalid result', { value, gridSize, result });
+    return value; // Return original value if result is invalid
+  }
+  
+  return result;
 };
 
 export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
@@ -68,6 +120,9 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
   gridSize: 16,
   undoStack: [],
   redoStack: [],
+  floorPlan: null,
+  drawingMode: null,
+  selectedFloorPlanElement: null,
   
   setRoom: (roomId) => {
     set({ 
@@ -77,7 +132,10 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
       selectedIds: [],
       selectedGroupId: null,
       undoStack: [],
-      redoStack: []
+      redoStack: [],
+      floorPlan: null,
+      drawingMode: null,
+      selectedFloorPlanElement: null,
     });
   },
   
@@ -90,17 +148,52 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
       set({ 
         layout: result.targets || [],
         groups: result.groups || [],
+        floorPlan: result.floorPlan?.layout || null,
       });
     } catch (error) {
       // Room layout not implemented yet, set empty arrays
       set({ 
         layout: [],
         groups: [],
+        floorPlan: null,
       });
-      console.log('Room layout not implemented with ThingsBoard yet');
+      console.log('Room layout not implemented yet');
     }
   },
   
+  placeTarget: async (targetId, position, token) => {
+    const { layout, snapToGrid, gridSize } = get();
+    
+    // Check if target is already placed
+    if (layout.some(t => t.id === targetId)) {
+      return; // Target already placed
+    }
+    
+    let newX = position.x;
+    let newY = position.y;
+    
+    if (snapToGrid) {
+      newX = gridSnap(newX, gridSize);
+      newY = gridSnap(newY, gridSize);
+    }
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRoomDesigner.ts:placeTarget',message:'Placing target in state',data:{targetId,receivedX:position.x,receivedY:position.y,finalX:newX,finalY:newY,snapToGrid},timestamp:Date.now(),sessionId:'debug-session',runId:'placement-debug',hypothesisId:'F'})}).catch(()=>{});
+    // #endregion
+    
+    // Add target to layout
+    const newTarget: TargetLayout = {
+      id: targetId,
+      x: newX,
+      y: newY,
+    };
+    
+    set({ layout: [...layout, newTarget] });
+    
+    // Save to backend
+    await get().saveLayout(token);
+  },
+
   moveTarget: async (id, position, token) => {
     const { layout, snapToGrid, gridSize } = get();
     const targetIndex = layout.findIndex(t => t.id === id);
@@ -156,8 +249,8 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
       return;
     }
     
-    // Generate a new group ID
-    const newGroupId = Date.now();
+    // Generate a new group ID (UUID-like string)
+    const newGroupId = `group-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const newGroup = {
       id: newGroupId,
       name,
@@ -426,16 +519,193 @@ export const useRoomDesigner = create<RoomDesignerState>((set, get) => ({
   },
   
   saveLayout: async (token) => {
-    const { roomId, layout, groups } = get();
+    const { roomId, layout, groups, floorPlan } = get();
     if (!roomId) return false;
     
     try {
-      await API.saveRoomLayout(roomId, layout, groups);
+      const floorPlanData = floorPlan ? {
+        layout: floorPlan,
+        canvasWidth: 600,
+        canvasHeight: 750,
+        viewportScale: 1.0,
+        viewportX: 0,
+        viewportY: 0,
+      } : undefined;
+      
+      await API.saveRoomLayout(roomId, layout, groups, floorPlanData);
       toast.success('Layout saved');
       return true;
     } catch (error) {
       toast.error('Failed to save layout');
       return false;
     }
-  }
+  },
+  
+  // Floor plan methods
+  setDrawingMode: (mode) => {
+    set({ drawingMode: mode, selectedFloorPlanElement: null });
+  },
+  
+  addWall: (wall) => {
+    const { floorPlan } = get();
+    const currentWalls = floorPlan?.walls || [];
+    set({
+      floorPlan: {
+        ...floorPlan,
+        walls: [...currentWalls, wall],
+      } as FloorPlanLayout,
+    });
+  },
+  
+  addRoom: async (room, token) => {
+    const { floorPlan } = get();
+    const currentRooms = floorPlan?.rooms || [];
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRoomDesigner.ts:addRoom',message:'Adding room to state',data:{roomId:room.id,points:room.points},timestamp:Date.now(),sessionId:'debug-session',runId:'placement-debug',hypothesisId:'G'})}).catch(()=>{});
+    // #endregion
+    set({
+      floorPlan: {
+        ...floorPlan,
+        rooms: [...currentRooms, room],
+      } as FloorPlanLayout,
+    });
+    // Save immediately to prevent state loss
+    if (token) {
+      await get().saveLayout(token);
+    }
+  },
+  
+  addDoor: async (door, token) => {
+    const { floorPlan } = get();
+    const currentDoors = floorPlan?.doors || [];
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRoomDesigner.ts:addDoor',message:'Adding door to state',data:{doorId:door.id,doorX:door.x,doorY:door.y},timestamp:Date.now(),sessionId:'debug-session',runId:'placement-debug',hypothesisId:'G'})}).catch(()=>{});
+    // #endregion
+    set({
+      floorPlan: {
+        ...floorPlan,
+        doors: [...currentDoors, door],
+      } as FloorPlanLayout,
+    });
+    // Save immediately to prevent state loss
+    if (token) {
+      await get().saveLayout(token);
+    }
+  },
+  
+  addWindow: async (window, token) => {
+    const { floorPlan } = get();
+    const currentWindows = floorPlan?.windows || [];
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRoomDesigner.ts:addWindow',message:'Adding window to state',data:{windowId:window.id,windowX:window.x,windowY:window.y},timestamp:Date.now(),sessionId:'debug-session',runId:'placement-debug',hypothesisId:'G'})}).catch(()=>{});
+    // #endregion
+    set({
+      floorPlan: {
+        ...floorPlan,
+        windows: [...currentWindows, window],
+      } as FloorPlanLayout,
+    });
+    // Save immediately to prevent state loss
+    if (token) {
+      await get().saveLayout(token);
+    }
+  },
+  
+  deleteFloorPlanElement: (id, type) => {
+    const { floorPlan } = get();
+    if (!floorPlan) return;
+    
+    let updatedFloorPlan: FloorPlanLayout = { ...floorPlan };
+    
+    switch (type) {
+      case 'wall':
+        updatedFloorPlan.walls = (floorPlan.walls || []).filter(w => w.id !== id);
+        break;
+      case 'room':
+        updatedFloorPlan.rooms = (floorPlan.rooms || []).filter(r => r.id !== id);
+        break;
+      case 'door':
+        updatedFloorPlan.doors = (floorPlan.doors || []).filter(d => d.id !== id);
+        break;
+      case 'window':
+        updatedFloorPlan.windows = (floorPlan.windows || []).filter(w => w.id !== id);
+        break;
+    }
+    
+    set({ floorPlan: updatedFloorPlan, selectedFloorPlanElement: null });
+  },
+  
+  updateFloorPlanElement: async (id, type, updates, token) => {
+    const { floorPlan } = get();
+    if (!floorPlan) return;
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRoomDesigner.ts:updateFloorPlanElement',message:'Updating floor plan element',data:{id,type,updates},timestamp:Date.now(),sessionId:'debug-session',runId:'drag-debug',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
+    
+    let updatedFloorPlan: FloorPlanLayout = { ...floorPlan };
+    
+    switch (type) {
+      case 'wall':
+        updatedFloorPlan.walls = (floorPlan.walls || []).map(w => 
+          w.id === id ? { ...w, ...updates } : w
+        );
+        break;
+      case 'room':
+        updatedFloorPlan.rooms = (floorPlan.rooms || []).map(r => 
+          r.id === id ? { ...r, ...updates } : r
+        );
+        break;
+      case 'door':
+        updatedFloorPlan.doors = (floorPlan.doors || []).map(d => 
+          d.id === id ? { ...d, ...updates } : d
+        );
+        break;
+      case 'window':
+        updatedFloorPlan.windows = (floorPlan.windows || []).map(w => 
+          w.id === id ? { ...w, ...updates } : w
+        );
+        break;
+    }
+    
+    set({ floorPlan: updatedFloorPlan });
+    
+    // Save immediately to prevent state loss
+    if (token) {
+      await get().saveLayout(token);
+    }
+  },
+  
+  rotateFloorPlanElement: async (id, type, token) => {
+    const { floorPlan } = get();
+    if (!floorPlan) return;
+    
+    let currentRotation = 0;
+    let element: Door | Window | RoomShape | null = null;
+    
+    if (type === 'door') {
+      element = floorPlan.doors?.find(d => d.id === id) || null;
+      currentRotation = element?.rotation || 0;
+    } else if (type === 'window') {
+      element = floorPlan.windows?.find(w => w.id === id) || null;
+      currentRotation = element?.rotation || 0;
+    } else if (type === 'room') {
+      element = floorPlan.rooms?.find(r => r.id === id) || null;
+      currentRotation = element?.rotation || 0;
+    } else {
+      // Walls don't support rotation
+      return;
+    }
+    
+    if (!element) return;
+    
+    // Rotate by 90 degrees
+    const newRotation = (currentRotation + 90) % 360;
+    
+    await get().updateFloorPlanElement(id, type, { rotation: newRotation }, token);
+  },
+  
+  selectFloorPlanElement: (id) => {
+    set({ selectedFloorPlanElement: id });
+  },
 }));

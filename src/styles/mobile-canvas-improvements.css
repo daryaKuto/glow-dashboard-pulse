@@ -1,0 +1,109 @@
+/* Mobile Canvas & Toolbar Responsive Improvements */
+
+/* Ensure proper safe area handling for iOS devices */
+:root {
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-right: env(safe-area-inset-right, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-inset-left: env(safe-area-inset-left, 0px);
+}
+
+/* Enhanced scrolling for mobile canvas */
+@media (max-width: 1023px) {
+  [data-canvas] {
+    /* Better momentum scrolling */
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    overscroll-behavior: contain;
+    
+    /* Prevent scrollbar from taking up space on mobile */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  }
+  
+  [data-canvas]::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  [data-canvas]::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  [data-canvas]::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+  }
+  
+  [data-canvas]::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* Fixed bottom toolbar improvements */
+@media (max-width: 767px) {
+  [data-tools] {
+    /* Ensure toolbar stays above content */
+    z-index: 50;
+    
+    /* Better backdrop for toolbar */
+    backdrop-filter: blur(10px);
+    background-color: rgba(255, 255, 255, 0.95);
+    
+    /* Safe area padding for devices with home indicator */
+    padding-bottom: calc(0.5rem + var(--safe-area-inset-bottom));
+  }
+  
+  /* Ensure buttons meet minimum touch target size (44px) */
+  [data-tools] button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Tablet-specific improvements */
+@media (min-width: 768px) and (max-width: 1023px) {
+  [data-tools] {
+    z-index: 40;
+    backdrop-filter: blur(10px);
+    background-color: rgba(255, 255, 255, 0.95);
+    padding-bottom: calc(0.75rem + var(--safe-area-inset-bottom));
+  }
+}
+
+/* Landscape orientation optimizations */
+@media (orientation: landscape) and (max-height: 500px) {
+  /* Compact layout for landscape mobile */
+  [data-tools] {
+    padding: 0.5rem;
+    padding-bottom: calc(0.5rem + var(--safe-area-inset-bottom));
+  }
+  
+  [data-tools] button {
+    min-height: 40px; /* Slightly smaller for landscape */
+  }
+}
+
+/* High DPI display optimizations */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  /* Ensure crisp rendering on high-DPI screens */
+  [data-canvas] canvas {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+}
+
+/* Focus improvements for accessibility */
+[data-tools] button:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  z-index: 10;
+  position: relative;
+}
+
+/* Prevent zoom on input focus (iOS Safari) */
+@media (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}

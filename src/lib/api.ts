@@ -12,6 +12,8 @@ import {
   type TargetsSummary,
 } from '@/lib/edge';
 import { supabaseRoomsService, type CreateRoomData, type UserRoom } from '@/services/supabase-rooms';
+import { supabaseRoomLayoutsService } from '@/services/supabase-room-layouts';
+import type { RoomLayoutResponse, RoomLayoutData } from '@/lib/types';
 
 const TARGETS_KEY = 'targets';
 const ROOMS_KEY = 'rooms';
@@ -191,15 +193,36 @@ export const API = {
     return { metrics, cached, source };
   },
 
-  async getRoomLayout(_roomId: number) {
-    throw new Error('Room layout not implemented yet');
+  /**
+   * Get room layout including target positions and floor plan
+   */
+  async getRoomLayout(roomId: string): Promise<RoomLayoutResponse> {
+    try {
+      return await supabaseRoomLayoutsService.loadRoomLayout(roomId);
+    } catch (error) {
+      console.error('Error loading room layout:', error);
+      throw error;
+    }
   },
 
-  async saveRoomLayout(_roomId: number, _targets: any[], _groups: any[]) {
-    throw new Error('Room layout saving not implemented yet');
+  /**
+   * Save room layout including target positions and floor plan
+   */
+  async saveRoomLayout(
+    roomId: string,
+    targets: Array<{ id: string; x: number; y: number }>,
+    groups: Array<{ id: string; name: string; targetIds: string[] }>,
+    floorPlan?: RoomLayoutData
+  ): Promise<void> {
+    try {
+      await supabaseRoomLayoutsService.saveRoomLayout(roomId, targets, groups, floorPlan);
+    } catch (error) {
+      console.error('Error saving room layout:', error);
+      throw error;
+    }
   },
 
-  async createGroup(_roomId: number, _groupData: any) {
+  async createGroup(_roomId: string, _groupData: any) {
     throw new Error('Group creation not implemented yet');
   },
 
@@ -207,7 +230,7 @@ export const API = {
     throw new Error('Group updates not implemented yet');
   },
 
-  async deleteGroup(_roomId: number, _groupData: any) {
+  async deleteGroup(_roomId: string, _groupData: any) {
     throw new Error('Group deletion not implemented yet');
   },
 

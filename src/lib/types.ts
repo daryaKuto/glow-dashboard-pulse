@@ -16,10 +16,64 @@ export interface MockWebSocket {
   close: () => void;
 }
 
+// Floor plan layout types
+export interface Wall {
+  id: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  thickness?: number;
+  color?: string;
+}
+
+export interface RoomShape {
+  id: string;
+  name?: string;
+  points: Array<{ x: number; y: number }>;
+  fillColor?: string;
+  strokeColor?: string;
+  rotation?: number;
+}
+
+export interface Door {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  rotation?: number;
+  type?: 'single' | 'double';
+}
+
+export interface Window {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  rotation?: number;
+}
+
+export interface FloorPlanLayout {
+  walls?: Wall[];
+  rooms?: RoomShape[];
+  doors?: Door[];
+  windows?: Window[];
+}
+
+export interface RoomLayoutData {
+  layout: FloorPlanLayout;
+  canvasWidth?: number;
+  canvasHeight?: number;
+  viewportScale?: number;
+  viewportX?: number;
+  viewportY?: number;
+}
+
 // Define API response types
 export interface RoomLayoutResponse {
-  targets: { id: number; x: number; y: number }[];
-  groups: { id: number; name: string; targetIds: number[] }[];
+  targets: { id: string; x: number; y: number }[];
+  groups: { id: string; name: string; targetIds: string[] }[];
+  floorPlan?: RoomLayoutData;
 }
 
 export interface InviteResponse {

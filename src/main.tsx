@@ -21,6 +21,67 @@ console.info('[Main] Application bootstrapping', {
     'ThingsBoard REST/WebSocket telemetry',
   ],
 });
+
+// Global error handler for unhandled promise rejections
+// Suppress MetaMask and other browser extension errors that don't affect our app
+window.addEventListener('unhandledrejection', (event) => {
+  const error = event.reason;
+  const errorMessage = error?.message || String(error);
+  const errorStack = error?.stack || '';
+  
+  // Check if this is a MetaMask-related error
+  const isMetaMaskError = 
+    errorMessage?.includes('MetaMask') ||
+    errorMessage?.includes('metamask') ||
+    errorStack?.includes('inpage.js') ||
+    errorStack?.includes('metamask') ||
+    error?.code === 'UNPREDICTABLE_GAS_LIMIT' ||
+    error?.code === 'ACTION_REJECTED';
+  
+  if (isMetaMaskError) {
+    // Suppress MetaMask errors - they're from browser extensions, not our app
+    event.preventDefault();
+    console.debug('[Main] Suppressed MetaMask extension error:', errorMessage);
+    return;
+  }
+  
+  // Log other unhandled promise rejections for debugging
+  console.error('[Main] Unhandled promise rejection:', {
+    message: errorMessage,
+    stack: errorStack,
+    error: error,
+  });
+});
+
+// Global error handler for regular errors
+window.addEventListener('error', (event) => {
+  const errorMessage = event.message || String(event.error);
+  const errorSource = event.filename || 'unknown';
+  
+  // Check if this is a MetaMask-related error
+  const isMetaMaskError = 
+    errorMessage?.includes('MetaMask') ||
+    errorMessage?.includes('metamask') ||
+    errorSource?.includes('inpage.js') ||
+    errorSource?.includes('metamask');
+  
+  if (isMetaMaskError) {
+    // Suppress MetaMask errors
+    event.preventDefault();
+    console.debug('[Main] Suppressed MetaMask extension error:', errorMessage);
+    return;
+  }
+  
+  // Log other errors for debugging
+  console.error('[Main] Global error:', {
+    message: errorMessage,
+    source: errorSource,
+    line: event.lineno,
+    col: event.colno,
+    error: event.error,
+  });
+});
+
 // Demo mode provider removed - app uses live data only
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

@@ -397,7 +397,21 @@ async function handleHistory(
       const normalizedScore = Number.isFinite(rawScoreValue) ? Math.round(rawScoreValue) : hitCount;
 
       const startedAtIso = new Date(summary.startTime).toISOString();
-      const endedAtIso = new Date(summary.endTime).toISOString();
+      // CRITICAL: Ensure ended_at is ALWAYS set. If endTime is missing, use current time as fallback.
+      const endTimeValue = typeof summary.endTime === "number" && summary.endTime > 0 
+        ? summary.endTime 
+        : Date.now();
+      const endedAtIso = new Date(endTimeValue).toISOString();
+      
+      // Log warning if endTime was missing or invalid
+      if (typeof summary.endTime !== "number" || summary.endTime <= 0) {
+        console.warn(`[game-control] Session endTime missing or invalid for gameId ${summary.gameId}, using current time as fallback`, {
+          gameId: summary.gameId,
+          providedEndTime: summary.endTime,
+          fallbackEndTime: endTimeValue,
+        });
+      }
+      
       const durationMs = typeof summary.actualDuration === "number"
         ? Math.max(0, Math.round(summary.actualDuration * 1000))
         : null;
@@ -433,12 +447,22 @@ async function handleHistory(
         },
       });
 
-      const attemptSessionInsert = async (roomId: string | null) =>
-        supabaseAdmin
+      const attemptSessionInsert = async (roomId: string | null) => {
+        const payload = buildSessionPayload(roomId);
+        console.log(`[game-control] Persisting session to database`, {
+          gameId: summary.gameId,
+          started_at: payload.started_at,
+          ended_at: payload.ended_at,
+          duration_ms: payload.duration_ms,
+          score: payload.score,
+          hit_count: payload.hit_count,
+        });
+        return supabaseAdmin
           .from("sessions")
-          .insert(buildSessionPayload(roomId))
+          .insert(payload)
           .select("id")
           .single();
+      };
 
       let currentRoomId: string | null = normalizedRoomId;
       let {

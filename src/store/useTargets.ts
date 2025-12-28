@@ -135,6 +135,11 @@ export const useTargets = create<TargetsState>((set, get) => ({
           acc[key] = (acc[key] ?? 0) + 1;
           return acc;
         }, {});
+        
+        // Categorize by ThingsBoard connection status
+        const onlineTargets = targets.filter(t => t.status === 'online' || t.status === 'standby');
+        const offlineTargets = targets.filter(t => t.status === 'offline');
+        
         console.info('[Targets] Edge payload received', {
           edgeFunction: 'targets-with-telemetry',
           supabaseTablesQueried: ['public.user_room_targets', 'public.user_rooms', 'public.user_profiles'],
@@ -142,6 +147,14 @@ export const useTargets = create<TargetsState>((set, get) => ({
           fetchedAt: new Date().toISOString(),
           totalTargets: targets.length,
           statusCounts,
+          thingsboardConnection: {
+            online: onlineTargets.length,
+            offline: offlineTargets.length,
+            onlineList: onlineTargets.slice(0, 8).map(t => `${t.name} (${t.status})`).join(', '),
+            offlineList: offlineTargets.length > 0 
+              ? offlineTargets.slice(0, 8).map(t => `${t.name} (offline)`).join(', ')
+              : 'None',
+          },
           sample: targets.slice(0, 5).map(({ id, name, status, roomName }) => ({ id, name, status, roomName })),
         });
       }
@@ -156,12 +169,35 @@ export const useTargets = create<TargetsState>((set, get) => ({
           acc[key] = (acc[key] ?? 0) + 1;
           return acc;
         }, {});
+        
+        // Group targets by actual connection state
+        const connectedTargets = targets.filter(t => t.status === 'online' || t.status === 'standby');
+        const disconnectedTargets = targets.filter(t => t.status === 'offline');
+        
         console.info('[Targets] Edge payload status summary', {
           edgeFunction: 'targets-with-telemetry',
           fetchedAt: new Date().toISOString(),
           totalTargets: targets.length,
           statusCounts,
-          sample: targets.slice(0, 5).map(({ id, name, status, roomName }) => ({ id, name, status, roomName })),
+          realTimeStatus: {
+            connected: `${connectedTargets.length}/${targets.length} targets connected to ThingsBoard`,
+            disconnected: `${disconnectedTargets.length}/${targets.length} targets offline`,
+            breakdown: {
+              online: statusCounts.online || 0,
+              standby: statusCounts.standby || 0,
+              offline: statusCounts.offline || 0,
+            },
+          },
+          connectedTargets: connectedTargets.map(t => ({
+            name: t.name,
+            status: t.status,
+            lastActivity: t.lastActivityTime ? new Date(t.lastActivityTime).toISOString() : 'unknown',
+          })),
+          disconnectedTargets: disconnectedTargets.map(t => ({
+            name: t.name,
+            status: 'offline',
+            lastActivity: t.lastActivityTime ? new Date(t.lastActivityTime).toISOString() : 'never connected',
+          })),
         });
       }
       return targets;

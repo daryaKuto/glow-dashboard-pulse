@@ -128,7 +128,7 @@ export default function DragDropList<T extends { id: number }>({
         items={items.map(item => ({ id: item.id }))}
         strategy={verticalListSortingStrategy}
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {items.map((item) => (
             <SortableItem
               key={item.id}

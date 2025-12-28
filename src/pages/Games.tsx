@@ -2894,6 +2894,10 @@ const handleDeletePreset = useCallback(
 
       console.info('[Games] Session summary prepared', {
         gameId: sessionSummary.gameId,
+        startTime: sessionSummary.historyEntry.startTime,
+        endTime: sessionSummary.historyEntry.endTime,
+        startTimeISO: new Date(sessionSummary.historyEntry.startTime).toISOString(),
+        endTimeISO: new Date(sessionSummary.historyEntry.endTime).toISOString(),
         totalHits: sessionSummary.totalHits,
         durationSeconds: sessionSummary.durationSeconds,
         deviceStats: sessionSummary.deviceStats,
@@ -2959,6 +2963,12 @@ const handleDeletePreset = useCallback(
     setSessionLifecycle('stopping');
     setGameStopTime(stopTimestamp);
     freezeSessionTimer(stopTimestamp);
+    console.info('[Games] Game stop initiated', {
+      gameId: directSessionGameId,
+      stopTimestamp,
+      stopTimeISO: new Date(stopTimestamp).toISOString(),
+      reason: 'manual_or_timeout',
+    });
     console.info('[Games] Disabling direct telemetry stream (stop initiated)');
     setDirectTelemetryEnabled(false);
 

@@ -209,6 +209,44 @@ export async function getDeviceAttributes(
   return {};
 }
 
+/**
+ * Get server-side attributes for multiple devices in batch
+ */
+export async function getBatchServerAttributes(
+  deviceIds: string[],
+  keys?: string[],
+): Promise<Map<string, Record<string, any>>> {
+  if (deviceIds.length === 0) {
+    return new Map();
+  }
+
+  const results = new Map<string, Record<string, any>>();
+  const chunkSize = 10;
+
+  for (let index = 0; index < deviceIds.length; index += chunkSize) {
+    const chunk = deviceIds.slice(index, index + chunkSize);
+    const chunkPromises = chunk.map(async (deviceId) => {
+      try {
+        const attributes = await getDeviceAttributes(deviceId, {
+          scope: 'SERVER_SCOPE',
+          keys,
+        });
+        return { deviceId, attributes };
+      } catch (error) {
+        console.warn(`[ThingsBoard] Failed to fetch server attributes for device ${deviceId}:`, error);
+        return { deviceId, attributes: {} };
+      }
+    });
+
+    const chunkResults = await Promise.all(chunkPromises);
+    chunkResults.forEach(({ deviceId, attributes }) => {
+      results.set(deviceId, attributes);
+    });
+  }
+
+  return results;
+}
+
 export async function sendOneWayRpc(
   deviceId: string,
   method: string,

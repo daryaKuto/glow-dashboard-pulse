@@ -626,8 +626,8 @@ const Rooms: React.FC = () => {
             </div>
             
             {isLoading || initialLoading ? (
-              <div className="space-y-4">
-                {[...Array(3)].map((_, i) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {[...Array(4)].map((_, i) => (
                   <div key={i} className="bg-white border border-gray-200 rounded-lg p-4 md:p-5 animate-pulse">
                     <div className="flex items-start justify-between gap-3 md:gap-4">
                       <div className="flex items-start gap-3 md:gap-4">

@@ -10,6 +10,7 @@ import {
   getTenantDevices,
   getDeviceTelemetry,
   getHistoricalTelemetry,
+  getBatchServerAttributes,
   setAuthToken,
   isAxiosNetworkError,
   type ThingsboardDevice,
@@ -129,20 +130,49 @@ const determineStatus = (
   rawStatus: string | null,
   gameStatus: string | null,
   lastShotTime: number | null,
+  isActiveFromTb: boolean | null,
+  lastActivityTime: number | null,
 ): 'online' | 'offline' | 'standby' => {
-  const normalizedStatus = rawStatus?.toLowerCase() ?? '';
+  // Priority 1: If device is in an active game state, always show as online
   if (gameStatus && ['start', 'busy', 'active'].includes(gameStatus.toLowerCase())) {
     return 'online';
   }
+
+  // Priority 2: Use ThingsBoard's actual 'active' server-side attribute (most reliable)
+  // This reflects real device connection status based on inactivityTimeout
+  if (isActiveFromTb === false) {
+    return 'offline';
+  }
+  
+  if (isActiveFromTb === true) {
+    // Device is connected, check if it's actively being used or just idle
+    const normalizedStatus = rawStatus?.toLowerCase() ?? '';
+    if (['online', 'active', 'active_online', 'busy'].includes(normalizedStatus)) {
+      return 'online';
+    }
+    // Connected but idle
+    return 'standby';
+  }
+
+  // Priority 3: Fallback to status string checks (less reliable)
+  const normalizedStatus = rawStatus?.toLowerCase() ?? '';
   if (['online', 'active', 'active_online', 'busy'].includes(normalizedStatus)) {
     return 'online';
   }
   if (['standby', 'idle'].includes(normalizedStatus)) {
     return 'standby';
   }
-  if (lastShotTime !== null && Date.now() - lastShotTime <= RECENT_THRESHOLD_MS) {
-    return 'online';
+
+  // Priority 4: Check ThingsBoard's lastActivityTime (more reliable than our lastShotTime)
+  if (lastActivityTime !== null && Date.now() - lastActivityTime <= RECENT_THRESHOLD_MS) {
+    return 'standby'; // Recently active but not currently connected
   }
+
+  // Priority 5: Check our own lastShotTime as last resort
+  if (lastShotTime !== null && Date.now() - lastShotTime <= RECENT_THRESHOLD_MS) {
+    return 'standby';
+  }
+
   return 'offline';
 };
 
@@ -330,11 +360,26 @@ const mapDeviceToTarget = (
   const battery = toNumber(batteryEntry);
   const roomId = assignmentByTarget.get(deviceId) ?? null;
 
+  // Get ThingsBoard's actual connection status from server-side attributes
+  const isActiveFromTb = typeof device.active === 'boolean' ? device.active : null;
+  const lastActivityTimeFromTb = device.lastActivityTime ?? null;
+
   const status = determineStatus(
     device.status ? String(device.status) : null,
     gameStatus,
     lastShotTime,
+    isActiveFromTb,
+    lastActivityTimeFromTb,
   );
+
+  // Debug logging for ThingsBoard connection status
+  if (isActiveFromTb !== null) {
+    const icon = status === 'offline' ? '🔴' : status === 'online' ? '🟢' : '🟡';
+    console.debug(
+      `${icon} [TB Status] ${device.name}: active=${isActiveFromTb}, status=${status}, ` +
+      `lastActivity=${lastActivityTimeFromTb ? new Date(lastActivityTimeFromTb).toISOString() : 'none'}`
+    );
+  }
 
   return {
     id: deviceId,
@@ -350,7 +395,7 @@ const mapDeviceToTarget = (
     lastGameName: toStringValue(gameNameEntry),
     lastHits: totalShots,
     lastActivity: lastEvent,
-    lastActivityTime: lastShotTime,
+    lastActivityTime: lastActivityTimeFromTb ?? lastShotTime, // Prefer TB's lastActivityTime
     lastShotTime,
     totalShots,
     recentShotsCount: 0,
@@ -374,10 +419,30 @@ export const fetchTargetsWithTelemetry = async (
   await ensureAuthToken();
   const devices = await collectDevices();
   const deviceIds = devices.map((device) => device.id?.id ?? String(device.id));
-  const telemetryById = await fetchTelemetryForDevices(deviceIds, TELEMETRY_KEYS, 5);
+  
+  // Fetch both telemetry and server-side attributes (including 'active' status)
+  const [telemetryById, serverAttributesById] = await Promise.all([
+    fetchTelemetryForDevices(deviceIds, TELEMETRY_KEYS, 5),
+    getBatchServerAttributes(deviceIds, ['active', 'lastActivityTime', 'lastConnectTime', 'lastDisconnectTime', 'inactivityTimeout']),
+  ]);
+  
   const { assignmentByTarget, roomNameById } = await loadUserContext();
 
-  const targets = devices.map((device) => {
+  // Merge server attributes into device objects
+  const devicesWithAttributes = devices.map((device) => {
+    const deviceId = device.id?.id ?? String(device.id);
+    const attributes = serverAttributesById.get(deviceId) ?? {};
+    return {
+      ...device,
+      active: attributes.active,
+      lastActivityTime: attributes.lastActivityTime,
+      lastConnectTime: attributes.lastConnectTime,
+      lastDisconnectTime: attributes.lastDisconnectTime,
+      inactivityTimeout: attributes.inactivityTimeout,
+    };
+  });
+
+  const targets = devicesWithAttributes.map((device) => {
     const deviceId = device.id?.id ?? String(device.id);
     const telemetry = telemetryById.get(deviceId) ?? {};
     const target = mapDeviceToTarget(device, telemetry, assignmentByTarget);
@@ -439,20 +504,36 @@ export const fetchTargetDetails = async (
   const recentWindowMs = typeof options.recentWindowMs === 'number' ? options.recentWindowMs : DEFAULT_RECENT_WINDOW_MS;
 
   const telemetryById = new Map<string, Record<string, unknown>>();
+  const serverAttributesById = new Map<string, Record<string, any>>();
   const errorMap = new Map<string, string[]>();
 
-  await Promise.all(
-    deviceIds.map(async (deviceId) => {
+  // Fetch both telemetry and server-side attributes in parallel
+  await Promise.all([
+    // Fetch telemetry
+    Promise.all(
+      deviceIds.map(async (deviceId) => {
+        try {
+          const telemetry = await getDeviceTelemetry(deviceId, telemetryKeys, 5);
+          telemetryById.set(deviceId, telemetry ?? {});
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          errorMap.set(deviceId, [message]);
+          telemetryById.set(deviceId, {});
+        }
+      }),
+    ),
+    // Fetch server-side attributes
+    (async () => {
       try {
-        const telemetry = await getDeviceTelemetry(deviceId, telemetryKeys, 5);
-        telemetryById.set(deviceId, telemetry ?? {});
+        const attributes = await getBatchServerAttributes(deviceIds, ['active', 'lastActivityTime', 'lastConnectTime', 'lastDisconnectTime']);
+        attributes.forEach((attrs, deviceId) => {
+          serverAttributesById.set(deviceId, attrs);
+        });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        errorMap.set(deviceId, [message]);
-        telemetryById.set(deviceId, {});
+        console.warn('[fetchTargetDetails] Failed to fetch server attributes:', error);
       }
-    }),
-  );
+    })(),
+  ]);
 
   const historyById = new Map<string, Record<string, unknown>>();
   if (includeHistory) {
@@ -477,6 +558,8 @@ export const fetchTargetDetails = async (
   const details = deviceIds.map((deviceId) => {
     const telemetry = telemetryById.get(deviceId) ?? {};
     const history = includeHistory ? historyById.get(deviceId) : undefined;
+    const serverAttributes = serverAttributesById.get(deviceId) ?? {};
+    
     const hitsEntry = latestSeriesEntry(telemetry.hits);
     const hitTsEntry = latestSeriesEntry(telemetry.hit_ts);
     const batteryEntry = latestSeriesEntry(telemetry.battery);
@@ -491,7 +574,12 @@ export const fetchTargetDetails = async (
     const totalShots = toNumber(hitsEntry) ?? 0;
     const activityStatus = determineActivityStatus(lastShotTime);
     const gameStatus = toStringValue(gameStatusEntry);
-    const status = determineStatus(null, gameStatus, lastShotTime);
+    
+    // Get ThingsBoard's actual connection status
+    const isActiveFromTb = typeof serverAttributes.active === 'boolean' ? serverAttributes.active : null;
+    const lastActivityTimeFromTb = serverAttributes.lastActivityTime ?? null;
+    
+    const status = determineStatus(null, gameStatus, lastShotTime, isActiveFromTb, lastActivityTimeFromTb);
 
     let recentShotsCount = 0;
     if (includeHistory && history) {
@@ -534,3 +622,4 @@ export const fetchTargetDetails = async (
     cached: false,
   };
 };
+

@@ -86,7 +86,11 @@ const RecentSessionsCard: React.FC<RecentSessionsCardProps> = ({ sessions, isLoa
         ) : recentSessions.length > 0 ? (
           <div className="space-y-2 md:space-y-3">
             {recentSessions.map((session) => {
-              const isCompleted = Number.isFinite(session.score) && (session.score ?? 0) > 0;
+              // A session is completed if:
+              // 1. It has a valid ended_at timestamp that's different from started_at (not just a fallback)
+              // 2. It has a score (even if 0)
+              const hasValidEndTime = session.endedAt && session.endedAt !== session.startedAt;
+              const isCompleted = hasValidEndTime && Number.isFinite(session.score);
               const accent = isCompleted ? 'from-emerald-500/15 to-teal-500/10' : 'from-brand-secondary/20 to-brand-primary/10';
               const iconBg = isCompleted ? 'bg-emerald-500/20 text-emerald-600' : 'bg-brand-secondary/20 text-brand-secondary';
               const icon = isCompleted ? <Trophy className="h-4 w-4" /> : <Clock className="h-4 w-4" />;

@@ -185,6 +185,15 @@ export async function fetchTargetsWithTelemetry(force = false): Promise<{ target
 
   const targets = data.data.map(mapEdgeTarget);
   const summary = mapSummary(data.summary);
+  
+  // Group targets by status with ThingsBoard connection info
+  const onlineTargets = targets.filter(t => t.status === 'online' || t.status === 'standby');
+  const offlineTargets = targets.filter(t => t.status === 'offline');
+  const statusBreakdown = targets.reduce((acc, t) => {
+    acc[t.status] = (acc[t.status] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  
   console.info('[Edge] targets-with-telemetry fetched', {
     supabaseEdgeFunction: 'targets-with-telemetry',
     backingTables: ['public.user_profiles', 'public.user_rooms', 'public.user_room_targets'],
@@ -199,6 +208,21 @@ export async function fetchTargetsWithTelemetry(force = false): Promise<{ target
           assignedTargets: summary.assignedTargets,
         }
       : null,
+    statusBreakdown,
+    connectionStatus: {
+      online: `${onlineTargets.length}/${targets.length}`,
+      offline: `${offlineTargets.length}/${targets.length}`,
+      onlineTargets: onlineTargets.slice(0, 5).map(t => ({
+        name: t.name,
+        status: t.status,
+        lastActivity: t.lastActivityTime ? new Date(t.lastActivityTime).toISOString() : null,
+      })),
+      offlineTargets: offlineTargets.slice(0, 5).map(t => ({
+        name: t.name,
+        status: t.status,
+        lastActivity: t.lastActivityTime ? new Date(t.lastActivityTime).toISOString() : null,
+      })),
+    },
     sample: targets.slice(0, 5).map((target) => ({ id: target.id, name: target.name, status: target.status, roomName: target.roomName })),
   });
   return { targets, cached: Boolean(data.cached), summary };

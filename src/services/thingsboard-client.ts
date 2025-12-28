@@ -180,6 +180,13 @@ export interface ThingsboardDevice {
   type?: string;
   status?: string;
   additionalInfo?: Record<string, unknown>;
+  createdTime?: number;
+  // Server-side attributes for connection status
+  active?: boolean;
+  lastActivityTime?: number;
+  lastConnectTime?: number;
+  lastDisconnectTime?: number;
+  inactivityTimeout?: number;
 }
 
 export interface ThingsboardAsset {
@@ -293,6 +300,63 @@ export const setSharedAttributes = async (
   attributes: Record<string, unknown>,
 ): Promise<void> => {
   await thingsboardAPI.post(`/api/plugins/telemetry/DEVICE/${deviceId}/SHARED_SCOPE`, attributes);
+};
+
+/**
+ * Get server-side attributes for a device (includes 'active' status, lastActivityTime, etc.)
+ */
+export const getServerAttributes = async (
+  deviceId: string,
+  keys?: string[],
+): Promise<Record<string, any>> => {
+  const url = `/api/plugins/telemetry/DEVICE/${deviceId}/values/attributes/SERVER_SCOPE`;
+  const params = keys && keys.length > 0 ? { keys: keys.join(',') } : undefined;
+  
+  const response = await thingsboardAPI.get<Array<{ key: string; value: any; lastUpdateTs?: number }>>(
+    url,
+    { params }
+  );
+
+  // Convert array response to key-value object
+  const attributes: Record<string, any> = {};
+  if (Array.isArray(response.data)) {
+    response.data.forEach((attr) => {
+      attributes[attr.key] = attr.value;
+    });
+  }
+  
+  return attributes;
+};
+
+/**
+ * Get server-side attributes for multiple devices in batch
+ */
+export const getBatchServerAttributes = async (
+  deviceIds: string[],
+  keys?: string[],
+): Promise<Map<string, Record<string, any>>> => {
+  const results = new Map<string, Record<string, any>>();
+  const chunkSize = 10;
+
+  for (let index = 0; index < deviceIds.length; index += chunkSize) {
+    const chunk = deviceIds.slice(index, index + chunkSize);
+    const chunkPromises = chunk.map(async (deviceId) => {
+      try {
+        const attributes = await getServerAttributes(deviceId, keys);
+        return { deviceId, attributes };
+      } catch (error) {
+        console.warn(`[ThingsBoard] Failed to fetch attributes for device ${deviceId}:`, error);
+        return { deviceId, attributes: {} };
+      }
+    });
+
+    const chunkResults = await Promise.all(chunkPromises);
+    chunkResults.forEach(({ deviceId, attributes }) => {
+      results.set(deviceId, attributes);
+    });
+  }
+
+  return results;
 };
 
 export const sendOneWayRpc = async (

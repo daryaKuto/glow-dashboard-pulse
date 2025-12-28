@@ -5,6 +5,7 @@ import {
   getBatchTelemetry,
   getDeviceTelemetry,
   getHistoricalTelemetry,
+  getBatchServerAttributes,
 } from "../_shared/thingsboard.ts";
 import { getCache, setCache } from "../_shared/cache.ts";
 import { errorResponse, jsonResponse, preflightResponse } from "../_shared/response.ts";
@@ -191,17 +192,27 @@ Deno.serve(async (req) => {
   const endTs = now;
 
   const telemetryMap = new Map<string, Record<string, unknown>>();
+  const serverAttributesMap = new Map<string, Record<string, any>>();
   const errors = new Map<string, string[]>();
 
+  // Fetch both telemetry and server-side attributes in parallel
   try {
-    const batchTelemetry = await getBatchTelemetry(deviceIds, telemetryKeys, 1);
+    const [batchTelemetry, batchAttributes] = await Promise.all([
+      getBatchTelemetry(deviceIds, telemetryKeys, 1),
+      getBatchServerAttributes(deviceIds, ['active', 'lastActivityTime', 'lastConnectTime', 'lastDisconnectTime', 'inactivityTimeout']),
+    ]);
+
     for (const item of batchTelemetry) {
       if (item.deviceId) {
         telemetryMap.set(item.deviceId, item.telemetry ?? {});
       }
     }
+
+    batchAttributes.forEach((attrs, deviceId) => {
+      serverAttributesMap.set(deviceId, attrs);
+    });
   } catch (error) {
-    console.warn('[target-details] Batch telemetry fetch failed, falling back to per-device requests', error);
+    console.warn('[target-details] Batch fetch failed, falling back to per-device requests', error);
   }
 
   const ensureTelemetry = async (deviceId: string): Promise<Record<string, unknown>> => {
@@ -242,6 +253,7 @@ Deno.serve(async (req) => {
   for (const deviceId of deviceIds) {
     const telemetry = await ensureTelemetry(deviceId);
     const history = includeHistory ? historyMap.get(deviceId) : undefined;
+    const serverAttributes = serverAttributesMap.get(deviceId) ?? {};
 
     const hitsEntries = Array.isArray((telemetry as Record<string, unknown>).hits)
       ? (telemetry as { hits: Array<{ ts?: number; value?: unknown }> }).hits
@@ -268,12 +280,38 @@ Deno.serve(async (req) => {
       }
     }
 
-    let status: "online" | "standby" | "offline" = "standby";
-    if (activityStatus === "active" || activityStatus === "recent") {
-      status = "online";
-    } else if (timeSinceLastShot === null) {
-      const hasTelemetryValues = Object.keys(telemetry ?? {}).length > 0;
-      status = hasTelemetryValues ? "standby" : "offline";
+    // Get ThingsBoard's actual connection status from server-side attributes
+    const isActiveFromTb = typeof serverAttributes.active === "boolean" ? serverAttributes.active : null;
+    const lastActivityTimeFromTb = typeof serverAttributes.lastActivityTime === "number" ? serverAttributes.lastActivityTime : null;
+
+    // Determine status using ThingsBoard's actual 'active' attribute (most reliable)
+    let status: "online" | "standby" | "offline" = "offline";
+    
+    if (isActiveFromTb === true) {
+      // Device is actively connected to ThingsBoard
+      if (activityStatus === "active") {
+        status = "online"; // Connected and actively shooting
+      } else {
+        status = "standby"; // Connected but idle
+      }
+    } else if (isActiveFromTb === false) {
+      // Device is explicitly disconnected from ThingsBoard
+      status = "offline";
+    } else {
+      // Fallback when 'active' attribute is not available
+      if (activityStatus === "active" || activityStatus === "recent") {
+        status = "online";
+      } else if (lastActivityTimeFromTb !== null && now - lastActivityTimeFromTb <= RECENT_THRESHOLD_MS) {
+        status = "standby";
+      } else if (timeSinceLastShot === null) {
+        const hasTelemetryValues = Object.keys(telemetry ?? {}).length > 0;
+        status = hasTelemetryValues ? "standby" : "offline";
+      }
+    }
+
+    // Debug logging for connection status
+    if (isActiveFromTb !== null) {
+      console.log(`[Target ${deviceId}] TB active=${isActiveFromTb}, status=${status}, lastActivityTime=${lastActivityTimeFromTb ? new Date(lastActivityTimeFromTb).toISOString() : 'null'}`);
     }
 
     const recentShotsCount = includeHistory

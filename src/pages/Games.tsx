@@ -1404,7 +1404,6 @@ const Games: React.FC = () => {
 
     isLoadingHistoryRef.current = true;
     setIsHistoryLoading(true);
-    const historyStartTimeInner = performance.now();
     try {
       const [historyResult, sessionsResult] = await Promise.allSettled([
         fetchPersistedGameHistory(),

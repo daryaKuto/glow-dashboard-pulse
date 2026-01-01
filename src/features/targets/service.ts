@@ -75,7 +75,7 @@ export function mergeTargetDetails(
       status: detail.status ?? target.status,
       activityStatus: detail.activityStatus ?? target.activityStatus,
       lastShotTime: detail.lastShotTime ?? target.lastShotTime ?? null,
-      lastActivityTime: detail.lastShotTime ?? target.lastActivityTime ?? null,
+      lastActivityTime: target.lastActivityTime ?? null,
       totalShots: detail.totalShots ?? target.totalShots ?? null,
       recentShotsCount: detail.recentShotsCount ?? target.recentShotsCount ?? 0,
       telemetry: detail.telemetry && Object.keys(detail.telemetry).length > 0

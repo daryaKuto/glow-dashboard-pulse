@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRooms, type Room } from '@/features/rooms';
 import { useTargetGroups, type Group } from '@/store/useTargetGroups';
-import { useTargets, useTargetDetails, mergeTargetDetails } from '@/features/targets';
+import { useTargets, useTargetDetails, mergeTargetDetails, targetsKeys } from '@/features/targets';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/components/ui/sonner';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
@@ -307,6 +308,7 @@ const TargetsSummary: React.FC<{
 const Targets: React.FC = () => {
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+  const queryClient = useQueryClient();
   // Use new React Query hooks
   const { data: roomsData, isLoading: roomsLoading, refetch: refetchRooms } = useRooms();
   const liveRooms = roomsData?.rooms || [];
@@ -335,14 +337,25 @@ const Targets: React.FC = () => {
   
   // Legacy compatibility functions
   const fetchTargetsFromEdge = async (force?: boolean) => {
-    await refetchTargets();
+    const result = await refetchTargets();
+    // Return the fresh data from the refetch result, not the stale memoized value
+    if (result.data?.targets) {
+      return mergeTargetDetails(result.data.targets, targetDetailsData || []);
+    }
     return storeTargets;
   };
   
   const fetchTargetDetails = useCallback(async (deviceIds: string[], options?: any) => {
-    // Handled by useTargetDetails hook
-    return true;
-  }, []);
+    if (!deviceIds || deviceIds.length === 0) {
+      return [];
+    }
+
+    const queryKey = targetsKeys.details(deviceIds, options);
+    await queryClient.invalidateQueries({ queryKey });
+    const results = await queryClient.refetchQueries({ queryKey, exact: true });
+
+    return results;
+  }, [queryClient]);
   
   // Local state
   const [targets, setTargets] = useState<Target[]>(storeTargets);

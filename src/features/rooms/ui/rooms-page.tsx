@@ -195,19 +195,25 @@ const RoomsPage: React.FC = () => {
       return;
     }
     
+    // Capture target IDs before clearing state
+    const targetIdsToAssign = [...selectedTargets];
+    const roomId = roomForDetails.id;
+    
     try {
-      updateTargetsOptimistically(selectedTargets, roomForDetails.id);
-      setSelectedTargets([]);
+      updateTargetsOptimistically(targetIdsToAssign, roomId);
       
       await assignTargetsMutation.mutateAsync({
-        targetIds: selectedTargets,
-        roomId: roomForDetails.id,
+        targetIds: targetIdsToAssign,
+        roomId,
       });
       
+      // Clear selection only after successful mutation
+      setSelectedTargets([]);
       await refetchRooms();
     } catch (error) {
       console.error('Error assigning targets:', error);
       await refetchRooms();
+      // Don't clear selection on error so user can retry
     }
   };
 

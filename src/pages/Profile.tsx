@@ -80,7 +80,9 @@ const Profile: React.FC = () => {
     if (userId === authUser?.id) {
       await refetchProfile();
     } else {
-      await queryClient.invalidateQueries({ queryKey: profileKeys.detail(userId) });
+      const queryKey = profileKeys.detail(userId);
+      await queryClient.invalidateQueries({ queryKey });
+      await queryClient.refetchQueries({ queryKey });
     }
   };
   
@@ -93,7 +95,9 @@ const Profile: React.FC = () => {
     if (userId === authUser?.id) {
       await refetchSessions();
     } else {
-      await queryClient.invalidateQueries({ queryKey: profileKeys.sessions(userId, limit) });
+      const queryKey = profileKeys.sessions(userId, limit);
+      await queryClient.invalidateQueries({ queryKey });
+      await queryClient.refetchQueries({ queryKey });
     }
   };
   
@@ -102,8 +106,14 @@ const Profile: React.FC = () => {
     await refetchRooms();
   };
   
-  const updateUserProfileData = async (updates: { name?: string; avatarUrl?: string }) => {
-    await updateProfileMutation.mutateAsync(updates);
+  const updateUserProfileData = async (updates: { name?: string; avatarUrl?: string }): Promise<boolean> => {
+    try {
+      await updateProfileMutation.mutateAsync(updates);
+      return true;
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      return false;
+    }
   };
   
   // Local state for rooms

@@ -312,7 +312,10 @@ const fetchTelemetryForDevices = async (deviceIds: string[], keys: string[], lim
             const last = telemetryErrorLogState.get(deviceId) ?? 0;
             if (now - last > 10_000) {
               if (isAxiosNetworkError(error)) {
-                console.info(`[targets] Telemetry fetch skipped for ${deviceId} due to network issue`);
+                // Network errors are expected - only log in dev mode
+                if (import.meta.env.DEV) {
+                  console.debug(`[targets] Telemetry fetch skipped for ${deviceId} due to network issue (handled gracefully)`);
+                }
               } else {
                 console.warn(`[targets] Failed to fetch telemetry for ${deviceId}`, error);
               }

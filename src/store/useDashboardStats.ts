@@ -1,3 +1,13 @@
+/**
+ * @deprecated This store is deprecated. Use React Query hooks from @/features/dashboard instead.
+ * 
+ * Migration guide:
+ * - Replace `useDashboardStats()` with `useDashboardMetrics()` from '@/features/dashboard'
+ * - Dashboard metrics are now fetched via React Query
+ * 
+ * This file will be removed in a future version.
+ */
+
 import { create } from 'zustand';
 import dayjs from 'dayjs';
 import { fetchHitEvents, summariseHits, HitSummary } from '@/services/metrics';

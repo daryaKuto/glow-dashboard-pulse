@@ -345,7 +345,13 @@ export const getBatchServerAttributes = async (
         const attributes = await getServerAttributes(deviceId, keys);
         return { deviceId, attributes };
       } catch (error) {
-        console.warn(`[ThingsBoard] Failed to fetch attributes for device ${deviceId}:`, error);
+        // Network errors are expected and handled gracefully - only log in dev mode
+        if (import.meta.env.DEV && isAxiosNetworkError(error)) {
+          console.debug(`[ThingsBoard] Network error fetching attributes for device ${deviceId} (handled gracefully)`);
+        } else if (!isAxiosNetworkError(error)) {
+          // Only warn for non-network errors (auth, validation, etc.)
+          console.warn(`[ThingsBoard] Failed to fetch attributes for device ${deviceId}:`, error);
+        }
         return { deviceId, attributes: {} };
       }
     });

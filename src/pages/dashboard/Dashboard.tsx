@@ -2,11 +2,14 @@ import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useLocation } from 'react-router-dom';
 import { Target as TargetIcon, Users, Calendar, Bell, TrendingUp, Activity, Play, User, X, BarChart, Award, CheckCircle, Gamepad2, Trophy } from 'lucide-react';
 import { useStats } from '@/store/useStats';
-import { useTargets } from '@/store/useTargets';
-import { useRooms } from '@/store/useRooms';
+import { useTargetsSummary, useTargetsWithDetails } from '@/features/targets';
+import { useRooms } from '@/features/rooms';
+import { useDashboardMetrics } from '@/features/dashboard';
 import { useScenarios, type ScenarioHistory } from '@/store/useScenarios';
 import { useSessions, type Session } from '@/store/useSessions';
 import { useAuth } from '@/providers/AuthProvider';
+// Legacy store - will be removed after full migration
+import { useTargets } from '@/store/useTargets';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
@@ -204,7 +207,8 @@ const Dashboard: React.FC = () => {
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [dismissedCards, setDismissedCards] = useState<string[]>([]);
-  const [targetsLoading, setTargetsLoading] = useState(false);
+  const hasInitializedRef = useRef(false);
+  const targetsRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
   
   // Real data from stores
   const { 
@@ -216,8 +220,27 @@ const Dashboard: React.FC = () => {
     fetchStats
   } = useStats();
   
+  // Use new React Query hooks
+  const { data: targetsData } = useTargetsSummary();
+  const { data: roomsData, isLoading: roomsLoading, refetch: refetchRooms } = useRooms();
+  const { data: dashboardMetricsData, isLoading: metricsLoading } = useDashboardMetrics();
+  
+  // Use React Query for targets with details
+  const targetsWithDetails = useTargetsWithDetails(true, {
+    includeHistory: false,
+    telemetryKeys: ['hit_ts', 'hits', 'event'],
+    recentWindowMs: 5 * 60 * 1000,
+  });
+  
+  // Store refetch function in ref to keep it stable
+  targetsRefetchRef.current = targetsWithDetails.refetch;
+  
+  // Legacy targets store for compatibility (will be removed)
   const { targets: rawTargets, setTargets, fetchTargetDetails } = useTargets();
-  const { rooms, isLoading: roomsLoading, fetchRooms } = useRooms();
+  const rooms = roomsData?.rooms || [];
+  
+  // Use new React Query data if available, fallback to legacy
+  const currentTargets = targetsWithDetails.targets || rawTargets;
   const { isLoading: scenariosLoading, fetchScenarios } = useScenarios();
   const { sessions, isLoading: sessionsLoading, fetchSessions } = useSessions();
   
@@ -226,31 +249,8 @@ const Dashboard: React.FC = () => {
   // Initial sync with ThingsBoard (only on dashboard)
   const { syncStatus, isReady } = useInitialSync();
 
-  // Fetch merged targets with room assignments and telemetry
-  const fetchMergedTargets = useCallback(async () => {
-    setTargetsLoading(true);
-    try {
-      const { fetchTargetsWithTelemetry } = await import('@/services/thingsboard-targets');
-      const { targets } = await fetchTargetsWithTelemetry(true);
-      setTargets(targets);
-      if (targets.length > 0) {
-        const deviceIds = targets.map((target) => target.id);
-        try {
-          await fetchTargetDetails(deviceIds, {
-            includeHistory: false,
-            telemetryKeys: ['hit_ts', 'hits', 'event'],
-            recentWindowMs: 5 * 60 * 1000,
-          });
-        } catch (detailError) {
-          console.error('[Dashboard] Failed to hydrate target details', detailError);
-        }
-      }
-    } catch (error) {
-      console.error('[Dashboard] Error fetching edge targets', error);
-    } finally {
-      setTargetsLoading(false);
-    }
-  }, [fetchTargetDetails, setTargets]);
+  // Fetch merged targets - use refetch directly from React Query hook
+  // No need for wrapper function since React Query handles this automatically
 
   const summary: TargetsSummary | null = metrics?.summary ?? null;
   const summaryLoading = statsLoading && !summary;
@@ -265,36 +265,38 @@ const Dashboard: React.FC = () => {
   }, [summary, summaryLoading, rawTargets.length]);
   const summaryPending = summaryLoading || (statsLoading && !summaryReady);
   const shouldShowSkeleton =
-    summaryPending || sessionsLoading || targetsLoading || roomsLoading || scenariosLoading;
-
-  const currentTargets = rawTargets;
-
-  const refreshAllData = useCallback(async () => {
-    try {
-      const refreshPromises: Array<Promise<unknown>> = [
-        fetchStats({ force: true }),
-        fetchMergedTargets(),
-        fetchScenarios(),
-        fetchRooms(),
-      ];
-
-      if (user?.id) {
-        refreshPromises.push(fetchSessions(user.id, { includeFullHistory: true, limit: SESSION_HISTORY_LIMIT }));
-      }
-
-      await Promise.all(refreshPromises);
-    } catch (error) {
-      console.error('[Dashboard] Failed to refresh dashboard data', error);
-    }
-  }, [fetchStats, fetchMergedTargets, fetchScenarios, fetchRooms, fetchSessions, user?.id]);
+    summaryPending || sessionsLoading || targetsWithDetails.isLoading || roomsLoading || scenariosLoading;
 
   useEffect(() => {
-    if (authLoading || !user?.id) {
+    if (authLoading || !user?.id || hasInitializedRef.current) {
       return;
     }
 
+    // Mark as initialized to prevent infinite loop
+    hasInitializedRef.current = true;
+
+    // Refresh all data on initial mount
+    const refreshAllData = async () => {
+      try {
+        const refreshPromises: Array<Promise<unknown>> = [
+          fetchStats({ force: true }),
+          targetsRefetchRef.current ? targetsRefetchRef.current() : Promise.resolve(),
+          fetchScenarios(),
+          refetchRooms(),
+        ];
+
+        if (user?.id) {
+          refreshPromises.push(fetchSessions(user.id, { includeFullHistory: true, limit: SESSION_HISTORY_LIMIT }));
+        }
+
+        await Promise.all(refreshPromises);
+      } catch (error) {
+        console.error('[Dashboard] Failed to refresh dashboard data', error);
+      }
+    };
+
     refreshAllData();
-  }, [authLoading, user?.id, refreshAllData]);
+  }, [authLoading, user?.id, fetchStats, fetchScenarios, refetchRooms, fetchSessions]);
 
   const stats = useMemo(() => {
     const usingDetailedTargets = currentTargets.length > 0;

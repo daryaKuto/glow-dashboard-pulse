@@ -13,7 +13,8 @@ import OAuthCallback from './pages/auth/callback';
 // Dashboard pages
 import Dashboard from './pages/dashboard/Dashboard';
 import Targets from './pages/targets/Targets';
-import Rooms from './pages/Rooms';
+import Rooms from './pages/Rooms'; // Legacy - will be removed after migration
+import RoomsPage from './features/rooms/ui/rooms-page'; // New feature-based page
 import RoomDesigner from './pages/RoomDesigner';
 import Games from './pages/Games';
 // import Scenarios from './pages/Scenarios'; // Commented out - moved to scenarios folder
@@ -67,7 +68,7 @@ function App() {
         {/* Dashboard routes - require authentication */}
         <Route path="/dashboard" element={user ? <Dashboard /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/targets" element={user ? <Targets /> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/rooms" element={user ? <Rooms /> : <Navigate to="/login" replace />} />
+        <Route path="/dashboard/rooms" element={user ? <RoomsPage /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/rooms/:id" element={user ? <RoomDesigner /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/games" element={user ? <Games /> : <Navigate to="/login" replace />} />
         {/* <Route path="/dashboard/scenarios" element={user ? <Scenarios /> : <Navigate to="/login" replace />} /> */}

@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { useRooms, type Room } from '@/store/useRooms';
+import { useRooms, type Room } from '@/features/rooms';
 import { useTargetGroups, type Group } from '@/store/useTargetGroups';
+import { useTargets, useTargetDetails, mergeTargetDetails } from '@/features/targets';
 import { toast } from '@/components/ui/sonner';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Target, useTargets } from '@/store/useTargets';
+import type { Target } from '@/features/targets';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -306,7 +307,9 @@ const TargetsSummary: React.FC<{
 const Targets: React.FC = () => {
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-  const { rooms: liveRooms, isLoading: roomsLoading, fetchRooms } = useRooms();
+  // Use new React Query hooks
+  const { data: roomsData, isLoading: roomsLoading, refetch: refetchRooms } = useRooms();
+  const liveRooms = roomsData?.rooms || [];
   const {
     groups,
     isLoading: groupsLoading,
@@ -317,13 +320,29 @@ const Targets: React.FC = () => {
     unassignTargetsFromGroup,
     assignTargetsToGroup,
   } = useTargetGroups();
-  const {
-    targets: storeTargets,
-    fetchTargetsFromEdge,
-    fetchTargetDetails,
-    isLoading: targetsStoreLoading,
-    detailsLoading,
-  } = useTargets();
+  // Use new React Query hooks
+  const { data: targetsData, isLoading: targetsStoreLoading, refetch: refetchTargets } = useTargets(true);
+  const { data: targetDetailsData, isLoading: detailsLoading } = useTargetDetails(
+    targetsData?.targets.map(t => t.id) || [],
+    { includeHistory: false, telemetryKeys: ['hit_ts', 'hits', 'event'], recentWindowMs: 5 * 60 * 1000 },
+    targetsData !== undefined
+  );
+  
+  // Merge targets with details
+  const storeTargets = useMemo(() => {
+    return targetsData?.targets ? mergeTargetDetails(targetsData.targets, targetDetailsData || []) : [];
+  }, [targetsData?.targets, targetDetailsData]);
+  
+  // Legacy compatibility functions
+  const fetchTargetsFromEdge = async (force?: boolean) => {
+    await refetchTargets();
+    return storeTargets;
+  };
+  
+  const fetchTargetDetails = useCallback(async (deviceIds: string[], options?: any) => {
+    // Handled by useTargetDetails hook
+    return true;
+  }, []);
   
   // Local state
   const [targets, setTargets] = useState<Target[]>(storeTargets);
@@ -610,11 +629,11 @@ const Targets: React.FC = () => {
 
   useEffect(() => {
     if (!liveRooms.length) {
-      fetchRooms().catch(error => {
+      refetchRooms().catch(error => {
         console.error('Failed to fetch rooms:', error);
       });
     }
-  }, [liveRooms.length, fetchRooms]);
+  }, [liveRooms.length, refetchRooms]);
 
   useEffect(() => {
     if (!groups.length) {
@@ -708,7 +727,7 @@ const Targets: React.FC = () => {
       const ids = selectedTargets.map((target) => target.id);
       const idsKey = ids.slice().sort().join(',');
 
-      const tasks: Array<Promise<unknown>> = [fetchRooms()];
+      const tasks: Array<Promise<unknown>> = [refetchRooms()];
 
       if (ids.length > 0) {
         tasks.push(fetchTargetDetails(ids, {

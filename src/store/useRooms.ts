@@ -1,4 +1,16 @@
 
+/**
+ * @deprecated This store is deprecated. Use React Query hooks from @/features/rooms instead.
+ * 
+ * Migration guide:
+ * - Replace `useRooms()` with `useRooms()` from '@/features/rooms'
+ * - Replace `createRoom()` with `useCreateRoom()` mutation hook
+ * - Replace `updateRoom()` with `useUpdateRoom()` mutation hook
+ * - Replace `deleteRoom()` with `useDeleteRoom()` mutation hook
+ * 
+ * This file will be removed in a future version.
+ */
+
 import { create } from 'zustand';
 import { supabaseRoomsService, type UserRoom, type CreateRoomData } from '@/services/supabase-rooms';
 import { fetchRoomsData } from '@/lib/edge';

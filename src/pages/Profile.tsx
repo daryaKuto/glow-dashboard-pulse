@@ -3,9 +3,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 import { useAuth } from '@/providers/AuthProvider';
 import { apiWrapper } from '@/services/api-wrapper';
-import { useRooms } from '@/store/useRooms';
+import { useRooms } from '@/features/rooms';
 import { useUserPrefs } from '@/store/useUserPrefs';
-import { useProfile } from '@/store/useProfile';
+import { useProfile, useRecentSessions, useStatsTrend, useUpdateProfile } from '@/features/profile';
 import { supabase } from '@/integrations/supabase/client';
 import { useIsMobile } from '@/hooks/use-mobile';
 import Header from '@/components/shared/Header';
@@ -54,19 +54,32 @@ const Profile: React.FC = () => {
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const { user: authUser } = useAuth();
-  const { rooms: liveRooms, fetchRooms } = useRooms();
+  // Use new React Query hooks
+  const { data: roomsData, refetch: refetchRooms } = useRooms();
+  const liveRooms = roomsData?.rooms || [];
   const { prefs, loading: prefsLoading, load: loadPrefs, save: savePrefs, updatePref } = useUserPrefs();
-  const { 
-    profileData: liveProfileData, 
-    recentSessions: liveRecentSessions, 
-    isLoading: profileLoading, 
-    isLoadingSessions, 
-    isUpdating,
-    error: profileError,
-    fetchProfile, 
-    fetchSessions, 
-    updateProfile: updateUserProfileData 
-  } = useProfile();
+  
+  // New profile hooks
+  const { data: liveProfileData, isLoading: profileLoading, refetch: refetchProfile } = useProfile(authUser?.id);
+  const { data: liveRecentSessions = [], isLoading: isLoadingSessions } = useRecentSessions(authUser?.id, 10);
+  const { data: statsTrendData = [] } = useStatsTrend(authUser?.id);
+  const updateProfileMutation = useUpdateProfile();
+  
+  // Legacy compatibility
+  const isUpdating = updateProfileMutation.isPending;
+  const profileError = updateProfileMutation.error?.message || null;
+  
+  const fetchProfile = async (userId: string) => {
+    await refetchProfile();
+  };
+  
+  const fetchSessions = async (userId: string, limit?: number) => {
+    // Handled by useRecentSessions hook
+  };
+  
+  const updateUserProfileData = async (updates: { name?: string; avatarUrl?: string }) => {
+    await updateProfileMutation.mutateAsync(updates);
+  };
   
   // Local state for rooms
   const [demoRooms, setDemoRooms] = useState<Array<{

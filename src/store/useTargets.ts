@@ -1,3 +1,15 @@
+/**
+ * @deprecated This store is deprecated. Use React Query hooks from @/features/targets instead.
+ * 
+ * Migration guide:
+ * - Replace `useTargets()` with `useTargets()` from '@/features/targets'
+ * - Replace `fetchTargetsFromEdge()` with `useTargets()` hook
+ * - Replace `fetchTargetDetails()` with `useTargetDetails()` hook
+ * - Use `useTargetsWithDetails()` for combined targets + details
+ * 
+ * This file will be removed in a future version.
+ */
+
 import { create } from 'zustand';
 import { clearTargetsCache } from '@/lib/api';
 import { fetchTargetDetails, type TargetDetail, type TargetDetailsOptions } from '@/lib/edge';

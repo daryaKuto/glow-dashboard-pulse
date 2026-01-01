@@ -5,6 +5,8 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App.tsx'
 import './index.css'
 import { AuthProvider } from './providers/AuthProvider'
+import { Providers } from './app/providers'
+import { ErrorBoundary } from './shared/lib/error-boundary'
 
 // Initialize application
 console.info('[Main] Application bootstrapping', {
@@ -25,10 +27,14 @@ console.info('[Main] Application bootstrapping', {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <Providers>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </Providers>
+      </BrowserRouter>
+    </ErrorBoundary>
   </React.StrictMode>,
 )

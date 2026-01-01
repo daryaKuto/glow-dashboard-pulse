@@ -1,3 +1,15 @@
+/**
+ * @deprecated This store is deprecated. Use React Query hooks from @/features/profile instead.
+ * 
+ * Migration guide:
+ * - Replace `useProfile()` with `useProfile(userId)` from '@/features/profile'
+ * - Replace `fetchSessions()` with `useRecentSessions(userId, limit)` hook
+ * - Replace `fetchTrend()` with `useStatsTrend(userId, periodType, days)` hook
+ * - Replace `updateProfile()` with `useUpdateProfile()` mutation hook
+ * 
+ * This file will be removed in a future version.
+ */
+
 import { create } from 'zustand';
 import { fetchUserProfileData, fetchRecentSessions, updateUserProfile, getUserStatsTrend, type UserProfileData, type RecentSession } from '@/services/profile';
 import type { Database } from '@/integrations/supabase/types';

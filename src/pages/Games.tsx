@@ -1393,10 +1393,6 @@ const Games: React.FC = () => {
   const isLoadingHistoryRef = useRef(false);
   const hasLoadedHistoryRef = useRef(false);
   const loadGameHistory = useCallback(async () => {
-    // #region agent log
-    const historyStartTime = performance.now();
-    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Games.tsx:1394',message:'loadGameHistory entry',data:{userId:user?.id,isLoading:isLoadingHistoryRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'perf-1',hypothesisId:'E'})}).catch(()=>{});
-    // #endregion
     if (!user?.id) {
       return;
     }
@@ -1464,17 +1460,9 @@ const Games: React.FC = () => {
       } else {
         setRecentSessionSummary(null);
       }
-      // #region agent log
-      const historyEndTime = performance.now();
-      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Games.tsx:1446',message:'loadGameHistory completed',data:{durationMs:historyEndTime-historyStartTime,historyCount:combinedHistory.length},timestamp:Date.now(),sessionId:'debug-session',runId:'perf-1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
     } catch (error) {
       console.warn('[Games] Failed to load game history', error);
       setGameHistory([]);
-      // #region agent log
-      const historyEndTime = performance.now();
-      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Games.tsx:1462',message:'loadGameHistory error',data:{durationMs:historyEndTime-historyStartTime,error:error instanceof Error?error.message:String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'perf-1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
     } finally {
       setIsHistoryLoading(false);
       isLoadingHistoryRef.current = false;
@@ -1578,20 +1566,11 @@ const Games: React.FC = () => {
   }, [availableDevices]);
 
   useEffect(() => {
-    // #region agent log
-    const startTime = performance.now();
-    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Games.tsx:1580',message:'useEffect - loadLiveDevices entry',data:{hasLoadedDevices:hasLoadedDevicesRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'perf-1',hypothesisId:'D'})}).catch(()=>{});
-    // #endregion
     if (hasLoadedDevicesRef.current) {
       return;
     }
     hasLoadedDevicesRef.current = true; // Set ref BEFORE starting async work
-    void loadLiveDevices({ showToast: true, reason: 'initial' }).then(() => {
-      // #region agent log
-      const endTime = performance.now();
-      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Games.tsx:1590',message:'loadLiveDevices completed',data:{durationMs:endTime-startTime},timestamp:Date.now(),sessionId:'debug-session',runId:'perf-1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
-    });
+    void loadLiveDevices({ showToast: true, reason: 'initial' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
@@ -1605,10 +1584,6 @@ const Games: React.FC = () => {
 
   const hasLoadedRoomsRef = useRef(false);
   useEffect(() => {
-    // #region agent log
-    const roomsStartTime = performance.now();
-    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Games.tsx:1602',message:'useEffect - loadRooms entry',data:{hasLoadedRooms:hasLoadedRoomsRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'perf-1',hypothesisId:'F'})}).catch(()=>{});
-    // #endregion
     if (hasLoadedRoomsRef.current) {
       return;
     }
@@ -1617,18 +1592,8 @@ const Games: React.FC = () => {
 
     const loadRooms = async () => {
       try {
-        const roomsStart = performance.now();
         await fetchRooms();
-        const roomsEnd = performance.now();
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Games.tsx:1613',message:'fetchRooms completed',data:{durationMs:roomsEnd-roomsStart},timestamp:Date.now(),sessionId:'debug-session',runId:'perf-1',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
-        const groupsStart = performance.now();
         await fetchGroups();
-        const groupsEnd = performance.now();
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Games.tsx:1614',message:'fetchGroups completed',data:{durationMs:groupsEnd-groupsStart},timestamp:Date.now(),sessionId:'debug-session',runId:'perf-1',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
       } catch (err) {
         if (!cancelled) {
           console.warn('[Games] Failed to fetch rooms/groups for selection card', err);
@@ -1638,12 +1603,7 @@ const Games: React.FC = () => {
 
     const loadCustomNames = async () => {
       try {
-        const namesStart = performance.now();
         const names = await supabaseTargetCustomNamesService.getAllCustomNames();
-        const namesEnd = performance.now();
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Games.tsx:1624',message:'getAllCustomNames completed',data:{durationMs:namesEnd-namesStart},timestamp:Date.now(),sessionId:'debug-session',runId:'perf-1',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
         if (!cancelled) {
           setCustomNames(names);
         }

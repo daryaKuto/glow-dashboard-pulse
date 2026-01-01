@@ -5,7 +5,8 @@ import { useAuth } from '@/providers/AuthProvider';
 import { apiWrapper } from '@/services/api-wrapper';
 import { useRooms } from '@/features/rooms';
 import { useUserPrefs } from '@/store/useUserPrefs';
-import { useProfile, useRecentSessions, useStatsTrend, useUpdateProfile } from '@/features/profile';
+import { useProfile, useRecentSessions, useStatsTrend, useUpdateProfile, profileKeys } from '@/features/profile';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useIsMobile } from '@/hooks/use-mobile';
 import Header from '@/components/shared/Header';
@@ -60,8 +61,9 @@ const Profile: React.FC = () => {
   const { prefs, loading: prefsLoading, load: loadPrefs, save: savePrefs, updatePref } = useUserPrefs();
   
   // New profile hooks
+  const queryClient = useQueryClient();
   const { data: liveProfileData, isLoading: profileLoading, refetch: refetchProfile } = useProfile(authUser?.id);
-  const { data: liveRecentSessions = [], isLoading: isLoadingSessions } = useRecentSessions(authUser?.id, 10);
+  const { data: liveRecentSessions = [], isLoading: isLoadingSessions, refetch: refetchSessions } = useRecentSessions(authUser?.id, 10);
   const { data: statsTrendData = [] } = useStatsTrend(authUser?.id);
   const updateProfileMutation = useUpdateProfile();
   
@@ -70,11 +72,34 @@ const Profile: React.FC = () => {
   const profileError = updateProfileMutation.error?.message || null;
   
   const fetchProfile = async (userId: string) => {
-    await refetchProfile();
+    if (!userId) {
+      console.warn('[Profile] fetchProfile called without userId');
+      return;
+    }
+    // If userId matches current user, use refetch; otherwise invalidate and refetch
+    if (userId === authUser?.id) {
+      await refetchProfile();
+    } else {
+      await queryClient.invalidateQueries({ queryKey: profileKeys.detail(userId) });
+    }
   };
   
-  const fetchSessions = async (userId: string, limit?: number) => {
-    // Handled by useRecentSessions hook
+  const fetchSessions = async (userId: string, limit = 10) => {
+    if (!userId) {
+      console.warn('[Profile] fetchSessions called without userId');
+      return;
+    }
+    // If userId matches current user, use refetch; otherwise invalidate and refetch
+    if (userId === authUser?.id) {
+      await refetchSessions();
+    } else {
+      await queryClient.invalidateQueries({ queryKey: profileKeys.sessions(userId, limit) });
+    }
+  };
+  
+  const fetchRooms = async () => {
+    // Rooms don't require userId - just refetch the current user's rooms
+    await refetchRooms();
   };
   
   const updateUserProfileData = async (updates: { name?: string; avatarUrl?: string }) => {

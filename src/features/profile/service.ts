@@ -11,6 +11,7 @@ import {
   getStatsTrend,
   updateProfile as updateProfileRepo,
 } from './repo';
+import { apiErr } from '@/shared/lib/api-response';
 import type {
   UserProfileData,
   RecentSession,
@@ -27,9 +28,7 @@ export async function getProfileService(
   userId: string
 ): Promise<import('@/shared/lib/api-response').ApiResponse<UserProfileData | null>> {
   if (!userId) {
-    return import('@/shared/lib/api-response').then(({ apiErr }) =>
-      apiErr('VALIDATION_ERROR', 'User ID is required')
-    );
+    return apiErr('VALIDATION_ERROR', 'User ID is required');
   }
 
   return getProfile(userId);
@@ -43,15 +42,11 @@ export async function getRecentSessionsService(
   limit = 10
 ): Promise<import('@/shared/lib/api-response').ApiResponse<RecentSession[]>> {
   if (!userId) {
-    return import('@/shared/lib/api-response').then(({ apiErr }) =>
-      apiErr('VALIDATION_ERROR', 'User ID is required')
-    );
+    return apiErr('VALIDATION_ERROR', 'User ID is required');
   }
 
   if (limit < 1 || limit > 100) {
-    return import('@/shared/lib/api-response').then(({ apiErr }) =>
-      apiErr('VALIDATION_ERROR', 'Limit must be between 1 and 100')
-    );
+    return apiErr('VALIDATION_ERROR', 'Limit must be between 1 and 100');
   }
 
   return getRecentSessions(userId, limit);
@@ -66,15 +61,11 @@ export async function getStatsTrendService(
   days = 30
 ): Promise<import('@/shared/lib/api-response').ApiResponse<UserAnalytics[]>> {
   if (!userId) {
-    return import('@/shared/lib/api-response').then(({ apiErr }) =>
-      apiErr('VALIDATION_ERROR', 'User ID is required')
-    );
+    return apiErr('VALIDATION_ERROR', 'User ID is required');
   }
 
   if (!['daily', 'weekly', 'monthly'].includes(periodType)) {
-    return import('@/shared/lib/api-response').then(({ apiErr }) =>
-      apiErr('VALIDATION_ERROR', 'Invalid period type')
-    );
+    return apiErr('VALIDATION_ERROR', 'Invalid period type');
   }
 
   return getStatsTrend(userId, periodType, days);
@@ -88,15 +79,11 @@ export async function updateProfileService(
 ): Promise<import('@/shared/lib/api-response').ApiResponse<boolean>> {
   // Validate updates
   if (updates.name !== undefined && (!updates.name || updates.name.trim().length === 0)) {
-    return import('@/shared/lib/api-response').then(({ apiErr }) =>
-      apiErr('VALIDATION_ERROR', 'Name cannot be empty')
-    );
+    return apiErr('VALIDATION_ERROR', 'Name cannot be empty');
   }
 
   if (updates.name !== undefined && updates.name.length > 100) {
-    return import('@/shared/lib/api-response').then(({ apiErr }) =>
-      apiErr('VALIDATION_ERROR', 'Name is too long')
-    );
+    return apiErr('VALIDATION_ERROR', 'Name is too long');
   }
 
   return updateProfileRepo(updates);

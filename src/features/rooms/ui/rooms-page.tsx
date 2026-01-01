@@ -129,7 +129,7 @@ const RoomsPage: React.FC = () => {
     setIsDeletingRoom(true);
     try {
       await deleteRoomMutation.mutateAsync(roomPendingDelete.id);
-      await Promise.all([refetchRooms(), refreshTargets()]);
+      await Promise.all([refetchRooms(), refetchTargets()]);
       setRoomPendingDelete(null);
     } catch (error) {
       console.error('Error deleting room:', error);

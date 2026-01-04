@@ -163,7 +163,13 @@ export function useGameDevices(options: UseGameDevicesOptions = {}): UseGameDevi
 
   const refresh = useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useGameDevices.ts:164',message:'refresh called',data:{silent,loadingRefCurrent:loadingRef.current,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
       if (loadingRef.current) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useGameDevices.ts:167',message:'refresh blocked by loadingRef',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
         return null;
       }
 
@@ -173,12 +179,29 @@ export function useGameDevices(options: UseGameDevicesOptions = {}): UseGameDevi
       }
 
       try {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useGameDevices.ts:177',message:'fetchTargetsWithTelemetry start',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        const startTime = performance.now();
         const { targets } = await fetchTargetsWithTelemetry(true);
+        const fetchDuration = performance.now() - startTime;
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useGameDevices.ts:180',message:'fetchTargetsWithTelemetry complete',data:{targetCount:targets.length,fetchDurationMs:fetchDuration},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
         const normalized = targets.map(normalizeGameDevice);
+        const normalizeDuration = performance.now() - startTime - fetchDuration;
         const fetchedAt = Date.now();
         setDevices(normalized);
         setLastFetched(fetchedAt);
         setError(null);
+        
+        console.info('⚡ [Performance] useGameDevices.refresh', {
+          deviceCount: targets.length,
+          fetchDuration: `${fetchDuration.toFixed(2)}ms`,
+          normalizeDuration: `${normalizeDuration.toFixed(2)}ms`,
+          totalDuration: `${(fetchDuration + normalizeDuration).toFixed(2)}ms`,
+        });
+        
         return { devices: normalized, fetchedAt };
       } catch (err) {
         const errorInstance = err instanceof Error ? err : new Error(String(err));

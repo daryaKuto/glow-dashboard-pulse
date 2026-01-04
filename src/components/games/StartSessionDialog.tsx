@@ -15,7 +15,7 @@ import {
   type SessionLifecycle,
   type SessionHitEntry,
 } from '@/components/game-session/sessionState';
-import { supabaseTargetCustomNamesService } from '@/services/supabase-target-custom-names';
+import { useTargetCustomNames } from '@/features/targets';
 
 export interface StartSessionDialogProps {
   open: boolean;
@@ -322,7 +322,7 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
 }) => {
   const [dialogHitHistory, setDialogHitHistory] = useState<SessionHitRecord[]>([]);
   const [durationInput, setDurationInput] = useState('');
-  const [customNames, setCustomNames] = useState<Map<string, string>>(new Map());
+  const { data: customNames = new Map() } = useTargetCustomNames();
 
   useEffect(() => {
     const nextValue =
@@ -331,19 +331,6 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
         : '';
     setDurationInput(nextValue);
   }, [desiredDurationSeconds]);
-
-  // Load custom names for targets
-  useEffect(() => {
-    const loadCustomNames = async () => {
-      try {
-        const names = await supabaseTargetCustomNamesService.getAllCustomNames();
-        setCustomNames(names);
-      } catch (error) {
-        console.error('[StartSessionDialog] Failed to load custom names:', error);
-      }
-    };
-    loadCustomNames();
-  }, []);
 
   // Create a reverse map from deviceName to deviceId for looking up custom names
   const deviceNameToIdMap = useMemo(() => {

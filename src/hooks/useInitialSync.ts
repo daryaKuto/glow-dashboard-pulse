@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/providers/AuthProvider';
-import { fetchRoomsData, fetchTargetsWithTelemetry } from '@/lib/edge';
 import { useTargets } from '@/store/useTargets';
 import { useRooms } from '@/store/useRooms';
 import { useSessions } from '@/store/useSessions';
@@ -55,37 +54,24 @@ export const useInitialSync = () => {
     });
 
     try {
-      const [targetsResult, roomsResult] = await Promise.all([
-        fetchTargetsWithTelemetry(true),
-        fetchRoomsData(true),
-      ]);
+      // React Query hooks (useRooms, useTargets) handle fetching rooms and targets
+      // We only need to sync sessions here to populate Zustand store
+      // This prevents duplicate edge function calls (H3, H4 fixes)
+      // Note: Zustand stores for rooms/targets are legacy and React Query handles the data
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useInitialSync.ts:57',message:'useInitialSync - skipping targets/rooms fetch (handled by React Query)',data:{userId:user.id},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H3,H4'})}).catch(()=>{});
+      // #endregion
+      
+      // Get counts from Zustand stores if available (may be empty if React Query hasn't populated yet)
+      // These are for sync status reporting only
+      const targetCount = useTargets.getState().targets?.length ?? 0;
+      const roomCount = useRooms.getState().rooms?.length ?? 0;
 
-      const targetStore = useTargets.getState();
-      targetStore.setTargets(targetsResult.targets);
-      if (targetsResult.targets.length > 0) {
-        const deviceIds = targetsResult.targets.map((target) => target.id);
-        try {
-          await targetStore.fetchTargetDetails(deviceIds, {
-            includeHistory: false,
-            telemetryKeys: ['hit_ts', 'hits', 'event'],
-            recentWindowMs: 5 * 60 * 1000,
-          });
-        } catch (detailError) {
-          console.warn('[InitialSync] Unable to hydrate target details', detailError);
-        }
-      }
-
-      const mappedRooms = roomsResult.rooms.map((room) => ({
-        id: room.id,
-        name: room.name,
-        order: room.order,
-        targetCount: room.targetCount,
-        icon: room.icon ?? undefined,
-        room_type: room.room_type ?? undefined,
-      }));
-      useRooms.getState().setRooms(mappedRooms, roomsResult.unassignedTargets ?? []);
-
-      await useSessions.getState().fetchSessions(user.id, { includeFullHistory: true, limit: 500 });
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useInitialSync.ts:70',message:'fetchSessions call from useInitialSync',data:{userId:user.id,limit:100},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
+      await useSessions.getState().fetchSessions(user.id, { includeFullHistory: true, limit: 100 }); // API maximum is 100
       const sessionCount = useSessions.getState().sessions.length;
 
       setSyncStatus({
@@ -93,8 +79,8 @@ export const useInitialSync = () => {
         isLoading: false,
         error: null,
         syncedData: {
-        targetCount: targetsResult.targets.length,
-        roomCount: mappedRooms.length,
+        targetCount,
+        roomCount,
         sessionCount,
         userNotFound: undefined,
       },

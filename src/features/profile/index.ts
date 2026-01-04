@@ -8,6 +8,7 @@ export {
   useRecentSessions,
   useStatsTrend,
   useUpdateProfile,
+  useWifiCredentials,
   profileKeys,
 } from './hooks';
 
@@ -16,5 +17,6 @@ export type {
   UserProfileData,
   RecentSession,
   UpdateProfile,
+  WifiCredentials,
 } from './schema';
 

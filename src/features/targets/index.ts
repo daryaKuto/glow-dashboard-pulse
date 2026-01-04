@@ -12,6 +12,11 @@ export {
   useTargetDetails,
   useTargetsWithDetails,
   useInvalidateTargets,
+  useDeviceCommand,
+  useSetDeviceAttributes,
+  useTargetCustomNames,
+  useSetTargetCustomName,
+  useRemoveTargetCustomName,
   targetsKeys,
 } from './hooks';
 
@@ -27,4 +32,3 @@ export type { TargetsWithSummary } from './repo';
 
 // Re-export merge function for advanced use cases
 export { mergeTargetDetails } from './service';
-

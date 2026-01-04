@@ -2,7 +2,8 @@
  * Service layer for Profile feature
  * 
  * Contains business logic and orchestration.
- * Uses repository functions and returns ApiResponse<T>.
+ * Uses repository functions and domain layer validators.
+ * Returns ApiResponse<T>.
  */
 
 import {
@@ -10,14 +11,25 @@ import {
   getRecentSessions,
   getStatsTrend,
   updateProfile as updateProfileRepo,
+  getWifiCredentials,
+  saveThingsBoardCredentials,
 } from './repo';
 import { apiErr } from '@/shared/lib/api-response';
 import type {
   UserProfileData,
   RecentSession,
   UpdateProfile,
+  WifiCredentials,
 } from './schema';
 import type { Database } from '@/integrations/supabase/types';
+import {
+  validateUserId,
+  validateUpdateProfileInput,
+  validateRecentSessionsQuery,
+  validateStatsTrendQuery,
+  validateEmail,
+} from '@/domain/profile/validators';
+import { isNonEmptyString } from '@/domain/shared/validation-helpers';
 
 type UserAnalytics = Database['public']['Tables']['user_analytics']['Row'];
 
@@ -27,8 +39,11 @@ type UserAnalytics = Database['public']['Tables']['user_analytics']['Row'];
 export async function getProfileService(
   userId: string
 ): Promise<import('@/shared/lib/api-response').ApiResponse<UserProfileData | null>> {
-  if (!userId) {
-    return apiErr('VALIDATION_ERROR', 'User ID is required');
+  // Validate using domain layer
+  const validation = validateUserId(userId);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid user ID');
   }
 
   return getProfile(userId);
@@ -41,12 +56,11 @@ export async function getRecentSessionsService(
   userId: string,
   limit = 10
 ): Promise<import('@/shared/lib/api-response').ApiResponse<RecentSession[]>> {
-  if (!userId) {
-    return apiErr('VALIDATION_ERROR', 'User ID is required');
-  }
-
-  if (limit < 1 || limit > 100) {
-    return apiErr('VALIDATION_ERROR', 'Limit must be between 1 and 100');
+  // Validate using domain layer
+  const validation = validateRecentSessionsQuery({ userId, limit });
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid query parameters');
   }
 
   return getRecentSessions(userId, limit);
@@ -60,12 +74,11 @@ export async function getStatsTrendService(
   periodType: 'daily' | 'weekly' | 'monthly' = 'daily',
   days = 30
 ): Promise<import('@/shared/lib/api-response').ApiResponse<UserAnalytics[]>> {
-  if (!userId) {
-    return apiErr('VALIDATION_ERROR', 'User ID is required');
-  }
-
-  if (!['daily', 'weekly', 'monthly'].includes(periodType)) {
-    return apiErr('VALIDATION_ERROR', 'Invalid period type');
+  // Validate using domain layer
+  const validation = validateStatsTrendQuery({ userId, periodType, days });
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid query parameters');
   }
 
   return getStatsTrend(userId, periodType, days);
@@ -77,15 +90,55 @@ export async function getStatsTrendService(
 export async function updateProfileService(
   updates: UpdateProfile
 ): Promise<import('@/shared/lib/api-response').ApiResponse<boolean>> {
-  // Validate updates
-  if (updates.name !== undefined && (!updates.name || updates.name.trim().length === 0)) {
-    return apiErr('VALIDATION_ERROR', 'Name cannot be empty');
-  }
-
-  if (updates.name !== undefined && updates.name.length > 100) {
-    return apiErr('VALIDATION_ERROR', 'Name is too long');
+  // Validate using domain layer
+  const validation = validateUpdateProfileInput(updates);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid update data');
   }
 
   return updateProfileRepo(updates);
 }
 
+/**
+ * Get WiFi credentials for user
+ */
+export async function getWifiCredentialsService(
+  userId: string
+): Promise<import('@/shared/lib/api-response').ApiResponse<WifiCredentials | null>> {
+  // Validate using domain layer
+  const validation = validateUserId(userId);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid user ID');
+  }
+
+  return getWifiCredentials(userId);
+}
+
+/**
+ * Save ThingsBoard credentials for a user
+ */
+export async function saveThingsBoardCredentialsService(
+  userId: string,
+  email: string,
+  password: string
+): Promise<import('@/shared/lib/api-response').ApiResponse<boolean>> {
+  const userIdValidation = validateUserId(userId);
+  if (!userIdValidation.success) {
+    const firstError = userIdValidation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid user ID');
+  }
+
+  const emailValidation = validateEmail(email);
+  if (!emailValidation.success) {
+    const firstError = emailValidation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid email');
+  }
+
+  if (!isNonEmptyString(password)) {
+    return apiErr('VALIDATION_ERROR', 'Password is required');
+  }
+
+  return saveThingsBoardCredentials(userId, email, password);
+}

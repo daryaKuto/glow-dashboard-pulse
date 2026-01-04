@@ -5,11 +5,13 @@ import {
   getRecentSessionsService,
   getStatsTrendService,
   updateProfileService,
+  getWifiCredentialsService,
 } from './service';
 import type {
   UserProfileData,
   RecentSession,
   UpdateProfile,
+  WifiCredentials,
 } from './schema';
 import type { Database } from '@/integrations/supabase/types';
 
@@ -27,6 +29,8 @@ export const profileKeys = {
     [...profileKeys.all, 'sessions', userId, limit] as const,
   trend: (userId: string, periodType?: string, days?: number) =>
     [...profileKeys.all, 'trend', userId, periodType, days] as const,
+  wifiCredentials: (userId: string) =>
+    [...profileKeys.all, 'wifi', userId] as const,
 };
 
 /**
@@ -115,6 +119,26 @@ export function useUpdateProfile() {
     onError: (error: Error) => {
       toast.error(`Failed to update profile: ${error.message}`);
     },
+  });
+}
+
+/**
+ * Get WiFi credentials for user
+ */
+export function useWifiCredentials(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: profileKeys.wifiCredentials(userId || ''),
+    queryFn: async () => {
+      if (!userId) throw new Error('User ID is required');
+      const result = await getWifiCredentialsService(userId);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    enabled: !!userId,
+    staleTime: 5 * 60 * 1000, // 5 minutes - WiFi credentials don't change often
+    retry: 1, // Only retry once for WiFi credentials
   });
 }
 

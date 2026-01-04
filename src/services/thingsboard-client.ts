@@ -1,4 +1,7 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
+import { getRateLimiter } from '@/shared/lib/rate-limit-config';
+import { RateLimitMonitor } from '@/shared/lib/rate-limit-monitor';
+import { RateLimitError } from '@/shared/lib/rate-limiter';
 
 /**
  * IMPORTANT: This module is reserved for the live Games experience.
@@ -30,6 +33,91 @@ const thingsboardAPI: AxiosInstance = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+/**
+ * Determine which rate limiter preset to use based on the request URL
+ */
+function getRateLimiterPresetForUrl(url: string | undefined): 'THINGSBOARD_REST' | 'THINGSBOARD_TELEMETRY' | 'THINGSBOARD_RPC' {
+  if (!url) return 'THINGSBOARD_REST';
+  
+  // RPC endpoints get strict rate limiting
+  if (url.includes('/api/rpc/')) {
+    return 'THINGSBOARD_RPC';
+  }
+  
+  // Telemetry endpoints get higher limits
+  if (url.includes('/telemetry/') || url.includes('/timeseries')) {
+    return 'THINGSBOARD_TELEMETRY';
+  }
+  
+  // Default to REST limit
+  return 'THINGSBOARD_REST';
+}
+
+/**
+ * Rate limiting request interceptor
+ * Acquires a token from the appropriate rate limiter before making requests
+ */
+thingsboardAPI.interceptors.request.use(
+  async (config: InternalAxiosRequestConfig): Promise<InternalAxiosRequestConfig> => {
+    const preset = getRateLimiterPresetForUrl(config.url);
+    const limiter = getRateLimiter(preset);
+    
+    if (limiter) {
+      const status = limiter.getStatus();
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-client.ts:66',message:'rate limiter acquire attempt',data:{preset,url:config.url,availableTokens:status.availableTokens,isLimited:status.isLimited,queuedRequests:status.queuedRequests},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
+      
+      // Record warning if approaching limit
+      if (status.isLimited) {
+        RateLimitMonitor.recordHit(preset, status.availableTokens, status.queuedRequests);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-client.ts:71',message:'rate limit hit detected',data:{preset,url:config.url,availableTokens:status.availableTokens,queuedRequests:status.queuedRequests},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+      }
+      
+      const acquireStartTime = performance.now();
+      try {
+        await limiter.acquire();
+        const acquireDuration = performance.now() - acquireStartTime;
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-client.ts:75',message:'rate limiter acquire success',data:{preset,url:config.url,acquireDurationMs:acquireDuration},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+      } catch (error) {
+        const acquireDuration = performance.now() - acquireStartTime;
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-client.ts:78',message:'rate limiter acquire failed',data:{preset,url:config.url,acquireDurationMs:acquireDuration,error:error instanceof Error?error.message:String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+        // Log rate limit error
+        console.warn(`[ThingsBoard] Rate limit exceeded for ${preset}`, error);
+        RateLimitMonitor.recordHit(preset, 0, status.queuedRequests);
+        
+        // Convert to axios-compatible error
+        if (error instanceof RateLimitError) {
+          const axiosError = new axios.AxiosError(
+            `Rate limit exceeded: ${error.message}`,
+            'ERR_RATE_LIMITED',
+            config,
+            undefined,
+            {
+              status: 429,
+              statusText: 'Too Many Requests',
+              headers: { 'retry-after': String(Math.ceil(error.retryAfterMs / 1000)) },
+              config,
+              data: { message: error.message, retryAfterMs: error.retryAfterMs },
+            }
+          );
+          throw axiosError;
+        }
+        throw error;
+      }
+    }
+    
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
 type AxiosErrorLike = {
   isAxiosError?: boolean;
@@ -330,35 +418,54 @@ export const getServerAttributes = async (
 
 /**
  * Get server-side attributes for multiple devices in batch
+ * Processes devices sequentially with delays to respect rate limits
  */
 export const getBatchServerAttributes = async (
   deviceIds: string[],
   keys?: string[],
 ): Promise<Map<string, Record<string, any>>> => {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-client.ts:408',message:'getBatchServerAttributes entry',data:{deviceCount:deviceIds.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
+  // #endregion
   const results = new Map<string, Record<string, any>>();
-  const chunkSize = 10;
-
-  for (let index = 0; index < deviceIds.length; index += chunkSize) {
-    const chunk = deviceIds.slice(index, index + chunkSize);
-    const chunkPromises = chunk.map(async (deviceId) => {
-      try {
-        const attributes = await getServerAttributes(deviceId, keys);
-        return { deviceId, attributes };
-      } catch (error) {
-        // Network errors are expected and handled gracefully - only log in dev mode
-        if (import.meta.env.DEV && isAxiosNetworkError(error)) {
-          console.debug(`[ThingsBoard] Network error fetching attributes for device ${deviceId} (handled gracefully)`);
-        } else if (!isAxiosNetworkError(error)) {
-          // Only warn for non-network errors (auth, validation, etc.)
-          console.warn(`[ThingsBoard] Failed to fetch attributes for device ${deviceId}:`, error);
-        }
-        return { deviceId, attributes: {} };
-      }
-    });
-
-    const chunkResults = await Promise.all(chunkPromises);
-    chunkResults.forEach(({ deviceId, attributes }) => {
+  const startTime = performance.now();
+  
+  // Process devices sequentially - rate limiter will handle throttling via acquire()
+  // No artificial delays needed - the rate limiter queues requests when tokens are exhausted
+  for (let i = 0; i < deviceIds.length; i++) {
+    const deviceId = deviceIds[i];
+    const deviceStartTime = performance.now();
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-client.ts:437',message:'getServerAttributes start for device',data:{deviceId,index:i,total:deviceIds.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+    // #endregion
+    try {
+      // Rate limiter's acquire() will wait/queue if tokens aren't available
+      const rateLimiterStartTime = performance.now();
+      const attributes = await getServerAttributes(deviceId, keys);
+      const deviceDuration = performance.now() - deviceStartTime;
+      const rateLimiterWaitTime = performance.now() - rateLimiterStartTime;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-client.ts:444',message:'getServerAttributes complete for device',data:{deviceId,index:i,total:deviceIds.length,deviceDurationMs:deviceDuration,rateLimiterWaitMs:rateLimiterWaitTime},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
       results.set(deviceId, attributes);
+    } catch (error) {
+      // Network errors are expected and handled gracefully - only log in dev mode
+      if (import.meta.env.DEV && isAxiosNetworkError(error)) {
+        console.debug(`[ThingsBoard] Network error fetching attributes for device ${deviceId} (handled gracefully)`);
+      } else if (!isAxiosNetworkError(error)) {
+        // Only warn for non-network errors (auth, validation, etc.)
+        console.warn(`[ThingsBoard] Failed to fetch attributes for device ${deviceId}:`, error);
+      }
+      results.set(deviceId, {});
+    }
+  }
+
+  const duration = performance.now() - startTime;
+  if (deviceIds.length > 10) {
+    console.info('⚡ [Performance] getBatchServerAttributes', {
+      deviceCount: deviceIds.length,
+      duration: `${duration.toFixed(2)}ms`,
+      avgPerDevice: `${(duration / deviceIds.length).toFixed(2)}ms`,
     });
   }
 
@@ -506,11 +613,7 @@ export const subscribeToDeviceTelemetry = (
     };
   }
 
-  const wsUrl = buildWebSocketUrl(token);
-  const websocket = new WebSocket(wsUrl);
-  state.websocket = websocket;
   const subscriptionMap = new Map<number, string>();
-
   const activatePollingFallback = (reason: unknown) => {
     if (state.closed || pollingFallbackActivated) {
       return;
@@ -520,53 +623,101 @@ export const subscribeToDeviceTelemetry = (
     schedulePoll(0);
   };
 
-  websocket.onopen = () => {
-    if (state.closed) {
-      websocket.close();
-      return;
-    }
-    const subscription = {
-      tsSubCmds: deviceIds.map((deviceId, index) => {
-        const cmdId = index + 1;
-        subscriptionMap.set(cmdId, deviceId);
-        return {
-          entityType: 'DEVICE' as const,
-          entityId: deviceId,
-          scope: 'LATEST_TELEMETRY',
-          cmdId,
-        };
-      }),
-      historyCmds: [],
-      attrSubCmds: [],
+  const openWebsocket = () => {
+    const wsUrl = buildWebSocketUrl(token);
+    const websocket = new WebSocket(wsUrl);
+    state.websocket = websocket;
+
+    websocket.onopen = () => {
+      if (state.closed) {
+        websocket.close();
+        return;
+      }
+      const subscription = {
+        tsSubCmds: deviceIds.map((deviceId, index) => {
+          const cmdId = index + 1;
+          subscriptionMap.set(cmdId, deviceId);
+          return {
+            entityType: 'DEVICE' as const,
+            entityId: deviceId,
+            scope: 'LATEST_TELEMETRY',
+            cmdId,
+          };
+        }),
+        historyCmds: [],
+        attrSubCmds: [],
+      };
+
+      websocket.send(JSON.stringify(subscription));
     };
 
-    websocket.send(JSON.stringify(subscription));
-  };
-
-  websocket.onmessage = (event: MessageEvent) => {
-    try {
-      const payload = JSON.parse(event.data) as TelemetryEnvelope;
-      if (typeof payload.subscriptionId === 'number') {
-        const mappedDeviceId = subscriptionMap.get(payload.subscriptionId);
-        if (mappedDeviceId) {
-          payload.entityId = mappedDeviceId;
+    websocket.onmessage = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data) as TelemetryEnvelope;
+        if (typeof payload.subscriptionId === 'number') {
+          const mappedDeviceId = subscriptionMap.get(payload.subscriptionId);
+          if (mappedDeviceId) {
+            payload.entityId = mappedDeviceId;
+          }
         }
+        onMessage(payload);
+      } catch (error) {
+        onError?.(error);
       }
-      onMessage(payload);
-    } catch (error) {
-      onError?.(error);
-    }
+    };
+
+    websocket.onerror = (event) => {
+      activatePollingFallback(event);
+    };
+
+    websocket.onclose = () => {
+      if (!state.closed) {
+        activatePollingFallback(new Event('ThingsBoard websocket closed'));
+      }
+    };
   };
 
-  websocket.onerror = (event) => {
-    activatePollingFallback(event);
+  const startRealtime = async () => {
+    if (state.closed) {
+      return;
+    }
+
+    // Add a small random delay (0-500ms) to stagger subscription attempts and prevent simultaneous token acquisition
+    const staggerDelay = Math.random() * 500;
+    await new Promise(resolve => setTimeout(resolve, staggerDelay));
+
+    if (state.closed) {
+      return;
+    }
+
+    const limiter = getRateLimiter('THINGSBOARD_TELEMETRY');
+    if (limiter) {
+      const status = limiter.getStatus();
+      if (status.isLimited) {
+        RateLimitMonitor.recordHit('THINGSBOARD_TELEMETRY', status.availableTokens, status.queuedRequests);
+      }
+
+      try {
+        await limiter.acquire();
+      } catch (error) {
+        // Add a small delay before activating polling fallback to avoid immediate retry storm
+        setTimeout(() => {
+          if (!state.closed) {
+            activatePollingFallback(error);
+          }
+        }, 1000);
+        return;
+      }
+    }
+
+    if (state.closed) {
+      return;
+    }
+
+    openWebsocket();
   };
 
-  websocket.onclose = () => {
-    if (!state.closed) {
-      activatePollingFallback(new Event('ThingsBoard websocket closed'));
-    }
-  };
+  void startRealtime();
 
   return () => {
     state.closed = true;

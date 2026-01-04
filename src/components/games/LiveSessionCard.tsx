@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +8,7 @@ import type { NormalizedGameDevice } from '@/hooks/useGameDevices';
 import { formatSessionDuration } from '@/components/game-session/sessionState';
 import type { LiveSessionSummary } from './types';
 import { Building2, Clock3, Bookmark, Crosshair, PlusCircle, RotateCcw } from 'lucide-react';
-import { supabaseTargetCustomNamesService } from '@/services/supabase-target-custom-names';
+import { useTargetCustomNames } from '@/features/targets';
 
 interface LiveSessionCardProps {
   isRunning: boolean;
@@ -40,6 +40,7 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
   onCreateNew,
   isSessionLocked = false,
 }) => {
+  const { data: customNames = new Map() } = useTargetCustomNames();
   const desiredDurationLabel =
     typeof desiredDurationSeconds === 'number' && desiredDurationSeconds > 0
       ? formatSessionDuration(desiredDurationSeconds)
@@ -122,21 +123,6 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
       </Card>
     );
   }
-
-  // Load custom names for targets
-  const [customNames, setCustomNames] = useState<Map<string, string>>(new Map());
-  
-  useEffect(() => {
-    const loadCustomNames = async () => {
-      try {
-        const names = await supabaseTargetCustomNamesService.getAllCustomNames();
-        setCustomNames(names);
-      } catch (error) {
-        console.error('[LiveSessionCard] Failed to load custom names:', error);
-      }
-    };
-    loadCustomNames();
-  }, []);
 
   // Helper function to get display name (custom name or default)
   const getDisplayName = (deviceId: string, defaultName: string): string => {

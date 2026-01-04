@@ -2,20 +2,13 @@
  * Service layer for Rooms feature
  * 
  * Contains business logic and orchestration.
- * Uses repository functions and returns ApiResponse<T>.
+ * Uses repository functions and domain layer validators.
+ * Returns ApiResponse<T>.
  */
 
-import {
-  getRooms,
-  createRoom as createRoomRepo,
-  updateRoom as updateRoomRepo,
-  deleteRoom as deleteRoomRepo,
-  updateRoomOrder as updateRoomOrderRepo,
-  assignTargetToRoom as assignTargetToRoomRepo,
-  assignTargetsToRoom,
-  getRoomTargets,
-  type RoomsWithTargets,
-} from './repo';
+import { roomsRepository, type RoomsWithTargets } from './repo';
+import type { RoomRepository } from '@/domain/rooms/ports';
+import type { Target } from '@/features/targets';
 import type {
   Room,
   CreateRoomData,
@@ -23,13 +16,27 @@ import type {
   RoomOrder,
   AssignTargetToRoomData,
 } from './schema';
-import { apiOk, apiErr, type ApiResponse } from '@/shared/lib/api-response';
+import { apiErr, type ApiResponse } from '@/shared/lib/api-response';
+import {
+  validateCreateRoomInput,
+  validateUpdateRoomInput,
+  validateRoomOrderArray,
+  validateTargetAssignment,
+  validateBatchTargetAssignment,
+  validateRoomId,
+} from '@/domain/rooms/validators';
+
+let roomRepo: RoomRepository<Target> = roomsRepository;
+
+export const setRoomRepository = (repo: RoomRepository<Target>): void => {
+  roomRepo = repo;
+};
 
 /**
  * Get all rooms with targets
  */
 export async function getRoomsWithTargets(force = false): Promise<ApiResponse<RoomsWithTargets>> {
-  return getRooms(force);
+  return roomRepo.getRooms(force);
 }
 
 /**
@@ -38,16 +45,14 @@ export async function getRoomsWithTargets(force = false): Promise<ApiResponse<Ro
 export async function createRoomService(
   roomData: CreateRoomData
 ): Promise<ApiResponse<Room>> {
-  // Validate required fields
-  if (!roomData.name || !roomData.name.trim()) {
-    return apiErr('VALIDATION_ERROR', 'Room name is required');
+  // Validate using domain layer
+  const validation = validateCreateRoomInput(roomData);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid room data');
   }
 
-  if (!roomData.room_type) {
-    return apiErr('VALIDATION_ERROR', 'Room type is required');
-  }
-
-  return createRoomRepo(roomData);
+  return roomRepo.createRoom(roomData);
 }
 
 /**
@@ -57,27 +62,35 @@ export async function updateRoomService(
   roomId: string,
   updates: UpdateRoomData
 ): Promise<ApiResponse<Room>> {
-  if (!roomId) {
-    return apiErr('VALIDATION_ERROR', 'Room ID is required');
+  // Validate room ID
+  const roomIdValidation = validateRoomId(roomId);
+  if (!roomIdValidation.success) {
+    const firstError = roomIdValidation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid room ID');
   }
 
-  // Validate name if provided
-  if (updates.name !== undefined && !updates.name.trim()) {
-    return apiErr('VALIDATION_ERROR', 'Room name cannot be empty');
+  // Validate update data
+  const updateValidation = validateUpdateRoomInput(updates);
+  if (!updateValidation.success) {
+    const firstError = updateValidation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid update data');
   }
 
-  return updateRoomRepo(roomId, updates);
+  return roomRepo.updateRoom(roomId, updates);
 }
 
 /**
  * Delete a room
  */
 export async function deleteRoomService(roomId: string): Promise<ApiResponse<void>> {
-  if (!roomId) {
-    return apiErr('VALIDATION_ERROR', 'Room ID is required');
+  // Validate room ID using domain layer
+  const validation = validateRoomId(roomId);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid room ID');
   }
 
-  return deleteRoomRepo(roomId);
+  return roomRepo.deleteRoom(roomId);
 }
 
 /**
@@ -86,21 +99,14 @@ export async function deleteRoomService(roomId: string): Promise<ApiResponse<voi
 export async function updateRoomOrderService(
   roomOrders: RoomOrder
 ): Promise<ApiResponse<void>> {
-  if (!Array.isArray(roomOrders) || roomOrders.length === 0) {
-    return apiErr('VALIDATION_ERROR', 'Room orders array is required');
+  // Validate using domain layer
+  const validation = validateRoomOrderArray(roomOrders);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid room order data');
   }
 
-  // Validate each room order
-  for (const order of roomOrders) {
-    if (!order.id) {
-      return apiErr('VALIDATION_ERROR', 'Room ID is required in order');
-    }
-    if (typeof order.order_index !== 'number' || order.order_index < 0) {
-      return apiErr('VALIDATION_ERROR', 'Invalid order index');
-    }
-  }
-
-  return updateRoomOrderRepo(roomOrders);
+  return roomRepo.updateRoomOrder(roomOrders);
 }
 
 /**
@@ -109,16 +115,14 @@ export async function updateRoomOrderService(
 export async function assignTargetToRoomService(
   data: AssignTargetToRoomData
 ): Promise<ApiResponse<void>> {
-  if (!data.targetId) {
-    return apiErr('VALIDATION_ERROR', 'Target ID is required');
+  // Validate using domain layer
+  const validation = validateTargetAssignment(data);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid assignment data');
   }
 
-  // roomId can be null (to unassign)
-  if (data.roomId !== null && !data.roomId) {
-    return apiErr('VALIDATION_ERROR', 'Invalid room ID');
-  }
-
-  return assignTargetToRoomRepo(data);
+  return roomRepo.assignTargetToRoom(data);
 }
 
 /**
@@ -129,21 +133,28 @@ export async function assignTargetsToRoomService(
   roomId: string | null,
   targetNames?: Map<string, string>
 ): Promise<ApiResponse<void>> {
-  if (!Array.isArray(targetIds) || targetIds.length === 0) {
-    return apiErr('VALIDATION_ERROR', 'Target IDs array is required');
-  }
+  // Convert Map to Record for validation
+  const targetNamesRecord = targetNames 
+    ? Object.fromEntries(targetNames.entries()) 
+    : undefined;
 
-  if (roomId !== null && !roomId) {
-    return apiErr('VALIDATION_ERROR', 'Invalid room ID');
+  // Validate using domain layer
+  const validation = validateBatchTargetAssignment({
+    targetIds,
+    roomId,
+    targetNames: targetNamesRecord,
+  });
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid batch assignment data');
   }
 
   if (roomId === null) {
     // Unassign all targets
-    const { unassignTargets } = await import('./repo');
-    return unassignTargets(targetIds);
+    return roomRepo.unassignTargets(targetIds);
   }
 
-  return assignTargetsToRoom(roomId, targetIds, targetNames);
+  return roomRepo.assignTargetsToRoom(roomId, targetIds, targetNames);
 }
 
 /**
@@ -154,13 +165,14 @@ export async function assignTargetsToRoomService(
 export async function getRoomTargetsService(
   roomId: string
 ): Promise<ApiResponse<string[]>> {
-  if (!roomId) {
-    return apiErr('VALIDATION_ERROR', 'Room ID is required');
+  // Validate room ID using domain layer
+  const validation = validateRoomId(roomId);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid room ID');
   }
 
   // This returns target IDs - full target data comes from edge function
   // See getRoomsWithTargets which includes targets in the response
-  const { getRoomTargets } = await import('./repo');
-  return getRoomTargets(roomId);
+  return roomRepo.getRoomTargets(roomId);
 }
-

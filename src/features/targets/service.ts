@@ -9,6 +9,11 @@ import {
   getTargets,
   getTargetDetails,
   getTargetsSummary,
+  sendDeviceCommand,
+  setDeviceAttributes,
+  getTargetCustomNames,
+  setTargetCustomName,
+  removeTargetCustomName,
   type TargetsWithSummary,
 } from './repo';
 import type {
@@ -18,6 +23,12 @@ import type {
   TargetsSummary,
 } from './schema';
 import { apiOk, apiErr, type ApiResponse } from '@/shared/lib/api-response';
+import {
+  validateDeviceId,
+  validateDeviceIds,
+  validateTargetDetailsOptions,
+  validateUpdateCustomNameInput,
+} from '@/domain/targets/validators';
 
 /**
  * Get all targets with telemetry
@@ -37,14 +48,21 @@ export async function getTargetDetailsService(
     return apiOk([]);
   }
 
-  // Validate device IDs
-  for (const id of deviceIds) {
-    if (!id || typeof id !== 'string') {
-      return apiErr('VALIDATION_ERROR', 'Invalid device ID provided');
-    }
+  const deviceIdsValidation = validateDeviceIds(deviceIds);
+  if (!deviceIdsValidation.success) {
+    return apiErr('VALIDATION_ERROR', deviceIdsValidation.errors[0]?.message || 'Invalid device IDs');
   }
 
-  return getTargetDetails(deviceIds, options);
+  let validatedOptions = options;
+  if (options) {
+    const optionsValidation = validateTargetDetailsOptions(options);
+    if (!optionsValidation.success) {
+      return apiErr('VALIDATION_ERROR', optionsValidation.errors[0]?.message || 'Invalid target details options');
+    }
+    validatedOptions = optionsValidation.data;
+  }
+
+  return getTargetDetails(deviceIdsValidation.data, validatedOptions);
 }
 
 /**
@@ -91,3 +109,90 @@ export function mergeTargetDetails(
   });
 }
 
+/**
+ * Send RPC command to devices
+ */
+export async function sendDeviceCommandService(
+  deviceIds: string[],
+  method: string,
+  params?: Record<string, unknown>
+): Promise<ApiResponse<void>> {
+  // Validate device IDs using domain layer
+  const validation = validateDeviceIds(deviceIds);
+  if (!validation.success) {
+    return apiErr('VALIDATION_ERROR', validation.errors[0]?.message || 'Invalid device IDs');
+  }
+
+  if (!method || typeof method !== 'string') {
+    return apiErr('VALIDATION_ERROR', 'Method is required');
+  }
+
+  return sendDeviceCommand(deviceIds, method, params);
+}
+
+/**
+ * Set device attributes (for customization like sound, light color)
+ */
+export async function setDeviceAttributesService(
+  deviceIds: string[],
+  attributes: Record<string, unknown>
+): Promise<ApiResponse<void>> {
+  // Validate device IDs using domain layer
+  const validation = validateDeviceIds(deviceIds);
+  if (!validation.success) {
+    return apiErr('VALIDATION_ERROR', validation.errors[0]?.message || 'Invalid device IDs');
+  }
+
+  if (!attributes || typeof attributes !== 'object') {
+    return apiErr('VALIDATION_ERROR', 'Attributes object is required');
+  }
+
+  return setDeviceAttributes(deviceIds, attributes);
+}
+
+/**
+ * Get all target custom names for the current user
+ */
+export async function getTargetCustomNamesService(): Promise<ApiResponse<Map<string, string>>> {
+  return getTargetCustomNames();
+}
+
+/**
+ * Set a custom name for a target
+ */
+export async function setTargetCustomNameService(
+  targetId: string,
+  originalName: string,
+  customName: string
+): Promise<ApiResponse<void>> {
+  const validation = validateUpdateCustomNameInput({
+    targetId,
+    customName,
+  });
+  if (!validation.success) {
+    return apiErr('VALIDATION_ERROR', validation.errors[0]?.message || 'Invalid custom name input');
+  }
+
+  if (!originalName || typeof originalName !== 'string') {
+    return apiErr('VALIDATION_ERROR', 'Original name is required');
+  }
+
+  const trimmedName = customName.trim();
+  if (!trimmedName) {
+    return apiErr('VALIDATION_ERROR', 'Custom name cannot be empty');
+  }
+
+  return setTargetCustomName(targetId, originalName, trimmedName);
+}
+
+/**
+ * Remove a custom name for a target
+ */
+export async function removeTargetCustomNameService(targetId: string): Promise<ApiResponse<void>> {
+  const validation = validateDeviceId(targetId);
+  if (!validation.success) {
+    return apiErr('VALIDATION_ERROR', validation.errors[0]?.message || 'Invalid target ID');
+  }
+
+  return removeTargetCustomName(validation.data);
+}

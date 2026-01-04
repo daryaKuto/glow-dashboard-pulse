@@ -2,6 +2,15 @@ import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
 import { encryptPassword, decryptPassword, hasThingsBoardCredentials } from './credentials';
 import { getWifiFromSupabase } from './wifi-credentials';
+import { buildProfileStats, type SessionSummary } from '@/domain/profile/rules';
+import {
+  mapSessionRowToRecentSession,
+  mapUserAnalyticsRowToMetrics,
+  mapUserProfileRowToIdentity,
+  type SessionDbRow,
+  type UserAnalyticsDbRow,
+  type UserProfileDbRow,
+} from '@/domain/profile/mappers';
 
 type UserAnalytics = Database['public']['Tables']['user_analytics']['Row'];
 type Session = Database['public']['Tables']['sessions']['Row'];
@@ -72,7 +81,7 @@ export const fetchUserProfileData = async (userId: string): Promise<UserProfileD
       return null;
     }
 
-    const userInfo = userProfile;
+    const identity = mapUserProfileRowToIdentity(userProfile as UserProfileDbRow);
 
     // Fetch latest user analytics (aggregated data)
     const { data: analytics, error: analyticsError } = await supabase
@@ -98,13 +107,15 @@ export const fetchUserProfileData = async (userId: string): Promise<UserProfileD
       const { data: sessions, error: sessionsError } = await supabase
         .from('sessions')
         .select(`
+          id,
           score,
           hit_count,
           total_shots,
           accuracy_percentage,
           duration_ms,
           avg_reaction_time_ms,
-          best_reaction_time_ms
+          best_reaction_time_ms,
+          started_at
         `)
         .eq('user_id', userId);
 
@@ -117,13 +128,18 @@ export const fetchUserProfileData = async (userId: string): Promise<UserProfileD
         return null;
       }
 
+      const sessionSummaries: SessionSummary[] = sessions.map((session) => ({
+        id: session.id,
+        score: session.score ?? 0,
+        hitCount: session.hit_count ?? 0,
+        durationMs: session.duration_ms ?? 0,
+        accuracyPercentage: session.accuracy_percentage ?? null,
+        startedAt: session.started_at,
+      }));
+      const stats = buildProfileStats(sessionSummaries);
+
       // Calculate basic stats from sessions
-      const totalSessions = sessions.length;
-      const totalHits = sessions.reduce((sum, s) => sum + (s.hit_count || 0), 0);
       const totalShots = sessions.reduce((sum, s) => sum + (s.total_shots || 0), 0);
-      const bestScore = sessions.reduce((max, s) => Math.max(max, s.score || 0), 0);
-      const avgAccuracy = sessions.reduce((sum, s) => sum + (s.accuracy_percentage || 0), 0) / totalSessions;
-      const totalDuration = sessions.reduce((sum, s) => sum + (s.duration_ms || 0), 0);
 
       // Calculate reaction times (filter out nulls)
       const reactionTimes = sessions.map(s => s.avg_reaction_time_ms).filter(rt => rt !== null) as number[];
@@ -137,38 +153,27 @@ export const fetchUserProfileData = async (userId: string): Promise<UserProfileD
         : null;
 
       return {
-        userId,
-        email: userInfo.email || '',
-        name: userInfo.display_name || userInfo.name || userInfo.email?.split('@')[0] || 'User',
-        avatarUrl: userInfo.avatar_url,
-        totalHits,
+        userId: identity.userId,
+        email: identity.email,
+        name: identity.name,
+        avatarUrl: identity.avatarUrl,
+        totalHits: stats.totalHits,
         totalShots,
-        bestScore,
-        totalSessions,
-        avgAccuracy: Math.round(avgAccuracy * 100) / 100,
+        bestScore: stats.bestScore ?? 0,
+        totalSessions: stats.totalSessions,
+        avgAccuracy: Math.round((stats.averageAccuracy ?? 0) * 100) / 100,
         avgReactionTime,
         bestReactionTime,
-        totalDuration,
+        totalDuration: stats.totalPracticeTimeMs,
         scoreImprovement: 0, // Can't calculate without historical data
         accuracyImprovement: 0, // Can't calculate without historical data
       };
     }
 
+    const metrics = mapUserAnalyticsRowToMetrics(analytics as UserAnalyticsDbRow);
     return {
-      userId,
-      email: userInfo.email || '',
-      name: userInfo.display_name || userInfo.name || userInfo.email?.split('@')[0] || 'User',
-      avatarUrl: userInfo.avatar_url,
-      totalHits: analytics.total_hits,
-      totalShots: analytics.total_shots,
-      bestScore: analytics.best_score,
-      totalSessions: analytics.total_sessions,
-      avgAccuracy: Math.round(analytics.accuracy_percentage * 100) / 100,
-      avgReactionTime: analytics.avg_reaction_time_ms,
-      bestReactionTime: analytics.best_reaction_time_ms,
-      totalDuration: analytics.total_duration_ms,
-      scoreImprovement: analytics.score_improvement,
-      accuracyImprovement: analytics.accuracy_improvement,
+      ...identity,
+      ...metrics,
     };
   } catch (error) {
     console.error('Error fetching user profile data:', error);
@@ -210,26 +215,7 @@ export const fetchRecentSessions = async (userId: string, limit = 10): Promise<R
 
     if (error) throw error;
 
-    return sessions?.map(session => ({
-      id: session.id,
-      scenarioName: session.scenario_name,
-      scenarioType: session.scenario_type,
-      roomName: session.room_name,
-      roomId: session.room_id ?? null,
-      score: session.score,
-      accuracy: Math.round(session.accuracy_percentage * 100) / 100,
-      duration: session.duration_ms,
-      hitCount: session.hit_count,
-      totalShots: session.total_shots,
-      missCount: session.miss_count,
-      avgReactionTime: session.avg_reaction_time_ms,
-      bestReactionTime: session.best_reaction_time_ms,
-      worstReactionTime: session.worst_reaction_time_ms,
-      startedAt: session.started_at,
-      endedAt: session.ended_at,
-      thingsboardData: session.thingsboard_data,
-      rawSensorData: session.raw_sensor_data,
-    })) || [];
+    return sessions?.map((session) => mapSessionRowToRecentSession(session as SessionDbRow)) || [];
   } catch (error) {
     console.error('Error fetching recent sessions:', error);
     return [];

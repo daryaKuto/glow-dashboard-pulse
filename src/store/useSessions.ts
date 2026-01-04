@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { fetchRecentSessions, type RecentSession } from '@/services/profile';
+import { getRecentSessionsService } from '@/features/profile/service';
+import type { RecentSession } from '@/features/profile';
 
 /**
  * Session represents a single instance of a game played by a user.
@@ -81,6 +82,9 @@ export const useSessions = create<SessionsState>((set, get) => ({
   error: null,
 
   fetchSessions: async (userId: string, options?: { limit?: number; includeFullHistory?: boolean }) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useSessions.ts:84',message:'fetchSessions entry',data:{userId,options,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
     set({ isLoading: true, error: null });
     try {
       const { limit = 10, includeFullHistory = false } = options ?? {};
@@ -88,9 +92,16 @@ export const useSessions = create<SessionsState>((set, get) => ({
         set({ sessions: [], isLoading: false });
         return;
       }
-      const fetchLimit = includeFullHistory ? Math.max(limit, 250) : limit;
-      const recentSessions = await fetchRecentSessions(userId, fetchLimit);
-      const mappedRecent = recentSessions.map(mapRecentSessionToSession);
+      // Cap limit at 100 (API maximum) even when requesting full history
+      const fetchLimit = includeFullHistory ? Math.min(Math.max(limit, 10), 100) : Math.min(limit, 100);
+      const result = await getRecentSessionsService(userId, fetchLimit);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useSessions.ts:94',message:'fetchSessions complete',data:{userId,sessionCount:result.data?.length??0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      const mappedRecent = result.data.map(mapRecentSessionToSession);
 
       const sorted = mappedRecent.sort((a, b) => {
         const aTs = Date.parse(a.startedAt);

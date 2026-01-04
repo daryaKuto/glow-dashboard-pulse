@@ -1,5 +1,6 @@
 import { fetchDashboardMetrics } from '@/lib/edge';
 import { apiOk, apiErr, type ApiResponse } from '@/shared/lib/api-response';
+import { mapDashboardMetricsPayload } from '@/domain/dashboard/mappers';
 import type { DashboardMetricsData } from './schema';
 
 /**
@@ -21,7 +22,10 @@ export interface DashboardMetricsResult {
 export async function getDashboardMetrics(force = false): Promise<ApiResponse<DashboardMetricsResult>> {
   try {
     const result = await fetchDashboardMetrics(force);
-    return apiOk(result);
+    return apiOk({
+      ...result,
+      metrics: mapDashboardMetricsPayload(result.metrics),
+    });
   } catch (error) {
     console.error('[Dashboard Repo] Error fetching dashboard metrics:', error);
     return apiErr(
@@ -31,4 +35,3 @@ export async function getDashboardMetrics(force = false): Promise<ApiResponse<Da
     );
   }
 }
-

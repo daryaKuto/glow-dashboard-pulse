@@ -39,13 +39,20 @@ export function useRooms(force = false) {
   return useQuery({
     queryKey: roomsKeys.list(force),
     queryFn: async () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rooms/hooks.ts:41',message:'useRooms queryFn start',data:{force},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+      // #endregion
       const result = await getRoomsWithTargets(force);
       if (!result.ok) {
         throw new Error(result.error.message);
       }
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rooms/hooks.ts:46',message:'useRooms queryFn complete',data:{force,hasData:!!result.data},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+      // #endregion
       return result.data;
     },
-    staleTime: 30 * 1000, // 30 seconds
+    staleTime: 60 * 1000, // 60 seconds - increased to reduce refetches
+    refetchOnMount: false, // Don't refetch if data exists and is fresh
   });
 }
 

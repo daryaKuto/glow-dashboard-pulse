@@ -58,9 +58,15 @@ export const useStats = create<StatsState & StatsActions>((set, get) => ({
   ...initialState,
   
   fetchStats: async (options?: { force?: boolean }) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useStats.ts:60',message:'fetchStats entry',data:{force:options?.force,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+    // #endregion
     try {
       set({ isLoading: true, error: null });
       const { metrics, cached } = await fetchDashboardMetrics(options?.force ?? false);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useStats.ts:63',message:'fetchStats complete',data:{cached,hasMetrics:!!metrics},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
 
       if (!metrics) {
         set({

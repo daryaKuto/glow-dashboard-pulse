@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { supabaseTargetCustomNamesService } from '@/services/supabase-target-custom-names';
+import { useRemoveTargetCustomName, useSetTargetCustomName } from '@/features/targets';
 import { toast } from '@/components/ui/sonner';
 
 interface RenameTargetDialogProps {
@@ -25,6 +25,8 @@ const RenameTargetDialog: React.FC<RenameTargetDialogProps> = ({
 }) => {
   const [customName, setCustomName] = useState(currentCustomName || '');
   const [isSaving, setIsSaving] = useState(false);
+  const setCustomNameMutation = useSetTargetCustomName();
+  const removeCustomNameMutation = useRemoveTargetCustomName();
 
   useEffect(() => {
     if (isOpen) {
@@ -44,7 +46,7 @@ const RenameTargetDialog: React.FC<RenameTargetDialogProps> = ({
       // If custom name matches original, remove custom name
       try {
         setIsSaving(true);
-        await supabaseTargetCustomNamesService.removeCustomName(targetId);
+        await removeCustomNameMutation.mutateAsync({ targetId });
         await onRename(targetId, originalName);
         toast.success('Target name reset to original');
         onClose();
@@ -59,7 +61,11 @@ const RenameTargetDialog: React.FC<RenameTargetDialogProps> = ({
 
     try {
       setIsSaving(true);
-      await supabaseTargetCustomNamesService.setCustomName(targetId, originalName, customName.trim());
+      await setCustomNameMutation.mutateAsync({
+        targetId,
+        originalName,
+        customName: customName.trim(),
+      });
       await onRename(targetId, customName.trim());
       toast.success('Target renamed successfully');
       onClose();
@@ -74,7 +80,7 @@ const RenameTargetDialog: React.FC<RenameTargetDialogProps> = ({
   const handleReset = async () => {
     try {
       setIsSaving(true);
-      await supabaseTargetCustomNamesService.removeCustomName(targetId);
+      await removeCustomNameMutation.mutateAsync({ targetId });
       await onRename(targetId, originalName);
       toast.success('Target name reset to original');
       onClose();
@@ -157,4 +163,3 @@ const RenameTargetDialog: React.FC<RenameTargetDialogProps> = ({
 };
 
 export default RenameTargetDialog;
-

@@ -1,5 +1,40 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { Target } from '@/store/useTargets';
+import { getRateLimiter } from '@/shared/lib/rate-limit-config';
+import { RateLimitMonitor } from '@/shared/lib/rate-limit-monitor';
+import { throttledLog, throttledLogOnChange } from '@/utils/log-throttle';
+
+/**
+ * Rate-limited wrapper for Supabase edge function calls.
+ * Acquires a token from the rate limiter before making the request.
+ */
+async function rateLimitedEdgeCall<T>(
+  functionName: string,
+  options: Parameters<typeof supabase.functions.invoke>[1]
+): Promise<ReturnType<typeof supabase.functions.invoke<T>>> {
+  const limiter = getRateLimiter('SUPABASE_EDGE');
+  
+  if (limiter) {
+    const status = limiter.getStatus();
+    
+    // Record warning if approaching limit
+    if (status.isLimited) {
+      RateLimitMonitor.recordHit('SUPABASE_EDGE', status.availableTokens, status.queuedRequests);
+    }
+    
+    try {
+      await limiter.acquire();
+    } catch (error) {
+      // Log rate limit error but don't block the request entirely
+      console.warn(`[Edge] Rate limit exceeded for ${functionName}`, error);
+      RateLimitMonitor.recordHit('SUPABASE_EDGE', 0, status.queuedRequests);
+      // Re-throw to let caller handle the rate limit error
+      throw error;
+    }
+  }
+  
+  return supabase.functions.invoke<T>(functionName, options);
+}
 
 interface TargetsFunctionResponse {
   data?: Array<Record<string, any>>;
@@ -62,6 +97,9 @@ type ThingsboardSessionOptions = {
 };
 
 const MIN_SESSION_BUFFER_MS = 60_000;
+
+// Deduplication for fetchTargetsWithTelemetry edge function calls
+const pendingEdgeFetchTargets = new Map<string, Promise<{ targets: Target[]; cached: boolean; summary: TargetsSummary | null }>>();
 
 let cachedThingsboardSession:
   | {
@@ -152,11 +190,34 @@ export const mapEdgeTarget = (record: Record<string, any>): Target => ({
 });
 
 export async function fetchTargetsWithTelemetry(force = false): Promise<{ targets: Target[]; cached: boolean; summary: TargetsSummary | null }> {
-  const payload = force ? { force: true } : {};
-  const { data, error } = await supabase.functions.invoke<TargetsFunctionResponse>('targets-with-telemetry', {
-    method: 'POST',
-    body: payload,
-  });
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:189',message:'fetchTargetsWithTelemetry entry',data:{force,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+  // #endregion
+  
+  // Deduplicate concurrent calls - if a request is already in flight, return the same promise
+  // Even with force=true, we should deduplicate concurrent calls to avoid redundant expensive operations
+  const cacheKey = 'all'; // Use single cache key to deduplicate all concurrent calls
+  if (pendingEdgeFetchTargets.has(cacheKey)) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:195',message:'fetchTargetsWithTelemetry deduplicated',data:{cacheKey,force},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+    return pendingEdgeFetchTargets.get(cacheKey)!;
+  }
+  
+  const fetchPromise = (async () => {
+    const payload = force ? { force: true } : {};
+    const callStartTime = performance.now();
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:207',message:'rateLimitedEdgeCall start',data:{functionName:'targets-with-telemetry',force,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
+    // #endregion
+    const { data, error } = await rateLimitedEdgeCall<TargetsFunctionResponse>('targets-with-telemetry', {
+      method: 'POST',
+      body: payload,
+    });
+    const callDuration = performance.now() - callStartTime;
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:213',message:'rateLimitedEdgeCall complete',data:{functionName:'targets-with-telemetry',callDurationMs:callDuration,hasError:!!error,targetCount:data?.data?.length??0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
+    // #endregion
 
   if (error) {
     throw error;
@@ -194,7 +255,8 @@ export async function fetchTargetsWithTelemetry(force = false): Promise<{ target
     return acc;
   }, {} as Record<string, number>);
   
-  console.info('[Edge] targets-with-telemetry fetched', {
+  // Throttle log to prevent flooding (only log when data changes or every 5 seconds)
+  throttledLogOnChange('edge-targets-telemetry', 5000, '[Edge] targets-with-telemetry fetched', {
     supabaseEdgeFunction: 'targets-with-telemetry',
     backingTables: ['public.user_profiles', 'public.user_rooms', 'public.user_room_targets'],
     thingsboardInvolved: true,
@@ -225,7 +287,19 @@ export async function fetchTargetsWithTelemetry(force = false): Promise<{ target
     },
     sample: targets.slice(0, 5).map((target) => ({ id: target.id, name: target.name, status: target.status, roomName: target.roomName })),
   });
-  return { targets, cached: Boolean(data.cached), summary };
+    return { targets, cached: Boolean(data.cached), summary };
+  })();
+  
+  // Store the promise for deduplication (always, to prevent concurrent calls)
+  pendingEdgeFetchTargets.set(cacheKey, fetchPromise);
+  fetchPromise.finally(() => {
+    // Clear the pending promise when done
+    if (pendingEdgeFetchTargets.get(cacheKey) === fetchPromise) {
+      pendingEdgeFetchTargets.delete(cacheKey);
+    }
+  });
+  
+  return fetchPromise;
 }
 
 export async function fetchTargetsSummary(force = false): Promise<{ summary: TargetsSummary | null; cached: boolean }> {
@@ -236,7 +310,7 @@ export async function fetchTargetsSummary(force = false): Promise<{ summary: Tar
 
   const headers = await getSupabaseAuthHeaders();
 
-  const { data, error } = await supabase.functions.invoke<TargetsFunctionResponse>('targets-with-telemetry', {
+  const { data, error } = await rateLimitedEdgeCall<TargetsFunctionResponse>('targets-with-telemetry', {
     method: 'POST',
     body: payload,
     headers: Object.keys(headers).length > 0 ? headers : undefined,
@@ -248,7 +322,8 @@ export async function fetchTargetsSummary(force = false): Promise<{ summary: Tar
 
   const summary = mapSummary(data?.summary);
   const cached = Boolean(data?.cached);
-  console.info('[Edge] targets summary fetched', {
+  // Throttle log to prevent flooding
+  throttledLogOnChange('edge-targets-summary', 5000, '[Edge] targets summary fetched', {
     fetchedAt: new Date().toISOString(),
     cached,
     summary: summary
@@ -278,7 +353,7 @@ export async function fetchThingsboardSession(options: ThingsboardSessionOptions
         }
       : undefined;
 
-  const { data, error } = await supabase.functions.invoke<ThingsboardSession>('thingsboard-session', {
+  const { data, error } = await rateLimitedEdgeCall<ThingsboardSession>('thingsboard-session', {
     method,
     body,
     headers: Object.keys(headers).length > 0 ? headers : undefined,
@@ -328,6 +403,9 @@ interface DashboardMetricsResponse {
 }
 
 export async function fetchDashboardMetrics(force = false): Promise<{ metrics: DashboardMetricsData | null; cached: boolean; source?: string }> {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:405',message:'fetchDashboardMetrics entry',data:{force,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+  // #endregion
   const headers: Record<string, string> = {};
   let token: string | undefined;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -348,7 +426,7 @@ export async function fetchDashboardMetrics(force = false): Promise<{ metrics: D
       body.force = true;
     }
 
-    return supabase.functions.invoke<DashboardMetricsResponse>('dashboard-metrics', {
+    return rateLimitedEdgeCall<DashboardMetricsResponse>('dashboard-metrics', {
       body,
       headers: Object.keys(headers).length > 0 ? headers : undefined,
       options: {
@@ -414,7 +492,12 @@ export async function fetchDashboardMetrics(force = false): Promise<{ metrics: D
   const cached = Boolean(result.data?.cached);
   const source = result.data?.source ?? undefined;
 
-  console.info('[Edge] dashboard-metrics fetched', {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:488',message:'fetchDashboardMetrics complete',data:{cached,source:source??null,hasMetrics:!!metrics},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+  // #endregion
+
+  // Throttle log to prevent flooding
+  throttledLogOnChange('edge-dashboard-metrics', 5000, '[Edge] dashboard-metrics fetched', {
     cached,
     source: source ?? null,
     summary: metrics ? {
@@ -430,8 +513,11 @@ export async function fetchDashboardMetrics(force = false): Promise<{ metrics: D
 }
 
 export async function fetchRoomsData(force = false): Promise<{ rooms: EdgeRoom[]; unassignedTargets: Target[]; cached: boolean }> {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:508',message:'fetchRoomsData entry',data:{force,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+  // #endregion
   const payload = force ? { force: true } : {};
-  const { data, error } = await supabase.functions.invoke<RoomsFunctionResponse>('rooms', {
+  const { data, error } = await rateLimitedEdgeCall<RoomsFunctionResponse>('rooms', {
     method: 'POST',
     body: payload,
   });
@@ -471,7 +557,12 @@ export async function fetchRoomsData(force = false): Promise<{ rooms: EdgeRoom[]
     cached: Boolean(data?.cached),
   };
 
-  console.info('[Edge] rooms payload fetched', {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:544',message:'fetchRoomsData complete',data:{cached:result.cached,roomCount:rooms.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+  // #endregion
+
+  // Throttle log to prevent flooding
+  throttledLogOnChange('edge-rooms', 5000, '[Edge] rooms payload fetched', {
     supabaseEdgeFunction: 'rooms',
     backingTables: ['public.user_rooms', 'public.user_room_targets'],
     fetchedAt: new Date().toISOString(),
@@ -511,7 +602,7 @@ export async function fetchTelemetryHistory(deviceIds: string[], startTs: number
     body.keys = keys;
   }
 
-  const { data, error } = await supabase.functions.invoke<TelemetryHistoryResponse>('telemetry-history', {
+  const { data, error } = await rateLimitedEdgeCall<TelemetryHistoryResponse>('telemetry-history', {
     method: 'POST',
     body,
   });
@@ -573,7 +664,7 @@ export async function fetchDeviceAttributes(
     (body.getAttributes as Record<string, unknown>).keys = options.keys.map(String);
   }
 
-  const { data, error } = await supabase.functions.invoke<DeviceAttributesResponse>('device-admin', {
+  const { data, error } = await rateLimitedEdgeCall<DeviceAttributesResponse>('device-admin', {
     method: 'POST',
     body,
     headers: Object.keys(headers).length > 0 ? headers : undefined,
@@ -612,7 +703,7 @@ export async function fetchShootingActivity(deviceIds: string[], keys?: string[]
     body.keys = keys;
   }
 
-  const { data, error } = await supabase.functions.invoke<ShootingActivityResponse>('shooting-activity', {
+  const { data, error } = await rateLimitedEdgeCall<ShootingActivityResponse>('shooting-activity', {
     method: 'POST',
     body,
   });
@@ -698,7 +789,7 @@ export async function fetchTargetDetails(
     body.recentWindowMs = options.recentWindowMs;
   }
 
-  const { data, error } = await supabase.functions.invoke<TargetDetailsResponse>('target-details', {
+  const { data, error } = await rateLimitedEdgeCall<TargetDetailsResponse>('target-details', {
     method: 'POST',
     body,
   });
@@ -711,7 +802,8 @@ export async function fetchTargetDetails(
   const details = Array.isArray(detailsArray) ? detailsArray as TargetDetail[] : [];
 
   const cached = Boolean(data?.cached);
-  console.info('[Edge] target-details fetched', {
+  // Throttle log to prevent flooding
+  throttledLogOnChange('edge-target-details', 5000, '[Edge] target-details fetched', {
     supabaseEdgeFunction: 'target-details',
     backingTables: ['public.user_profiles'],
     thingsboardInvolved: true,
@@ -792,7 +884,7 @@ export async function fetchGameControlDevices(): Promise<{ devices: GameControlD
     console.warn('[Edge] Unable to retrieve Supabase session before game-control fetch', sessionError);
   }
 
-  const { data, error } = await supabase.functions.invoke<GameControlStatusResponse>('game-control', {
+  const { data, error } = await rateLimitedEdgeCall<GameControlStatusResponse>('game-control', {
     method: 'GET',
     headers: Object.keys(headers).length > 0 ? headers : undefined,
   });
@@ -845,7 +937,7 @@ export async function invokeGameControl(
     console.warn('[Edge] Unable to retrieve Supabase session before game-control command', sessionError);
   }
 
-  const { data, error } = await supabase.functions.invoke<GameControlCommandResponse>('game-control', {
+  const { data, error } = await rateLimitedEdgeCall<GameControlCommandResponse>('game-control', {
     method: 'POST',
     body,
     headers: Object.keys(headers).length > 0 ? headers : undefined,
@@ -918,11 +1010,12 @@ const mapGamePreset = (record: GamePresetResponse): GamePreset => ({
 export async function fetchGamePresets(): Promise<GamePreset[]> {
   const requestPayload = { action: 'list' as const };
   const requestStartedAt = Date.now();
-  console.info('[Edge] Invoking game-presets list', {
+  // Throttle log to prevent flooding
+  throttledLog('edge-invoke-presets', 5000, '[Edge] Invoking game-presets list', {
     payload: requestPayload,
     at: new Date().toISOString(),
   });
-  const { data, error, status, statusText } = await supabase.functions.invoke<{ presets: GamePresetResponse[] }>('game-presets', {
+  const { data, error, status, statusText } = await rateLimitedEdgeCall<{ presets: GamePresetResponse[] }>('game-presets', {
     method: 'POST',
     body: requestPayload,
   });
@@ -937,7 +1030,8 @@ export async function fetchGamePresets(): Promise<GamePreset[]> {
   }
 
   const presets = Array.isArray(data?.presets) ? data!.presets.map(mapGamePreset) : [];
-  console.info('[Edge] game-presets list fetched', {
+  // Throttle log to prevent flooding
+  throttledLogOnChange('edge-presets-fetched', 5000, '[Edge] game-presets list fetched', {
     fetchedAt: new Date().toISOString(),
     elapsedMs: Date.now() - requestStartedAt,
     status,
@@ -974,7 +1068,7 @@ export async function saveGamePreset(preset: SaveGamePresetInput): Promise<GameP
     includeRoom: Boolean(preset.roomId),
     at: new Date().toISOString(),
   });
-  const { data, error } = await supabase.functions.invoke<{ preset: GamePresetResponse }>('game-presets', {
+  const { data, error } = await rateLimitedEdgeCall<{ preset: GamePresetResponse }>('game-presets', {
     method: 'POST',
     body: {
       action: 'save',
@@ -1012,7 +1106,7 @@ export async function saveGamePreset(preset: SaveGamePresetInput): Promise<GameP
 }
 
 export async function deleteGamePreset(id: string): Promise<void> {
-  const { error } = await supabase.functions.invoke('game-presets', {
+  const { error } = await rateLimitedEdgeCall('game-presets', {
     method: 'POST',
     body: { action: 'delete', id },
   });

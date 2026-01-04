@@ -62,9 +62,15 @@ export const userAnalyticsSchema = z.object({
   updated_at: z.string(),
 });
 
+export const wifiCredentialsSchema = z.object({
+  ssid: z.string(),
+  password: z.string(),
+});
+
 // Inferred types
 export type UserProfileData = z.infer<typeof userProfileDataSchema>;
 export type RecentSession = z.infer<typeof recentSessionSchema>;
 export type UpdateProfile = z.infer<typeof updateProfileSchema>;
 export type UserAnalytics = z.infer<typeof userAnalyticsSchema>;
+export type WifiCredentials = z.infer<typeof wifiCredentialsSchema>;
 

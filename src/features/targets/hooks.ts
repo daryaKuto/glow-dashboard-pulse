@@ -1,9 +1,15 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { toast } from '@/components/ui/sonner';
 import {
   getTargetsWithTelemetry,
   getTargetDetailsService,
   getTargetsSummaryService,
   mergeTargetDetails,
+  sendDeviceCommandService,
+  setDeviceAttributesService,
+  getTargetCustomNamesService,
+  setTargetCustomNameService,
+  removeTargetCustomNameService,
 } from './service';
 import type {
   Target,
@@ -28,6 +34,7 @@ export const targetsKeys = {
   details: (deviceIds: string[], options?: TargetDetailsOptions) =>
     [...targetsKeys.all, 'details', deviceIds.sort().join(','), options] as const,
   detail: (deviceId: string) => [...targetsKeys.all, 'detail', deviceId] as const,
+  customNames: () => [...targetsKeys.all, 'custom-names'] as const,
 };
 
 /**
@@ -37,13 +44,20 @@ export function useTargets(force = false) {
   return useQuery({
     queryKey: targetsKeys.list(force),
     queryFn: async () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'targets/hooks.ts:46',message:'useTargets queryFn start',data:{force},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
+      // #endregion
       const result = await getTargetsWithTelemetry(force);
       if (!result.ok) {
         throw new Error(result.error.message);
       }
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'targets/hooks.ts:51',message:'useTargets queryFn complete',data:{force,hasData:!!result.data,targetCount:result.data?.targets?.length??0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
+      // #endregion
       return result.data;
     },
-    staleTime: 30 * 1000, // 30 seconds
+    staleTime: 60 * 1000, // 60 seconds - increased to reduce refetches
+    refetchOnMount: false, // Don't refetch if data exists and is fresh
   });
 }
 
@@ -60,7 +74,8 @@ export function useTargetsSummary(force = false) {
       }
       return result.data;
     },
-    staleTime: 30 * 1000,
+    staleTime: 60 * 1000, // 60 seconds - increased to reduce refetches
+    refetchOnMount: false, // Don't refetch if data exists and is fresh
   });
 }
 
@@ -75,14 +90,21 @@ export function useTargetDetails(
   return useQuery({
     queryKey: targetsKeys.details(deviceIds, options),
     queryFn: async () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'targets/hooks.ts:86',message:'useTargetDetails queryFn start',data:{deviceIdsCount:deviceIds.length,enabled},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4,H5'})}).catch(()=>{});
+      // #endregion
       const result = await getTargetDetailsService(deviceIds, options);
       if (!result.ok) {
         throw new Error(result.error.message);
       }
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'targets/hooks.ts:91',message:'useTargetDetails queryFn complete',data:{deviceIdsCount:deviceIds.length,detailsCount:result.data?.length??0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4,H5'})}).catch(()=>{});
+      // #endregion
       return result.data;
     },
     enabled: enabled && deviceIds.length > 0,
-    staleTime: 10 * 1000, // 10 seconds for telemetry data
+    staleTime: 30 * 1000, // 30 seconds for telemetry data - increased to reduce refetches
+    refetchOnMount: false, // Don't refetch if data exists and is fresh
   });
 }
 
@@ -145,3 +167,120 @@ export function useInvalidateTargets() {
   };
 }
 
+/**
+ * Send RPC command to devices
+ */
+export function useDeviceCommand() {
+  return useMutation({
+    mutationFn: async ({
+      deviceIds,
+      method,
+      params,
+    }: {
+      deviceIds: string[];
+      method: string;
+      params?: Record<string, unknown>;
+    }) => {
+      const result = await sendDeviceCommandService(deviceIds, method, params);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to send command: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Set device attributes (for customization like sound, light color)
+ */
+export function useSetDeviceAttributes() {
+  return useMutation({
+    mutationFn: async ({
+      deviceIds,
+      attributes,
+    }: {
+      deviceIds: string[];
+      attributes: Record<string, unknown>;
+    }) => {
+      const result = await setDeviceAttributesService(deviceIds, attributes);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    onSuccess: () => {
+      toast.success('Device settings updated');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to update device: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Get custom names for targets
+ */
+export function useTargetCustomNames() {
+  return useQuery({
+    queryKey: targetsKeys.customNames(),
+    queryFn: async () => {
+      const result = await getTargetCustomNamesService();
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Set a custom name for a target
+ */
+export function useSetTargetCustomName() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      targetId,
+      originalName,
+      customName,
+    }: {
+      targetId: string;
+      originalName: string;
+      customName: string;
+    }) => {
+      const result = await setTargetCustomNameService(targetId, originalName, customName);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: targetsKeys.customNames() });
+    },
+  });
+}
+
+/**
+ * Remove a custom name for a target
+ */
+export function useRemoveTargetCustomName() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ targetId }: { targetId: string }) => {
+      const result = await removeTargetCustomNameService(targetId);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: targetsKeys.customNames() });
+    },
+  });
+}

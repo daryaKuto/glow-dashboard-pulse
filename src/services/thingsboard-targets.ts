@@ -71,6 +71,9 @@ const DEFAULT_HISTORY_LIMIT = 500;
 const DEFAULT_RECENT_WINDOW_MS = 5 * 60 * 1000;
 const TOKEN_REFRESH_BUFFER_MS = 60_000;
 
+// Deduplication for fetchTargetsWithTelemetry to prevent redundant concurrent calls
+let pendingFetchTargetsPromise: Promise<{ targets: Target[]; summary: TargetsSummary | null; cached: boolean }> | null = null;
+
 let cachedSession: ThingsboardSessionResponse | null = null;
 let inflightSessionPromise: Promise<void> | null = null;
 
@@ -297,42 +300,66 @@ const collectDevices = async (): Promise<ThingsboardDevice[]> => {
 };
 
 const fetchTelemetryForDevices = async (deviceIds: string[], keys: string[], limit = 5): Promise<Map<string, Record<string, unknown>>> => {
+  const startTime = performance.now();
   const telemetryById = new Map<string, Record<string, unknown>>();
-  const resultsPerDevice = await Promise.all(
-    deviceIds.map(async (deviceId) => {
-      let attempts = 0;
-      while (attempts < 2) {
-        attempts += 1;
-        try {
-          const telemetry = await getDeviceTelemetry(deviceId, keys, limit);
-          return { deviceId, telemetry: telemetry ?? {} };
-        } catch (error) {
-          if (attempts >= 2) {
-            const now = Date.now();
-            const last = telemetryErrorLogState.get(deviceId) ?? 0;
-            if (now - last > 10_000) {
-              if (isAxiosNetworkError(error)) {
-                // Network errors are expected - only log in dev mode
-                if (import.meta.env.DEV) {
-                  console.debug(`[targets] Telemetry fetch skipped for ${deviceId} due to network issue (handled gracefully)`);
-                }
-              } else {
-                console.warn(`[targets] Failed to fetch telemetry for ${deviceId}`, error);
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-targets.ts:302',message:'fetchTelemetryForDevices entry',data:{deviceCount:deviceIds.length,keys:keys.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+  // #endregion
+  
+  // Process devices sequentially - rate limiter will handle throttling via acquire()
+  // No artificial delays needed - the rate limiter queues requests when tokens are exhausted
+  for (let i = 0; i < deviceIds.length; i++) {
+    const deviceId = deviceIds[i];
+    const deviceStartTime = performance.now();
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-targets.ts:310',message:'device telemetry fetch start',data:{deviceId,index:i,total:deviceIds.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+    
+    let attempts = 0;
+    while (attempts < 2) {
+      attempts += 1;
+      try {
+        // Rate limiter's acquire() will wait/queue if tokens aren't available
+        const telemetry = await getDeviceTelemetry(deviceId, keys, limit);
+        const deviceDuration = performance.now() - deviceStartTime;
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-targets.ts:318',message:'device telemetry fetch complete',data:{deviceId,index:i,total:deviceIds.length,deviceDurationMs:deviceDuration,attempts},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        telemetryById.set(deviceId, telemetry ?? {});
+        break; // Success, exit retry loop
+      } catch (error) {
+        if (attempts >= 2) {
+          const now = Date.now();
+          const last = telemetryErrorLogState.get(deviceId) ?? 0;
+          if (now - last > 10_000) {
+            if (isAxiosNetworkError(error)) {
+              // Network errors are expected - only log in dev mode
+              if (import.meta.env.DEV) {
+                console.debug(`[targets] Telemetry fetch skipped for ${deviceId} due to network issue (handled gracefully)`);
               }
-              telemetryErrorLogState.set(deviceId, now);
+            } else {
+              console.warn(`[targets] Failed to fetch telemetry for ${deviceId}`, error);
             }
-            return { deviceId, telemetry: {} };
+            telemetryErrorLogState.set(deviceId, now);
           }
+          telemetryById.set(deviceId, {});
+        } else {
+          // Retry delay only for retries, not for rate limiting
           await new Promise((resolve) => setTimeout(resolve, 300));
         }
       }
-      return { deviceId, telemetry: {} };
-    }),
-  );
-
-  resultsPerDevice.forEach(({ deviceId, telemetry }) => {
-    telemetryById.set(deviceId, telemetry);
-  });
+    }
+  }
+  
+  const duration = performance.now() - startTime;
+  if (deviceIds.length > 10) {
+    console.info('⚡ [Performance] fetchTelemetryForDevices', {
+      deviceCount: deviceIds.length,
+      duration: `${duration.toFixed(2)}ms`,
+      avgPerDevice: `${(duration / deviceIds.length).toFixed(2)}ms`,
+    });
+  }
+  
   return telemetryById;
 };
 
@@ -419,67 +446,138 @@ const mapDeviceToTarget = (
 export const fetchTargetsWithTelemetry = async (
   _force = false,
 ): Promise<{ targets: Target[]; summary: TargetsSummary | null; cached: boolean }> => {
-  await ensureAuthToken();
-  const devices = await collectDevices();
-  const deviceIds = devices.map((device) => device.id?.id ?? String(device.id));
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-targets.ts:432',message:'fetchTargetsWithTelemetry entry',data:{force:_force,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+  // #endregion
   
-  // Fetch both telemetry and server-side attributes (including 'active' status)
-  const [telemetryById, serverAttributesById] = await Promise.all([
-    fetchTelemetryForDevices(deviceIds, TELEMETRY_KEYS, 5),
-    getBatchServerAttributes(deviceIds, ['active', 'lastActivityTime', 'lastConnectTime', 'lastDisconnectTime', 'inactivityTimeout']),
-  ]);
+  // Deduplicate concurrent calls - if a request is already in flight, return the same promise
+  // Even with force=true, we should deduplicate concurrent calls to avoid redundant expensive operations
+  if (pendingFetchTargetsPromise) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-targets.ts:446',message:'fetchTargetsWithTelemetry deduplicated',data:{force:_force},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+    return pendingFetchTargetsPromise;
+  }
   
-  const { assignmentByTarget, roomNameById } = await loadUserContext();
+  const fetchPromise = (async () => {
+    try {
+      await ensureAuthToken();
+      const devices = await collectDevices();
+      const deviceIds = devices.map((device) => device.id?.id ?? String(device.id));
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-targets.ts:459',message:'devices collected',data:{deviceCount:deviceIds.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
+      
+      const fetchStartTime = performance.now();
+      
+      // Fetch both telemetry and server-side attributes in parallel for better performance
+      // Rate limiter will handle throttling automatically via acquire() for both operations
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-targets.ts:471',message:'parallel fetch start (telemetry + attributes)',data:{deviceCount:deviceIds.length},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H3'})}).catch(()=>{});
+      // #endregion
+      let telemetryDuration = 0;
+      let attributesDuration = 0;
+      const [telemetryById, serverAttributesById] = await Promise.all([
+        (async () => {
+          const telemetryStartTime = performance.now();
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-targets.ts:477',message:'fetchTelemetryForDevices start (parallel)',data:{deviceCount:deviceIds.length},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H1'})}).catch(()=>{});
+          // #endregion
+          const result = await fetchTelemetryForDevices(deviceIds, TELEMETRY_KEYS, 5);
+          telemetryDuration = performance.now() - telemetryStartTime;
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-targets.ts:481',message:'fetchTelemetryForDevices complete (parallel)',data:{deviceCount:deviceIds.length,telemetryDurationMs:telemetryDuration},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H1'})}).catch(()=>{});
+          // #endregion
+          return result;
+        })(),
+        (async () => {
+          const attributesStartTime = performance.now();
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-targets.ts:488',message:'getBatchServerAttributes start (parallel)',data:{deviceCount:deviceIds.length},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H2'})}).catch(()=>{});
+          // #endregion
+          const result = await getBatchServerAttributes(deviceIds, ['active', 'lastActivityTime', 'lastConnectTime', 'lastDisconnectTime', 'inactivityTimeout']);
+          attributesDuration = performance.now() - attributesStartTime;
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-targets.ts:492',message:'getBatchServerAttributes complete (parallel)',data:{deviceCount:deviceIds.length,attributesDurationMs:attributesDuration},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H2'})}).catch(()=>{});
+          // #endregion
+          return result;
+        })(),
+      ]);
+      const totalDuration = performance.now() - fetchStartTime;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'thingsboard-targets.ts:499',message:'parallel fetch complete',data:{deviceCount:deviceIds.length,totalDurationMs:totalDuration,telemetryDurationMs:telemetryDuration,attributesDurationMs:attributesDuration},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H3'})}).catch(()=>{});
+      // #endregion
+      
+      console.info('⚡ [Performance] fetchTargetsWithTelemetry (ThingsBoard)', {
+        deviceCount: deviceIds.length,
+        telemetryDuration: `${telemetryDuration.toFixed(2)}ms`,
+        attributesDuration: `${attributesDuration.toFixed(2)}ms`,
+        totalDuration: `${totalDuration.toFixed(2)}ms`,
+      });
+      
+      const { assignmentByTarget, roomNameById } = await loadUserContext();
 
-  // Merge server attributes into device objects
-  const devicesWithAttributes = devices.map((device) => {
-    const deviceId = device.id?.id ?? String(device.id);
-    const attributes = serverAttributesById.get(deviceId) ?? {};
-    return {
-      ...device,
-      active: attributes.active,
-      lastActivityTime: attributes.lastActivityTime,
-      lastConnectTime: attributes.lastConnectTime,
-      lastDisconnectTime: attributes.lastDisconnectTime,
-      inactivityTimeout: attributes.inactivityTimeout,
-    };
-  });
+      // Merge server attributes into device objects
+      const devicesWithAttributes = devices.map((device) => {
+        const deviceId = device.id?.id ?? String(device.id);
+        const attributes = serverAttributesById.get(deviceId) ?? {};
+        return {
+          ...device,
+          active: attributes.active,
+          lastActivityTime: attributes.lastActivityTime,
+          lastConnectTime: attributes.lastConnectTime,
+          lastDisconnectTime: attributes.lastDisconnectTime,
+          inactivityTimeout: attributes.inactivityTimeout,
+        };
+      });
 
-  const targets = devicesWithAttributes.map((device) => {
-    const deviceId = device.id?.id ?? String(device.id);
-    const telemetry = telemetryById.get(deviceId) ?? {};
-    const target = mapDeviceToTarget(device, telemetry, assignmentByTarget);
-    target.roomId = assignmentByTarget.get(deviceId) ?? null;
-    if (target.roomId && roomNameById.has(target.roomId)) {
-      target.additionalInfo = {
-        ...target.additionalInfo,
-        roomName: roomNameById.get(target.roomId) ?? target.additionalInfo?.roomName,
+      const targets = devicesWithAttributes.map((device) => {
+        const deviceId = device.id?.id ?? String(device.id);
+        const telemetry = telemetryById.get(deviceId) ?? {};
+        const target = mapDeviceToTarget(device, telemetry, assignmentByTarget);
+        target.roomId = assignmentByTarget.get(deviceId) ?? null;
+        if (target.roomId && roomNameById.has(target.roomId)) {
+          target.additionalInfo = {
+            ...target.additionalInfo,
+            roomName: roomNameById.get(target.roomId) ?? target.additionalInfo?.roomName,
+          };
+        }
+        return target;
+      });
+
+      const totalTargets = targets.length;
+      const onlineTargets = targets.filter((target) => target.status === 'online').length;
+      const assignedTargets = targets.filter((target) => target.roomId).length;
+      const offlineTargets = totalTargets - onlineTargets;
+      const unassignedTargets = totalTargets - assignedTargets;
+
+      const summary: TargetsSummary = {
+        totalTargets,
+        onlineTargets,
+        offlineTargets,
+        assignedTargets,
+        unassignedTargets,
+        totalRooms: roomNameById.size,
+        lastUpdated: Date.now(),
       };
+
+      return {
+        targets,
+        summary,
+        cached: false,
+      };
+    } finally {
+      // Clear the pending promise when done
+      if (pendingFetchTargetsPromise === fetchPromise) {
+        pendingFetchTargetsPromise = null;
+      }
     }
-    return target;
-  });
-
-  const totalTargets = targets.length;
-  const onlineTargets = targets.filter((target) => target.status === 'online').length;
-  const assignedTargets = targets.filter((target) => target.roomId).length;
-  const offlineTargets = totalTargets - onlineTargets;
-  const unassignedTargets = totalTargets - assignedTargets;
-
-  const summary: TargetsSummary = {
-    totalTargets,
-    onlineTargets,
-    offlineTargets,
-    assignedTargets,
-    unassignedTargets,
-    totalRooms: roomNameById.size,
-    lastUpdated: Date.now(),
-  };
-
-  return {
-    targets,
-    summary,
-    cached: false,
-  };
+  })();
+  
+  // Store the promise for deduplication (always, to prevent concurrent calls)
+  pendingFetchTargetsPromise = fetchPromise;
+  
+  return fetchPromise;
 };
 
 export const fetchTargetDetails = async (
@@ -625,4 +723,5 @@ export const fetchTargetDetails = async (
     cached: false,
   };
 };
+
 

@@ -1,5 +1,6 @@
 import { supabase } from '@/data/supabase-client';
 import { apiOk, apiErr, type ApiResponse } from '@/shared/lib/api-response';
+import { mapGameRowToDomain, type GameDbRow } from '@/domain/games/mappers';
 import type { GameTemplate } from './schema';
 
 /**
@@ -43,34 +44,9 @@ export async function getGameTemplates(): Promise<ApiResponse<GameTemplate[]>> {
       return apiErr('FETCH_GAME_TEMPLATES_ERROR', error.message, error);
     }
 
-    const templates: GameTemplate[] = (data ?? []).map((game) => {
-      const thingsboardConfig =
-        game.thingsboard_config && typeof game.thingsboard_config === 'object' && !Array.isArray(game.thingsboard_config)
-          ? (game.thingsboard_config as Record<string, unknown>)
-          : null;
-      const rules =
-        game.rules && typeof game.rules === 'object' && !Array.isArray(game.rules)
-          ? (game.rules as Record<string, unknown>)
-          : null;
-
-      return {
-        id: game.id,
-        slug: game.slug,
-        name: game.name,
-        description: game.description,
-        category: game.category,
-        difficulty: game.difficulty,
-        targetCount: game.target_count ?? 0,
-        shotsPerTarget: game.shots_per_target ?? 0,
-        timeLimitMs: game.time_limit_ms ?? 0,
-        isActive: game.is_active ?? false,
-        isPublic: game.is_public ?? false,
-        thingsboardConfig,
-        rules,
-        createdAt: game.created_at ?? null,
-        updatedAt: game.updated_at ?? null,
-      };
-    });
+    const templates: GameTemplate[] = (data ?? []).map((game) =>
+      mapGameRowToDomain(game as GameDbRow)
+    );
 
     return apiOk(templates);
   } catch (error) {
@@ -82,4 +58,3 @@ export async function getGameTemplates(): Promise<ApiResponse<GameTemplate[]>> {
     );
   }
 }
-

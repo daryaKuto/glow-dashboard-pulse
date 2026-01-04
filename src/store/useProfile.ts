@@ -11,7 +11,13 @@
  */
 
 import { create } from 'zustand';
-import { fetchUserProfileData, fetchRecentSessions, updateUserProfile, getUserStatsTrend, type UserProfileData, type RecentSession } from '@/services/profile';
+import {
+  getProfileService,
+  getRecentSessionsService,
+  getStatsTrendService,
+  updateProfileService,
+} from '@/features/profile/service';
+import type { UserProfileData, RecentSession } from '@/features/profile';
 import type { Database } from '@/integrations/supabase/types';
 
 type UserAnalytics = Database['public']['Tables']['user_analytics']['Row'];
@@ -57,9 +63,12 @@ export const useProfile = create<ProfileState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const profileData = await fetchUserProfileData(userId);
-      console.log('[Profile Store] Profile data received:', profileData);
-      set({ profileData, isLoading: false });
+      const result = await getProfileService(userId);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      console.log('[Profile Store] Profile data received:', result.data);
+      set({ profileData: result.data, isLoading: false });
     } catch (error) {
       console.error('[Profile Store] Error in fetchProfile:', error);
       set({ 
@@ -74,8 +83,11 @@ export const useProfile = create<ProfileState>((set, get) => ({
     set({ isLoadingSessions: true, error: null });
     
     try {
-      const recentSessions = await fetchRecentSessions(userId, limit);
-      set({ recentSessions, isLoadingSessions: false });
+      const result = await getRecentSessionsService(userId, limit);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      set({ recentSessions: result.data, isLoadingSessions: false });
     } catch (error) {
       console.error('Error in fetchSessions:', error);
       set({ 
@@ -90,8 +102,11 @@ export const useProfile = create<ProfileState>((set, get) => ({
     set({ isLoadingTrend: true, error: null });
     
     try {
-      const statsTrend = await getUserStatsTrend(userId, periodType, days);
-      set({ statsTrend, isLoadingTrend: false });
+      const result = await getStatsTrendService(userId, periodType, days);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      set({ statsTrend: result.data, isLoadingTrend: false });
     } catch (error) {
       console.error('Error in fetchTrend:', error);
       set({ 
@@ -106,7 +121,8 @@ export const useProfile = create<ProfileState>((set, get) => ({
     set({ isUpdating: true, error: null });
     
     try {
-      const success = await updateUserProfile(updates);
+      const result = await updateProfileService(updates);
+      const success = result.ok ? result.data : false;
       
       if (success) {
         // Update local profile data

@@ -2,6 +2,7 @@ import { supabase } from '@/data/supabase-client';
 import { fetchRoomsData } from '@/lib/edge';
 import type { Target } from '@/features/targets';
 import { apiOk, apiErr, type ApiResponse } from '@/shared/lib/api-response';
+import type { RoomRepository } from '@/domain/rooms/ports';
 import type {
   Room,
   CreateRoomData,
@@ -169,6 +170,21 @@ export async function updateRoom(
     );
   }
 }
+
+/**
+ * Repository adapter (ports & adapters pilot)
+ */
+export const roomsRepository: RoomRepository<Target> = {
+  getRooms,
+  createRoom,
+  updateRoom,
+  deleteRoom,
+  updateRoomOrder,
+  assignTargetToRoom,
+  assignTargetsToRoom,
+  unassignTargets,
+  getRoomTargets,
+};
 
 /**
  * Delete a room
@@ -391,4 +407,3 @@ export async function getRoomTargets(roomId: string): Promise<ApiResponse<Target
     );
   }
 }
-

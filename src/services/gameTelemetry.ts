@@ -5,6 +5,8 @@ import {
   TELEMETRY_POLLING_DEFAULTS,
   resolveIntervalWithBackoff,
 } from '@/config/telemetry';
+import { getRateLimiter } from '@/shared/lib/rate-limit-config';
+import { RateLimitMonitor } from '@/shared/lib/rate-limit-monitor';
 
 export interface TelemetryEnvelope {
   subscriptionId?: number;
@@ -154,6 +156,14 @@ export const subscribeToGameTelemetry = (
       return;
     }
 
+    // Add a small random delay (0-500ms) to stagger subscription attempts and prevent simultaneous token acquisition
+    const staggerDelay = Math.random() * 500;
+    await new Promise(resolve => setTimeout(resolve, staggerDelay));
+
+    if (closed) {
+      return;
+    }
+
     try {
       let tbToken: string | undefined = providedToken;
       if (!tbToken) {
@@ -171,6 +181,32 @@ export const subscribeToGameTelemetry = (
         const err = new Error('No ThingsBoard token available for realtime telemetry');
         onError?.(err);
         throw err;
+      }
+
+      const limiter = getRateLimiter('THINGSBOARD_TELEMETRY');
+      if (limiter) {
+        const status = limiter.getStatus();
+        if (status.isLimited) {
+          RateLimitMonitor.recordHit('THINGSBOARD_TELEMETRY', status.availableTokens, status.queuedRequests);
+        }
+
+        try {
+          await limiter.acquire();
+        } catch (error) {
+          console.warn('[GameTelemetry] WebSocket rate limit hit; falling back to polling', error);
+          onError?.(error);
+          // Add a small delay before starting polling to avoid immediate retry storm
+          setTimeout(() => {
+            if (!closed) {
+              startPolling();
+            }
+          }, 1000);
+          return;
+        }
+      }
+
+      if (closed) {
+        return;
       }
 
       const wsUrl = createThingsboardWsUrl(tbToken);

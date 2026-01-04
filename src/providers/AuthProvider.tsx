@@ -2,9 +2,10 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { supabase } from '@/integrations/supabase/client';
 import { ensureThingsboardSession, invalidateThingsboardSessionCache } from '@/lib/edge';
 import supabaseAuthService from '@/services/supabase-auth';
-import { saveThingsBoardCredentials } from '@/services/profile';
+import { saveThingsBoardCredentialsService } from '@/features/profile/service';
 import { performCompleteLogout } from '@/utils/logout';
 import type { User, Session } from '@supabase/supabase-js';
+import { throttledLog } from '@/utils/log-throttle';
 
 interface AuthContextType {
   user: User | null;
@@ -52,9 +53,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setUser(session.user);
         setSession(session);
         const expiresIn = session.expires_at ? session.expires_at * 1000 - Date.now() : null;
-        // Log session establishment in dev mode only
+        // Log session establishment in dev mode only (throttled to prevent flooding)
         if (import.meta.env.DEV) {
-          console.info('[Auth] Session established', {
+          throttledLog('auth-session', 5000, '[Auth] Session established', {
             source: 'supabase.auth.getSession',
             supabaseProjectUrl: supabase.supabaseUrl,
             tablesInPlay: ['auth.sessions', 'public.user_profiles'],
@@ -67,9 +68,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             roles: session.user.app_metadata?.roles ?? null,
           });
         }
-        void ensureThingsboardSession().catch((tbError) => {
-          console.warn('[AuthProvider] Prefetch ThingsBoard session failed (non-blocking):', tbError);
-        });
+        // Defer ThingsBoard session fetch to avoid rate limiting on initial load
+        // It will be fetched lazily when actually needed
+        setTimeout(() => {
+          void ensureThingsboardSession().catch((tbError) => {
+            console.warn('[AuthProvider] Prefetch ThingsBoard session failed (non-blocking):', tbError);
+          });
+        }, 2000); // Delay by 2 seconds to let other initial requests complete
       } else {
         setUser(null);
         setSession(null);
@@ -192,7 +197,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         
         // Save ThingsBoard credentials using the same email/password
         try {
-          await saveThingsBoardCredentials(result.user.id, email, password);
+          const saveResult = await saveThingsBoardCredentialsService(result.user.id, email, password);
+          if (!saveResult.ok || !saveResult.data) {
+            throw new Error(saveResult.ok ? 'Failed to save ThingsBoard credentials' : saveResult.error.message);
+          }
         } catch (tbError) {
           console.warn('[AuthProvider] Failed to save ThingsBoard credentials (user can set up later):', tbError);
           // Don't fail the signup if ThingsBoard credential saving fails

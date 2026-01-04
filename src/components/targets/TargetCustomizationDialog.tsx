@@ -11,8 +11,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { ColorPicker } from '@/components/ui/color-picker';
 import { useUserPrefs, type TargetPreferences } from '@/store/useUserPrefs';
-import { uploadTargetSound, validateSoundFile, type SoundUploadResult } from '@/services/target-sounds';
-import { supabase } from '@/integrations/supabase/client';
+import { uploadTargetSound, validateSoundFile } from '@/services/target-sounds';
+import { useSetDeviceAttributes } from '@/features/targets';
 import { toast } from '@/components/ui/sonner';
 import { Upload, X, Music, Palette, Loader2, Sparkles, Star, Zap, Crown, CheckCircle2 } from 'lucide-react';
 import { useSubscription } from '@/hooks/useSubscription';
@@ -32,6 +32,7 @@ export const TargetCustomizationDialog: React.FC<TargetCustomizationDialogProps>
 }) => {
   const { isPremium } = useSubscription();
   const { prefs, save, updatePref } = useUserPrefs();
+  const setDeviceAttributesMutation = useSetDeviceAttributes();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const currentPrefs = prefs[targetId] || {};
@@ -151,21 +152,15 @@ export const TargetCustomizationDialog: React.FC<TargetCustomizationDialogProps>
         attributes.lightEnabled = false;
       }
 
-      const { error: commandError } = await supabase.functions.invoke('device-command', {
-        body: {
-          action: 'set-attributes',
-          setAttributes: {
-            deviceIds: [targetId],
-            attributes,
-          },
-        },
-      });
-
-      if (commandError) {
+      try {
+        await setDeviceAttributesMutation.mutateAsync({
+          deviceIds: [targetId],
+          attributes,
+        });
+        // Toast is handled by the mutation hook
+      } catch (commandError) {
         console.error('Failed to sync to device:', commandError);
         toast.warning('Preferences saved but failed to sync to device');
-      } else {
-        toast.success('Preferences saved and synced to device');
       }
 
       onClose();

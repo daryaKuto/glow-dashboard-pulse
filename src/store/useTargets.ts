@@ -10,6 +10,8 @@
  * This file will be removed in a future version.
  */
 
+import { throttledLogOnChange } from '@/utils/log-throttle';
+
 import { create } from 'zustand';
 import { clearTargetsCache } from '@/lib/api';
 import { fetchTargetDetails, type TargetDetail, type TargetDetailsOptions } from '@/lib/edge';
@@ -108,6 +110,9 @@ export const useTargets = create<TargetsState>((set, get) => ({
   },
 
   fetchTargetsFromEdge: async (force = false) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useTargets.ts:112',message:'fetchTargetsFromEdge entry',data:{force,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
     const state = get();
 
     const debug = isFetchDebugEnabled();
@@ -121,6 +126,9 @@ export const useTargets = create<TargetsState>((set, get) => ({
     }
 
     if (!force && state.targets.length > 0 && state.lastFetched && Date.now() - state.lastFetched < 60_000) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useTargets.ts:125',message:'fetchTargetsFromEdge returning cached',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
       if (debug) {
         console.info('[useTargets] fetchTargetsFromEdge returning cached targets');
       }
@@ -133,8 +141,14 @@ export const useTargets = create<TargetsState>((set, get) => ({
     }
 
     try {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useTargets.ts:138',message:'fetchTargetsWithTelemetry start',data:{force},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
       const { fetchTargetsWithTelemetry } = await import('@/lib/edge');
       const { targets } = await fetchTargetsWithTelemetry(force);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useTargets.ts:140',message:'fetchTargetsWithTelemetry complete',data:{targetCount:targets.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
       set({
         targets,
         isLoading: false,
@@ -152,7 +166,8 @@ export const useTargets = create<TargetsState>((set, get) => ({
         const onlineTargets = targets.filter(t => t.status === 'online' || t.status === 'standby');
         const offlineTargets = targets.filter(t => t.status === 'offline');
         
-        console.info('[Targets] Edge payload received', {
+        // Throttle log to prevent flooding
+        throttledLogOnChange('targets-payload-received', 5000, '[Targets] Edge payload received', {
           edgeFunction: 'targets-with-telemetry',
           supabaseTablesQueried: ['public.user_room_targets', 'public.user_rooms', 'public.user_profiles'],
           thingsboardTelemetryAttached: true,
@@ -186,7 +201,8 @@ export const useTargets = create<TargetsState>((set, get) => ({
         const connectedTargets = targets.filter(t => t.status === 'online' || t.status === 'standby');
         const disconnectedTargets = targets.filter(t => t.status === 'offline');
         
-        console.info('[Targets] Edge payload status summary', {
+        // Throttle log to prevent flooding
+        throttledLogOnChange('targets-status-summary', 5000, '[Targets] Edge payload status summary', {
           edgeFunction: 'targets-with-telemetry',
           fetchedAt: new Date().toISOString(),
           totalTargets: targets.length,
@@ -297,7 +313,8 @@ export const useTargets = create<TargetsState>((set, get) => ({
           acc[key] = (acc[key] ?? 0) + 1;
           return acc;
         }, {});
-        console.info('[Targets] Hydrated ThingsBoard telemetry applied', {
+        // Throttle log to prevent flooding
+        throttledLogOnChange('targets-hydrated', 5000, '[Targets] Hydrated ThingsBoard telemetry applied', {
           edgeFunction: 'target-details',
           supabaseTablesQueried: ['public.user_room_targets', 'public.user_profiles'],
           thingsboardTelemetryApplied: true,

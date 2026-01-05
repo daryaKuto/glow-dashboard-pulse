@@ -3,6 +3,23 @@
  * 
  * Transform data between layers.
  * Pure functions - no React or Supabase imports.
+ * 
+ * NOTE: These mappers define domain models but are currently UNUSED.
+ * The feature repo (src/features/targets/repo.ts) passes through edge function
+ * data directly, and the service (src/features/targets/service.ts) has its own
+ * mergeTargetDetails function.
+ * 
+ * These mappers are kept for:
+ * 1. Documentation of the conceptual domain model
+ * 2. Normalization helpers (normalizeStatus, normalizeActivityStatus) that could
+ *    be extracted if needed elsewhere
+ * 3. UI helper functions (getTargetDisplayName, getTargetStatusDisplay)
+ * 4. Future use if we decide to add a strict domain boundary
+ * 
+ * If you need to use these, update the repo to:
+ * 1. Call mappers when reading from edge functions
+ * 2. Return TargetDomainModel instead of Target
+ * 3. Update all consumers to use the domain model
  */
 
 import type { TargetStatus, ActivityStatus } from './validators';

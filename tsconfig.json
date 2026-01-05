@@ -9,11 +9,15 @@
     "paths": {
       "@/*": ["./src/*"]
     },
+    // TypeScript Strictness - Enable incrementally
+    // Phase 1: strictNullChecks (enabled 2026-01-05)
+    // Phase 2: noImplicitAny (pending)
+    // Phase 3: noUnusedLocals + noUnusedParameters (pending)
+    "strictNullChecks": true,
     "noImplicitAny": false,
     "noUnusedParameters": false,
-    "skipLibCheck": true,
-    "allowJs": true,
     "noUnusedLocals": false,
-    "strictNullChecks": false
+    "skipLibCheck": true,
+    "allowJs": true
   }
 }

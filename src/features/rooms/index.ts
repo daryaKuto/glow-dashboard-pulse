@@ -14,6 +14,11 @@ export {
   useUpdateRoomOrder,
   useAssignTargetToRoom,
   useAssignTargetsToRoom,
+  // Permission-aware hooks
+  useCreateRoomWithPermission,
+  useUpdateRoomWithPermission,
+  useDeleteRoomWithPermission,
+  useAssignTargetsToRoomWithPermission,
   roomsKeys,
 } from './hooks';
 
@@ -27,4 +32,7 @@ export type {
 } from './schema';
 
 export type { RoomsWithTargets, EdgeRoom } from './repo';
+
+// Permission types
+export type { UserContext, RoomContext } from './hooks';
 

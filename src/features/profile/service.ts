@@ -2,19 +2,13 @@
  * Service layer for Profile feature
  * 
  * Contains business logic and orchestration.
- * Uses repository functions and domain layer validators.
+ * Uses repository functions and domain layer validators/permissions.
  * Returns ApiResponse<T>.
  */
 
-import {
-  getProfile,
-  getRecentSessions,
-  getStatsTrend,
-  updateProfile as updateProfileRepo,
-  getWifiCredentials,
-  saveThingsBoardCredentials,
-} from './repo';
-import { apiErr } from '@/shared/lib/api-response';
+import { profileRepository } from './repo';
+import type { ProfileRepository } from '@/domain/profile/ports';
+import { apiOk, apiErr, type ApiResponse } from '@/shared/lib/api-response';
 import type {
   UserProfileData,
   RecentSession,
@@ -30,15 +24,35 @@ import {
   validateEmail,
 } from '@/domain/profile/validators';
 import { isNonEmptyString } from '@/domain/shared/validation-helpers';
+import {
+  canViewProfile,
+  canUpdateProfile,
+  canViewSessionHistory,
+  canViewWifiCredentials,
+  canUpdateWifiCredentials,
+  canViewAnalytics,
+  type UserContext,
+  type ProfileContext,
+} from '@/domain/profile/permissions';
 
 type UserAnalytics = Database['public']['Tables']['user_analytics']['Row'];
+
+// Repository injection for testing
+let profileRepo: ProfileRepository = profileRepository;
+
+/**
+ * Set the profile repository (for testing/dependency injection)
+ */
+export const setProfileRepository = (repo: ProfileRepository): void => {
+  profileRepo = repo;
+};
 
 /**
  * Get user profile
  */
 export async function getProfileService(
   userId: string
-): Promise<import('@/shared/lib/api-response').ApiResponse<UserProfileData | null>> {
+): Promise<ApiResponse<UserProfileData | null>> {
   // Validate using domain layer
   const validation = validateUserId(userId);
   if (!validation.success) {
@@ -46,7 +60,34 @@ export async function getProfileService(
     return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid user ID');
   }
 
-  return getProfile(userId);
+  return profileRepo.getProfile(userId);
+}
+
+/**
+ * Get user profile with permission check
+ */
+export async function getProfileWithPermissionService(
+  requestingUser: UserContext,
+  targetUserId: string
+): Promise<ApiResponse<UserProfileData | null>> {
+  // Validate using domain layer
+  const validation = validateUserId(targetUserId);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid user ID');
+  }
+
+  // Check permission
+  const profileContext: ProfileContext = {
+    profileId: targetUserId,
+    ownerId: targetUserId,
+  };
+  const permissionResult = canViewProfile(requestingUser, profileContext);
+  if (!permissionResult.allowed) {
+    return apiErr(permissionResult.code, permissionResult.reason);
+  }
+
+  return profileRepo.getProfile(targetUserId);
 }
 
 /**
@@ -55,7 +96,7 @@ export async function getProfileService(
 export async function getRecentSessionsService(
   userId: string,
   limit = 10
-): Promise<import('@/shared/lib/api-response').ApiResponse<RecentSession[]>> {
+): Promise<ApiResponse<RecentSession[]>> {
   // Validate using domain layer
   const validation = validateRecentSessionsQuery({ userId, limit });
   if (!validation.success) {
@@ -63,7 +104,35 @@ export async function getRecentSessionsService(
     return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid query parameters');
   }
 
-  return getRecentSessions(userId, limit);
+  return profileRepo.getRecentSessions(userId, limit);
+}
+
+/**
+ * Get recent sessions with permission check
+ */
+export async function getRecentSessionsWithPermissionService(
+  requestingUser: UserContext,
+  targetUserId: string,
+  limit = 10
+): Promise<ApiResponse<RecentSession[]>> {
+  // Validate using domain layer
+  const validation = validateRecentSessionsQuery({ userId: targetUserId, limit });
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid query parameters');
+  }
+
+  // Check permission
+  const profileContext: ProfileContext = {
+    profileId: targetUserId,
+    ownerId: targetUserId,
+  };
+  const permissionResult = canViewSessionHistory(requestingUser, profileContext);
+  if (!permissionResult.allowed) {
+    return apiErr(permissionResult.code, permissionResult.reason);
+  }
+
+  return profileRepo.getRecentSessions(targetUserId, limit);
 }
 
 /**
@@ -73,7 +142,7 @@ export async function getStatsTrendService(
   userId: string,
   periodType: 'daily' | 'weekly' | 'monthly' = 'daily',
   days = 30
-): Promise<import('@/shared/lib/api-response').ApiResponse<UserAnalytics[]>> {
+): Promise<ApiResponse<UserAnalytics[]>> {
   // Validate using domain layer
   const validation = validateStatsTrendQuery({ userId, periodType, days });
   if (!validation.success) {
@@ -81,7 +150,36 @@ export async function getStatsTrendService(
     return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid query parameters');
   }
 
-  return getStatsTrend(userId, periodType, days);
+  return profileRepo.getStatsTrend(userId, periodType, days);
+}
+
+/**
+ * Get stats trend with permission check
+ */
+export async function getStatsTrendWithPermissionService(
+  requestingUser: UserContext,
+  targetUserId: string,
+  periodType: 'daily' | 'weekly' | 'monthly' = 'daily',
+  days = 30
+): Promise<ApiResponse<UserAnalytics[]>> {
+  // Validate using domain layer
+  const validation = validateStatsTrendQuery({ userId: targetUserId, periodType, days });
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid query parameters');
+  }
+
+  // Check permission
+  const profileContext: ProfileContext = {
+    profileId: targetUserId,
+    ownerId: targetUserId,
+  };
+  const permissionResult = canViewAnalytics(requestingUser, profileContext);
+  if (!permissionResult.allowed) {
+    return apiErr(permissionResult.code, permissionResult.reason);
+  }
+
+  return profileRepo.getStatsTrend(targetUserId, periodType, days);
 }
 
 /**
@@ -89,7 +187,7 @@ export async function getStatsTrendService(
  */
 export async function updateProfileService(
   updates: UpdateProfile
-): Promise<import('@/shared/lib/api-response').ApiResponse<boolean>> {
+): Promise<ApiResponse<boolean>> {
   // Validate using domain layer
   const validation = validateUpdateProfileInput(updates);
   if (!validation.success) {
@@ -97,7 +195,35 @@ export async function updateProfileService(
     return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid update data');
   }
 
-  return updateProfileRepo(updates);
+  return profileRepo.updateProfile(updates);
+}
+
+/**
+ * Update profile with permission check
+ */
+export async function updateProfileWithPermissionService(
+  requestingUser: UserContext,
+  targetUserId: string,
+  updates: UpdateProfile
+): Promise<ApiResponse<boolean>> {
+  // Validate using domain layer
+  const validation = validateUpdateProfileInput(updates);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid update data');
+  }
+
+  // Check permission
+  const profileContext: ProfileContext = {
+    profileId: targetUserId,
+    ownerId: targetUserId,
+  };
+  const permissionResult = canUpdateProfile(requestingUser, profileContext);
+  if (!permissionResult.allowed) {
+    return apiErr(permissionResult.code, permissionResult.reason);
+  }
+
+  return profileRepo.updateProfile(updates);
 }
 
 /**
@@ -105,7 +231,7 @@ export async function updateProfileService(
  */
 export async function getWifiCredentialsService(
   userId: string
-): Promise<import('@/shared/lib/api-response').ApiResponse<WifiCredentials | null>> {
+): Promise<ApiResponse<WifiCredentials | null>> {
   // Validate using domain layer
   const validation = validateUserId(userId);
   if (!validation.success) {
@@ -113,7 +239,34 @@ export async function getWifiCredentialsService(
     return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid user ID');
   }
 
-  return getWifiCredentials(userId);
+  return profileRepo.getWifiCredentials(userId);
+}
+
+/**
+ * Get WiFi credentials with permission check
+ */
+export async function getWifiCredentialsWithPermissionService(
+  requestingUser: UserContext,
+  targetUserId: string
+): Promise<ApiResponse<WifiCredentials | null>> {
+  // Validate using domain layer
+  const validation = validateUserId(targetUserId);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid user ID');
+  }
+
+  // Check permission
+  const profileContext: ProfileContext = {
+    profileId: targetUserId,
+    ownerId: targetUserId,
+  };
+  const permissionResult = canViewWifiCredentials(requestingUser, profileContext);
+  if (!permissionResult.allowed) {
+    return apiErr(permissionResult.code, permissionResult.reason);
+  }
+
+  return profileRepo.getWifiCredentials(targetUserId);
 }
 
 /**
@@ -123,7 +276,7 @@ export async function saveThingsBoardCredentialsService(
   userId: string,
   email: string,
   password: string
-): Promise<import('@/shared/lib/api-response').ApiResponse<boolean>> {
+): Promise<ApiResponse<boolean>> {
   const userIdValidation = validateUserId(userId);
   if (!userIdValidation.success) {
     const firstError = userIdValidation.errors[0];
@@ -140,5 +293,130 @@ export async function saveThingsBoardCredentialsService(
     return apiErr('VALIDATION_ERROR', 'Password is required');
   }
 
-  return saveThingsBoardCredentials(userId, email, password);
+  return profileRepo.saveThingsBoardCredentials(userId, email, password);
 }
+
+/**
+ * Save ThingsBoard credentials with permission check
+ */
+export async function saveThingsBoardCredentialsWithPermissionService(
+  requestingUser: UserContext,
+  targetUserId: string,
+  email: string,
+  password: string
+): Promise<ApiResponse<boolean>> {
+  const userIdValidation = validateUserId(targetUserId);
+  if (!userIdValidation.success) {
+    const firstError = userIdValidation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid user ID');
+  }
+
+  const emailValidation = validateEmail(email);
+  if (!emailValidation.success) {
+    const firstError = emailValidation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid email');
+  }
+
+  if (!isNonEmptyString(password)) {
+    return apiErr('VALIDATION_ERROR', 'Password is required');
+  }
+
+  // Check permission
+  const profileContext: ProfileContext = {
+    profileId: targetUserId,
+    ownerId: targetUserId,
+  };
+  const permissionResult = canUpdateWifiCredentials(requestingUser, profileContext);
+  if (!permissionResult.allowed) {
+    return apiErr(permissionResult.code, permissionResult.reason);
+  }
+
+  return profileRepo.saveThingsBoardCredentials(targetUserId, email, password);
+}
+
+// ============================================================================
+// Permission check helpers
+// ============================================================================
+
+/**
+ * Check if user can view a profile
+ */
+export function checkCanViewProfile(
+  user: UserContext,
+  profile: ProfileContext
+): ApiResponse<boolean> {
+  const result = canViewProfile(user, profile);
+  
+  if (!result.allowed) {
+    return apiErr(result.code, result.reason);
+  }
+
+  return apiOk(true);
+}
+
+/**
+ * Check if user can update a profile
+ */
+export function checkCanUpdateProfile(
+  user: UserContext,
+  profile: ProfileContext
+): ApiResponse<boolean> {
+  const result = canUpdateProfile(user, profile);
+  
+  if (!result.allowed) {
+    return apiErr(result.code, result.reason);
+  }
+
+  return apiOk(true);
+}
+
+/**
+ * Check if user can view session history
+ */
+export function checkCanViewSessionHistory(
+  user: UserContext,
+  profile: ProfileContext
+): ApiResponse<boolean> {
+  const result = canViewSessionHistory(user, profile);
+  
+  if (!result.allowed) {
+    return apiErr(result.code, result.reason);
+  }
+
+  return apiOk(true);
+}
+
+/**
+ * Check if user can view WiFi credentials
+ */
+export function checkCanViewWifiCredentials(
+  user: UserContext,
+  profile: ProfileContext
+): ApiResponse<boolean> {
+  const result = canViewWifiCredentials(user, profile);
+  
+  if (!result.allowed) {
+    return apiErr(result.code, result.reason);
+  }
+
+  return apiOk(true);
+}
+
+/**
+ * Check if user can view analytics
+ */
+export function checkCanViewAnalytics(
+  user: UserContext,
+  profile: ProfileContext
+): ApiResponse<boolean> {
+  const result = canViewAnalytics(user, profile);
+  
+  if (!result.allowed) {
+    return apiErr(result.code, result.reason);
+  }
+
+  return apiOk(true);
+}
+
+// Re-export types for consumers
+export type { UserContext, ProfileContext } from '@/domain/profile/permissions';

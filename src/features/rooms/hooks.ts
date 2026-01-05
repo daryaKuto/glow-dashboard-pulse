@@ -1,13 +1,20 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/components/ui/sonner';
+import { useAuth } from '@/shared/hooks';
 import {
   getRoomsWithTargets,
   createRoomService,
+  createRoomWithPermissionService,
   updateRoomService,
+  updateRoomWithPermissionService,
   deleteRoomService,
+  deleteRoomWithPermissionService,
   updateRoomOrderService,
   assignTargetToRoomService,
   assignTargetsToRoomService,
+  assignTargetsToRoomWithPermissionService,
+  type UserContext,
+  type RoomContext,
 } from './service';
 import type {
   Room,
@@ -17,6 +24,18 @@ import type {
   AssignTargetToRoomData,
 } from './schema';
 import type { RoomsWithTargets } from './repo';
+
+/**
+ * Helper to build UserContext from auth user
+ */
+function buildUserContext(userId: string | undefined): UserContext | null {
+  if (!userId) return null;
+  return {
+    userId,
+    // subscriptionTier could be fetched from user profile if needed
+    // For now, we use default (free) tier
+  };
+}
 
 /**
  * React Query hooks for Rooms feature
@@ -39,16 +58,10 @@ export function useRooms(force = false) {
   return useQuery({
     queryKey: roomsKeys.list(force),
     queryFn: async () => {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rooms/hooks.ts:41',message:'useRooms queryFn start',data:{force},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
       const result = await getRoomsWithTargets(force);
       if (!result.ok) {
         throw new Error(result.error.message);
       }
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rooms/hooks.ts:46',message:'useRooms queryFn complete',data:{force,hasData:!!result.data},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
       return result.data;
     },
     staleTime: 60 * 1000, // 60 seconds - increased to reduce refetches
@@ -211,4 +224,166 @@ export function useAssignTargetsToRoom() {
     },
   });
 }
+
+// ============================================================================
+// Permission-Aware Hooks
+// These hooks enforce permission checks before performing operations.
+// Use these when you need to respect subscription tier limits and ownership.
+// ============================================================================
+
+/**
+ * Create a new room with permission check
+ * Validates user can create rooms based on subscription tier and current room count.
+ */
+export function useCreateRoomWithPermission() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      roomData,
+      currentRoomCount,
+    }: {
+      roomData: CreateRoomData;
+      currentRoomCount: number;
+    }) => {
+      const userContext = buildUserContext(user?.id);
+      if (!userContext) {
+        throw new Error('User must be authenticated to create rooms');
+      }
+
+      const result = await createRoomWithPermissionService(
+        userContext,
+        roomData,
+        currentRoomCount
+      );
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: roomsKeys.lists() });
+      toast.success('Room created successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to create room: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Update a room with permission check
+ * Validates user owns the room before allowing updates.
+ */
+export function useUpdateRoomWithPermission() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      room,
+      updates,
+    }: {
+      room: RoomContext;
+      updates: UpdateRoomData;
+    }) => {
+      const userContext = buildUserContext(user?.id);
+      if (!userContext) {
+        throw new Error('User must be authenticated to update rooms');
+      }
+
+      const result = await updateRoomWithPermissionService(userContext, room, updates);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: roomsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: roomsKeys.detail(variables.room.roomId) });
+      toast.success('Room updated successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to update room: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Delete a room with permission check
+ * Validates user owns the room before allowing deletion.
+ */
+export function useDeleteRoomWithPermission() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async (room: RoomContext) => {
+      const userContext = buildUserContext(user?.id);
+      if (!userContext) {
+        throw new Error('User must be authenticated to delete rooms');
+      }
+
+      const result = await deleteRoomWithPermissionService(userContext, room);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: roomsKeys.lists() });
+      toast.success('Room deleted successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to delete room: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Assign multiple targets to room with permission check
+ * Validates user owns the room and respects target limits.
+ */
+export function useAssignTargetsToRoomWithPermission() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      room,
+      targetIds,
+      targetNames,
+    }: {
+      room: RoomContext;
+      targetIds: string[];
+      targetNames?: Map<string, string>;
+    }) => {
+      const userContext = buildUserContext(user?.id);
+      if (!userContext) {
+        throw new Error('User must be authenticated to assign targets');
+      }
+
+      const result = await assignTargetsToRoomWithPermissionService(
+        userContext,
+        room,
+        targetIds,
+        targetNames
+      );
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: roomsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['targets'] });
+      toast.success('Targets assigned successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to assign targets: ${error.message}`);
+    },
+  });
+}
+
+// Re-export types for consumers
+export type { UserContext, RoomContext } from './service';
 

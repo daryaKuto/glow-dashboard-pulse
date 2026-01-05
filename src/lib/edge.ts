@@ -1,5 +1,5 @@
-import { supabase } from '@/integrations/supabase/client';
-import type { Target } from '@/store/useTargets';
+import { supabase } from '@/data/supabase-client';
+import type { Target } from '@/features/targets/schema';
 import { getRateLimiter } from '@/shared/lib/rate-limit-config';
 import { RateLimitMonitor } from '@/shared/lib/rate-limit-monitor';
 import { throttledLog, throttledLogOnChange } from '@/utils/log-throttle';
@@ -190,34 +190,19 @@ export const mapEdgeTarget = (record: Record<string, any>): Target => ({
 });
 
 export async function fetchTargetsWithTelemetry(force = false): Promise<{ targets: Target[]; cached: boolean; summary: TargetsSummary | null }> {
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:189',message:'fetchTargetsWithTelemetry entry',data:{force,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
-  
   // Deduplicate concurrent calls - if a request is already in flight, return the same promise
   // Even with force=true, we should deduplicate concurrent calls to avoid redundant expensive operations
   const cacheKey = 'all'; // Use single cache key to deduplicate all concurrent calls
   if (pendingEdgeFetchTargets.has(cacheKey)) {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:195',message:'fetchTargetsWithTelemetry deduplicated',data:{cacheKey,force},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
     return pendingEdgeFetchTargets.get(cacheKey)!;
   }
-  
+
   const fetchPromise = (async () => {
     const payload = force ? { force: true } : {};
-    const callStartTime = performance.now();
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:207',message:'rateLimitedEdgeCall start',data:{functionName:'targets-with-telemetry',force,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
-    // #endregion
     const { data, error } = await rateLimitedEdgeCall<TargetsFunctionResponse>('targets-with-telemetry', {
       method: 'POST',
       body: payload,
     });
-    const callDuration = performance.now() - callStartTime;
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:213',message:'rateLimitedEdgeCall complete',data:{functionName:'targets-with-telemetry',callDurationMs:callDuration,hasError:!!error,targetCount:data?.data?.length??0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
-    // #endregion
 
   if (error) {
     throw error;
@@ -403,9 +388,6 @@ interface DashboardMetricsResponse {
 }
 
 export async function fetchDashboardMetrics(force = false): Promise<{ metrics: DashboardMetricsData | null; cached: boolean; source?: string }> {
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:405',message:'fetchDashboardMetrics entry',data:{force,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
-  // #endregion
   const headers: Record<string, string> = {};
   let token: string | undefined;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -492,10 +474,6 @@ export async function fetchDashboardMetrics(force = false): Promise<{ metrics: D
   const cached = Boolean(result.data?.cached);
   const source = result.data?.source ?? undefined;
 
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:488',message:'fetchDashboardMetrics complete',data:{cached,source:source??null,hasMetrics:!!metrics},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
-  // #endregion
-
   // Throttle log to prevent flooding
   throttledLogOnChange('edge-dashboard-metrics', 5000, '[Edge] dashboard-metrics fetched', {
     cached,
@@ -513,9 +491,6 @@ export async function fetchDashboardMetrics(force = false): Promise<{ metrics: D
 }
 
 export async function fetchRoomsData(force = false): Promise<{ rooms: EdgeRoom[]; unassignedTargets: Target[]; cached: boolean }> {
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:508',message:'fetchRoomsData entry',data:{force,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
-  // #endregion
   const payload = force ? { force: true } : {};
   const { data, error } = await rateLimitedEdgeCall<RoomsFunctionResponse>('rooms', {
     method: 'POST',
@@ -556,10 +531,6 @@ export async function fetchRoomsData(force = false): Promise<{ rooms: EdgeRoom[]
     unassignedTargets,
     cached: Boolean(data?.cached),
   };
-
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:544',message:'fetchRoomsData complete',data:{cached:result.cached,roomCount:rooms.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
-  // #endregion
 
   // Throttle log to prevent flooding
   throttledLogOnChange('edge-rooms', 5000, '[Edge] rooms payload fetched', {

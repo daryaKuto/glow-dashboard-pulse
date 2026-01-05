@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRooms, type Room } from '@/features/rooms';
-import { useTargetGroups, type Group } from '@/store/useTargetGroups';
+import { useTargetGroups, type Group } from '@/state/useTargetGroups';
 import { useTargets, useTargetDetails, mergeTargetDetails, targetsKeys, useTargetCustomNames } from '@/features/targets';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/components/ui/sonner';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useIsMobile } from '@/shared/hooks/use-mobile';
 import type { Target } from '@/features/targets';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,16 +37,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { fetchAllGameHistory } from '@/services/game-history';
+import { fetchAllGameHistory } from '@/features/games/lib/game-history';
 import { TargetCustomizationDialog } from '@/components/targets/TargetCustomizationDialog';
 import CreateGroupModal from '@/components/targets/CreateGroupModal';
 import AddTargetsToGroupModal from '@/components/targets/AddTargetsToGroupModal';
 import TargetGroupCard from '@/components/targets/TargetGroupCard';
 import RenameTargetDialog from '@/components/targets/RenameTargetDialog';
-import { useSubscription } from '@/hooks/useSubscription';
+import { useSubscription } from '@/shared/hooks/use-subscription';
 import { PremiumLockIcon } from '@/components/shared/SubscriptionGate';
-import { useUserPrefs } from '@/store/useUserPrefs';
-import { supabase } from '@/integrations/supabase/client';
+import { useUserPrefs } from '@/state/useUserPrefs';
+import { useAuth } from '@/shared/hooks/use-auth';
 
 // Modern Target Card Component with ThingsBoard integration
 const TargetCard: React.FC<{
@@ -382,16 +382,8 @@ const Targets: React.FC = () => {
   
   // Check subscription status and log for debugging
   const { isPremium, tier, isLoading: subscriptionLoading } = useSubscription();
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  
-  // Get user email directly from Supabase (without AuthProvider dependency)
-  useEffect(() => {
-    const getUserEmail = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUserEmail(user?.email || null);
-    };
-    getUserEmail();
-  }, []);
+  const { user } = useAuth();
+  const userEmail = user?.email ?? null;
   
   useEffect(() => {
     if (!subscriptionLoading) {

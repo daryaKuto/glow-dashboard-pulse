@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { useRoomDesigner } from '@/store/useRoomDesigner';
+import { useRoomDesigner } from '@/state/useRoomDesigner';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useIsMobile } from '@/shared/hooks/use-mobile';
 import RoomCanvas from '@/components/RoomCanvas';
 import InspectorPanel from '@/components/InspectorPanel';
 import PalettePanel from '@/components/PalettePanel';

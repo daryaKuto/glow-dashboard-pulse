@@ -1,6 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
-import { useScenarioRun } from '../../src/store/useScenarioRun';
-import { useRooms } from '../../src/store/useRooms';
+import { useScenarioRun } from '../../src/_legacy/state/useScenarioRun_old_code';
+import { useRooms } from '../../src/state/useRooms';
 import API from '../../src/lib/api';
 import { SCENARIOS } from '../../src/data/scenarios';
 

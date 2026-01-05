@@ -1,4 +1,4 @@
-import type { GameHistory, SessionHitRecord, SessionSplit, SessionTransition } from '@/services/device-game-flow';
+import type { GameHistory, SessionHitRecord, SessionSplit, SessionTransition } from '@/features/games/lib/device-game-flow';
 
 // Shared representation of the most recent live session summary consumed across dashboard cards.
 export type LiveSessionSummary = {

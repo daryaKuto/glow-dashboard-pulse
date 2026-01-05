@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useTargets } from '../../src/store/useTargets';
+import { useTargets } from '../../src/state/useTargets';
 
 describe('useTargets', () => {
   beforeEach(() => {

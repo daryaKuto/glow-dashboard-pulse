@@ -1,30 +1,13 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import React, { useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import { supabase } from '@/data/supabase-client';
 import { ensureThingsboardSession, invalidateThingsboardSessionCache } from '@/lib/edge';
-import supabaseAuthService from '@/services/supabase-auth';
+import { authService } from '@/features/auth';
 import { saveThingsBoardCredentialsService } from '@/features/profile/service';
 import { performCompleteLogout } from '@/utils/logout';
+import { isApiOk } from '@/shared/lib/api-response';
 import type { User, Session } from '@supabase/supabase-js';
 import { throttledLog } from '@/utils/log-throttle';
-
-interface AuthContextType {
-  user: User | null;
-  session: Session | null;
-  loading: boolean;
-  
-  // Methods
-  checkSession: () => Promise<void>;
-  signOut: () => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, userData?: Record<string, unknown>) => Promise<void>;
-  
-  // Password Management
-  resetPassword: (email: string) => Promise<void>;
-  updatePassword: (newPassword: string) => Promise<void>;
-  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextType | null>(null);
+import { AuthContext } from '@/contexts/AuthContext';
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -38,10 +21,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setLoading(true);
     
     try {
-      const { data: { session }, error } = await supabase.auth.getSession();
+      const result = await authService.getSession();
       
-      if (error) {
-        console.error('[AuthProvider] Session error:', error);
+      if (!isApiOk(result)) {
+        console.error('[AuthProvider] Session error:', result.error);
         setUser(null);
         setSession(null);
         invalidateThingsboardSessionCache();
@@ -49,23 +32,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return;
       }
 
-      if (session?.user) {
-        setUser(session.user);
-        setSession(session);
-        const expiresIn = session.expires_at ? session.expires_at * 1000 - Date.now() : null;
+      const currentSession = result.data.session;
+
+      if (currentSession?.user) {
+        setUser(currentSession.user);
+        setSession(currentSession);
+        const expiresIn = currentSession.expires_at ? currentSession.expires_at * 1000 - Date.now() : null;
         // Log session establishment in dev mode only (throttled to prevent flooding)
         if (import.meta.env.DEV) {
           throttledLog('auth-session', 5000, '[Auth] Session established', {
             source: 'supabase.auth.getSession',
             supabaseProjectUrl: supabase.supabaseUrl,
             tablesInPlay: ['auth.sessions', 'public.user_profiles'],
-            userId: session.user.id,
-            email: session.user.email,
-            appMetadata: session.user.app_metadata,
-            lastSignInAt: session.user.last_sign_in_at,
-            expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+            userId: currentSession.user.id,
+            email: currentSession.user.email,
+            appMetadata: currentSession.user.app_metadata,
+            lastSignInAt: currentSession.user.last_sign_in_at,
+            expiresAt: currentSession.expires_at ? new Date(currentSession.expires_at * 1000).toISOString() : null,
             expiresInMs: expiresIn,
-            roles: session.user.app_metadata?.roles ?? null,
+            roles: currentSession.user.app_metadata?.roles ?? null,
           });
         }
         // Defer ThingsBoard session fetch to avoid rate limiting on initial load
@@ -103,10 +88,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const signOut = useCallback(async () => {
     try {
       // Clear Supabase session
-      const result = await supabaseAuthService.signOut();
-      if (result.success) {
-        // success
-      } else {
+      const result = await authService.signOut();
+      if (!isApiOk(result)) {
         console.error('[AuthProvider] Supabase sign out error:', result.error);
       }
       
@@ -135,43 +118,42 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Sign in with email and password
   const signIn = useCallback(async (email: string, password: string) => {
     try {
-      const result = await supabaseAuthService.signIn(email, password);
+      const result = await authService.signIn(email, password);
       
-      if (!result.success) {
-        throw new Error(result.message);
+      if (!isApiOk(result)) {
+        throw new Error(result.error.message);
       }
 
-      if (result.user && result.session) {
-        setUser(result.user);
-        setSession(result.session);
-        
-        // Trigger ThingsBoard authentication in background
+      const { user: authUser, session: authSession } = result.data;
+      setUser(authUser);
+      setSession(authSession);
+      
+      // Trigger ThingsBoard authentication in background
+      try {
+        const { unifiedDataService } = await import('@/features/profile/lib/unified-data');
+        await unifiedDataService.getThingsBoardData(authUser.id, authUser.email);
+        // Sync WiFi credentials after ThingsBoard authentication
         try {
-          const { unifiedDataService } = await import('@/services/unified-data');
-          await unifiedDataService.getThingsBoardData(result.user.id, result.user.email);
-          // Sync WiFi credentials after ThingsBoard authentication
-          try {
-            const { syncWifiCredentialsOnLogin } = await import('@/services/wifi-credentials');
-            await syncWifiCredentialsOnLogin(result.user.id);
-          } catch (wifiError) {
-            console.warn('[AuthProvider] WiFi sync failed (non-blocking):', wifiError);
-            // Don't block login if WiFi sync fails
-          }
-        } catch (tbError) {
-          console.warn('[AuthProvider] ThingsBoard authentication failed (non-blocking):', tbError);
-          // Don't block login if ThingsBoard fails
+          const { syncWifiCredentialsOnLogin } = await import('@/features/profile/lib/wifi-credentials');
+          await syncWifiCredentialsOnLogin(authUser.id);
+        } catch (wifiError) {
+          console.warn('[AuthProvider] WiFi sync failed (non-blocking):', wifiError);
+          // Don't block login if WiFi sync fails
         }
-
-        void ensureThingsboardSession().catch((tbError) => {
-          console.warn('[AuthProvider] Unable to obtain ThingsBoard session token after login (non-blocking):', tbError);
-        });
+      } catch (tbError) {
+        console.warn('[AuthProvider] ThingsBoard authentication failed (non-blocking):', tbError);
+        // Don't block login if ThingsBoard fails
       }
-      const emailForLog = result.user?.email ?? email;
-      if (emailForLog && import.meta.env.DEV) {
+
+      void ensureThingsboardSession().catch((tbError) => {
+        console.warn('[AuthProvider] Unable to obtain ThingsBoard session token after login (non-blocking):', tbError);
+      });
+
+      if (authUser?.email && import.meta.env.DEV) {
         console.info('[Auth] Credentials accepted', {
           source: 'supabase.auth.signInWithPassword',
-          email: emailForLog,
-          userId: result.user?.id ?? null,
+          email: authUser.email,
+          userId: authUser.id,
           supabaseProjectUrl: supabase.supabaseUrl,
           tablesTouched: ['auth.sessions', 'public.user_profiles'],
         });
@@ -185,31 +167,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Sign up with email and password
   const signUp = useCallback(async (email: string, password: string, userData?: Record<string, unknown>) => {
     try {
-      const result = await supabaseAuthService.signUp(email, password, userData);
+      const result = await authService.signUp(email, password, userData);
       
-      if (!result.success) {
-        throw new Error(result.message);
+      if (!isApiOk(result)) {
+        throw new Error(result.error.message);
       }
 
-      if (result.user && result.session) {
-        setUser(result.user);
-        setSession(result.session);
-        
-        // Save ThingsBoard credentials using the same email/password
-        try {
-          const saveResult = await saveThingsBoardCredentialsService(result.user.id, email, password);
-          if (!saveResult.ok || !saveResult.data) {
-            throw new Error(saveResult.ok ? 'Failed to save ThingsBoard credentials' : saveResult.error.message);
-          }
-        } catch (tbError) {
-          console.warn('[AuthProvider] Failed to save ThingsBoard credentials (user can set up later):', tbError);
-          // Don't fail the signup if ThingsBoard credential saving fails
-          // User can set up ThingsBoard integration later from their profile
+      const { user: authUser, session: authSession } = result.data;
+      setUser(authUser);
+      setSession(authSession);
+      
+      // Save ThingsBoard credentials using the same email/password
+      try {
+        const saveResult = await saveThingsBoardCredentialsService(authUser.id, email, password);
+        if (!saveResult.ok || !saveResult.data) {
+          throw new Error(saveResult.ok ? 'Failed to save ThingsBoard credentials' : saveResult.error.message);
         }
+      } catch (tbError) {
+        console.warn('[AuthProvider] Failed to save ThingsBoard credentials (user can set up later):', tbError);
+        // Don't fail the signup if ThingsBoard credential saving fails
+        // User can set up ThingsBoard integration later from their profile
       }
-      const emailForLog = result.user?.email ?? email;
-      if (emailForLog && import.meta.env.DEV) {
-        console.log('[Auth] Signed up as', emailForLog);
+
+      if (authUser?.email && import.meta.env.DEV) {
+        console.log('[Auth] Signed up as', authUser.email);
       }
     } catch (error) {
       console.error('[AuthProvider] Sign up error:', error);
@@ -220,10 +201,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Password reset - send reset email
   const resetPassword = useCallback(async (email: string) => {
     try {
-      const result = await supabaseAuthService.resetPassword(email);
+      const result = await authService.resetPassword(email);
       
-      if (!result.success) {
-        throw new Error(result.message);
+      if (!isApiOk(result)) {
+        throw new Error(result.error.message);
       }
     } catch (error) {
       console.error('[AuthProvider] Password reset error:', error);
@@ -234,10 +215,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Update password - for authenticated users
   const updatePassword = useCallback(async (newPassword: string) => {
     try {
-      const result = await supabaseAuthService.updatePassword(newPassword);
+      const result = await authService.updatePassword(newPassword);
       
-      if (!result.success) {
-        throw new Error(result.message);
+      if (!isApiOk(result)) {
+        throw new Error(result.error.message);
       }
     } catch (error) {
       console.error('[AuthProvider] Update password error:', error);
@@ -248,10 +229,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Change password - verify current password first
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     try {
-      const result = await supabaseAuthService.changePassword(currentPassword, newPassword);
+      const result = await authService.changePassword(currentPassword, newPassword);
       
-      if (!result.success) {
-        throw new Error(result.message);
+      if (!isApiOk(result)) {
+        throw new Error(result.error.message);
       }
     } catch (error) {
       console.error('[AuthProvider] Change password error:', error);
@@ -277,12 +258,4 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       {children}
     </AuthContext.Provider>
   );
-};
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
 };

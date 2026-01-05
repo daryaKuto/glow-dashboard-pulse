@@ -1,7 +1,7 @@
 import { fetchTargetsWithTelemetry, fetchTargetDetails, type TargetDetailsOptions } from '@/lib/edge';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/data/supabase-client';
 import { apiOk, apiErr, type ApiResponse } from '@/shared/lib/api-response';
-import { supabaseTargetCustomNamesService } from '@/services/supabase-target-custom-names';
+import type { TargetRepository } from '@/domain/targets/ports';
 import type { Target, TargetDetail, TargetsSummary } from './schema';
 
 /**
@@ -16,6 +16,20 @@ export interface TargetsWithSummary {
   summary: TargetsSummary | null;
   cached: boolean;
 }
+
+const getCurrentUserId = async (): Promise<string> => {
+  const { data: { user }, error } = await supabase.auth.getUser();
+
+  if (error) {
+    throw new Error(`Authentication error: ${error.message}`);
+  }
+
+  if (!user) {
+    throw new Error('No authenticated user found');
+  }
+
+  return user.id;
+};
 
 /**
  * Get all targets with telemetry from edge function
@@ -163,8 +177,23 @@ export async function setDeviceAttributes(
  */
 export async function getTargetCustomNames(): Promise<ApiResponse<Map<string, string>>> {
   try {
-    const names = await supabaseTargetCustomNamesService.getAllCustomNames();
-    return apiOk(names);
+    const userId = await getCurrentUserId();
+
+    const { data, error } = await supabase
+      .from('user_target_custom_names')
+      .select('target_id, custom_name')
+      .eq('user_id', userId);
+
+    if (error) {
+      throw error;
+    }
+
+    const customNamesMap = new Map<string, string>();
+    data?.forEach((record) => {
+      customNamesMap.set(record.target_id, record.custom_name);
+    });
+
+    return apiOk(customNamesMap);
   } catch (error) {
     console.error('[Targets Repo] Error fetching target custom names:', error);
     return apiErr(
@@ -184,7 +213,28 @@ export async function setTargetCustomName(
   customName: string
 ): Promise<ApiResponse<void>> {
   try {
-    await supabaseTargetCustomNamesService.setCustomName(targetId, originalName, customName);
+    if (!customName.trim()) {
+      return apiErr('VALIDATION_ERROR', 'Custom name cannot be empty');
+    }
+
+    const userId = await getCurrentUserId();
+
+    const { error } = await supabase
+      .from('user_target_custom_names')
+      .upsert({
+        user_id: userId,
+        target_id: targetId,
+        original_name: originalName,
+        custom_name: customName.trim(),
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id,target_id',
+      });
+
+    if (error) {
+      throw error;
+    }
+
     return apiOk(undefined);
   } catch (error) {
     console.error('[Targets Repo] Error setting target custom name:', error);
@@ -201,7 +251,18 @@ export async function setTargetCustomName(
  */
 export async function removeTargetCustomName(targetId: string): Promise<ApiResponse<void>> {
   try {
-    await supabaseTargetCustomNamesService.removeCustomName(targetId);
+    const userId = await getCurrentUserId();
+
+    const { error } = await supabase
+      .from('user_target_custom_names')
+      .delete()
+      .eq('user_id', userId)
+      .eq('target_id', targetId);
+
+    if (error) {
+      throw error;
+    }
+
     return apiOk(undefined);
   } catch (error) {
     console.error('[Targets Repo] Error removing target custom name:', error);
@@ -212,3 +273,17 @@ export async function removeTargetCustomName(targetId: string): Promise<ApiRespo
     );
   }
 }
+
+/**
+ * Repository adapter (ports & adapters pattern)
+ */
+export const targetsRepository: TargetRepository = {
+  getTargets,
+  getTargetDetails,
+  getTargetsSummary,
+  sendDeviceCommand,
+  setDeviceAttributes,
+  getTargetCustomNames,
+  setTargetCustomName,
+  removeTargetCustomName,
+};

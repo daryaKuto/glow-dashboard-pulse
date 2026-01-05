@@ -17,7 +17,7 @@ import { Gamepad2, Play, AlertCircle, CheckCircle2, Trash2, Loader2, Building2, 
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useIsMobile } from '@/shared/hooks/use-mobile';
 import { toast } from '@/components/ui/sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import type {
@@ -26,27 +26,28 @@ import type {
   SessionHitRecord,
   SessionSplit,
   SessionTransition,
-} from '@/services/device-game-flow';
-import { useGameDevices, type NormalizedGameDevice, DEVICE_ONLINE_STALE_THRESHOLD_MS } from '@/hooks/useGameDevices';
-import { useTargets, type Target } from '@/store/useTargets';
-import { useRooms } from '@/store/useRooms';
-import { useTargetGroups } from '@/store/useTargetGroups';
-import { useGameTelemetry, type SplitRecord, type TransitionRecord } from '@/hooks/useGameTelemetry';
-import { useThingsboardToken } from '@/hooks/useThingsboardToken';
-import { useDirectTbTelemetry } from '@/hooks/useDirectTbTelemetry';
+} from '@/features/games/lib/device-game-flow';
+import { useGameDevices, type NormalizedGameDevice, DEVICE_ONLINE_STALE_THRESHOLD_MS } from '@/features/games/hooks/use-game-devices';
+import { useTargets } from '@/features/targets';
+import type { Target } from '@/features/targets/schema';
+import { useRooms } from '@/features/rooms';
+import { useTargetGroups } from '@/state/useTargetGroups';
+import { useGameTelemetry, type SplitRecord, type TransitionRecord } from '@/features/games/hooks/use-game-telemetry';
+import { useThingsboardToken } from '@/features/games/hooks/use-thingsboard-token';
+import { useDirectTbTelemetry } from '@/features/games/hooks/use-direct-tb-telemetry';
 import {
   ensureTbAuthToken,
   tbSetShared,
   tbSendOneway,
-} from '@/services/thingsboard-client';
+} from '@/features/games/lib/thingsboard-client';
 import {
   fetchAllGameHistory as fetchPersistedGameHistory,
   saveGameHistory,
   mapSummaryToGameHistory,
   type GameHistorySummaryPayload,
-} from '@/services/game-history';
-import { useSessionActivation } from '@/hooks/useSessionActivation';
-import { useAuth } from '@/providers/AuthProvider';
+} from '@/features/games/lib/game-history';
+import { useSessionActivation } from '@/features/games/hooks/use-session-activation';
+import { useAuth } from '@/shared/hooks/use-auth';
 import { getRecentSessionsService } from '@/features/profile/service';
 import { throttledLogOnChange, throttledLog } from '@/utils/log-throttle';
 import { mark, measure, logPerformanceSummary } from '@/utils/performance-monitor';
@@ -66,7 +67,7 @@ import {
 import type { LiveSessionSummary } from '@/components/games/types';
 
 import { useSessionTimer, formatSessionDuration, type SessionLifecycle, type SessionHitEntry } from '@/components/game-session/sessionState';
-import { useGamePresets } from '@/store/useGamePresets';
+import { useGamePresets } from '@/state/useGamePresets';
 import type { GamePreset } from '@/lib/edge';
 
 type AxiosErrorLike = {
@@ -733,12 +734,17 @@ const Games: React.FC = () => {
   // Mirrors the fetch lifecycle so the history section can show skeletons/spinners.
   const [isHistoryLoading, setIsHistoryLoading] = useState(true);
   const { isLoading: loadingDevices, refresh: refreshGameDevices } = useGameDevices({ immediate: false });
-  const targetsSnapshot = useTargets((state) => state.targets);
-  const targetsStoreLoading = useTargets((state) => state.isLoading);
-  const refreshTargets = useTargets((state) => state.refresh);
-  const rooms = useRooms((state) => state.rooms);
-  const roomsLoading = useRooms((state) => state.isLoading);
-  const fetchRooms = useRooms((state) => state.fetchRooms);
+  const {
+    data: targetsData,
+    isLoading: targetsStoreLoading,
+    refetch: refetchTargets,
+  } = useTargets();
+  const targetsSnapshot = targetsData?.targets ?? [];
+  const refreshTargets = useCallback(async () => {
+    await refetchTargets();
+  }, [refetchTargets]);
+  const { data: roomsData, isLoading: roomsLoading } = useRooms();
+  const rooms = roomsData?.rooms ?? [];
   const groups = useTargetGroups((state) => state.groups);
   const groupsLoading = useTargetGroups((state) => state.isLoading);
   const fetchGroups = useTargetGroups((state) => state.fetchGroups);
@@ -1549,7 +1555,7 @@ const Games: React.FC = () => {
         hasLoadedDevicesRef.current = true;
 
         // Don't call refreshTargets here - it's redundant since we already fetched devices
-        // The targets store will be updated by other components that need it
+        // React Query will serve cached targets to other consumers
         // This prevents duplicate expensive API calls
 
         // Toast notifications removed per user request

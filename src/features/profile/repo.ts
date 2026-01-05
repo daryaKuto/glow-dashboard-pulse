@@ -1,7 +1,7 @@
 import { supabase } from '@/data/supabase-client';
 import { apiOk, apiErr, type ApiResponse } from '@/shared/lib/api-response';
-import { getWifiFromSupabase } from '@/services/wifi-credentials';
-import { encryptPassword } from '@/services/credentials';
+import { getWifiFromSupabase } from '@/features/profile/lib/wifi-credentials';
+import { encryptPassword } from '@/shared/lib/credentials';
 import { buildProfileStats, type SessionSummary } from '@/domain/profile/rules';
 import {
   mapSessionRowToRecentSession,
@@ -11,6 +11,7 @@ import {
   type UserAnalyticsDbRow,
   type UserProfileDbRow,
 } from '@/domain/profile/mappers';
+import type { ProfileRepository } from '@/domain/profile/ports';
 import type {
   UserProfileData,
   RecentSession,
@@ -306,3 +307,15 @@ export async function saveThingsBoardCredentials(
     );
   }
 }
+
+/**
+ * Repository adapter (ports & adapters pattern)
+ */
+export const profileRepository: ProfileRepository = {
+  getProfile,
+  getRecentSessions,
+  getStatsTrend,
+  updateProfile,
+  getWifiCredentials,
+  saveThingsBoardCredentials,
+};

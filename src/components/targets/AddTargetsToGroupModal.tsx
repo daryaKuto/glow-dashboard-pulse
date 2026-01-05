@@ -4,7 +4,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Target } from 'lucide-react';
-import type { Target as TargetType } from '@/store/useTargets';
+import type { Target as TargetType } from '@/features/targets/schema';
 
 interface AddTargetsToGroupModalProps {
   isOpen: boolean;
@@ -188,4 +188,3 @@ const AddTargetsToGroupModal: React.FC<AddTargetsToGroupModalProps> = ({
 };
 
 export default AddTargetsToGroupModal;
-

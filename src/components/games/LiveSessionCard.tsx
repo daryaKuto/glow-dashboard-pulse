@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
-import type { NormalizedGameDevice } from '@/hooks/useGameDevices';
+import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import { formatSessionDuration } from '@/components/game-session/sessionState';
 import type { LiveSessionSummary } from './types';
 import { Building2, Clock3, Bookmark, Crosshair, PlusCircle, RotateCcw } from 'lucide-react';

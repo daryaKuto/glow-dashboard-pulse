@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
-import { useAuth } from '@/providers/AuthProvider';
+import { useAuth } from '@/shared/hooks/use-auth';
 import { useRooms } from '@/features/rooms';
-import { useUserPrefs } from '@/store/useUserPrefs';
+import { useUserPrefs } from '@/state/useUserPrefs';
 import { useProfile, useRecentSessions, useStatsTrend, useUpdateProfile, useWifiCredentials, profileKeys } from '@/features/profile';
 import { useSetDeviceAttributes } from '@/features/targets';
 import { useQueryClient } from '@tanstack/react-query';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useIsMobile } from '@/shared/hooks/use-mobile';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
@@ -47,7 +47,7 @@ import {
   Timer,
   Award
 } from 'lucide-react';
-import type { UserPreferences, TargetPreferences } from '@/store/useUserPrefs';
+import type { UserPreferences, TargetPreferences } from '@/state/useUserPrefs';
 
 const Profile: React.FC = () => {
   const isMobile = useIsMobile();

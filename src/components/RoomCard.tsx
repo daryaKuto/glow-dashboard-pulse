@@ -30,7 +30,7 @@ import {
   Eye
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Room } from '@/store/useRooms';
+import type { Room } from '@/features/rooms/schema';
 
 interface RoomCardProps {
   room: Room;

@@ -2,7 +2,7 @@
 import React from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { cn } from '@/lib/utils';
-import { TargetGroup, TargetLayout } from '@/store/useRoomDesigner';
+import { TargetGroup, TargetLayout } from '@/state/useRoomDesigner';
 
 interface GroupBoxProps {
   group: TargetGroup;

@@ -24,7 +24,7 @@ import NotFound from './pages/NotFound';
 
 // Components
 import { Toaster } from './components/ui/sonner';
-import { useAuth } from './providers/AuthProvider';
+import { useAuth } from '@/shared/hooks/use-auth';
 
 import './App.css';
 

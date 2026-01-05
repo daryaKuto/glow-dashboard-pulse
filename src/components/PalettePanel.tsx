@@ -1,9 +1,9 @@
 
 import React from 'react';
-import { useRoomDesigner } from '@/store/useRoomDesigner';
+import { useRoomDesigner } from '@/state/useRoomDesigner';
 import { useLocation } from 'react-router-dom';
 import TargetIcon from '@/pages/targets/TargetIcon';
-import { Target } from '@/store/useTargets';
+import type { Target } from '@/features/targets/schema';
 
 interface PalettePanelProps {
   targets: Target[];

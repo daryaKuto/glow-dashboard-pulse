@@ -3,11 +3,11 @@
  * Clears all application state, localStorage, and resets stores
  */
 
-import { useGameFlow } from '@/store/useGameFlow';
-import { useStats } from '@/store/useStats';
-import { useProfile } from '@/store/useProfile';
-import { useRooms } from '@/store/useRooms';
-import { useTargets } from '@/store/useTargets';
+import { useGameFlow } from '@/state/useGameFlow';
+import { useStats } from '@/state/useStats';
+import { useProfile } from '@/state/useProfile';
+import { useRooms } from '@/state/useRooms';
+import { useTargets } from '@/state/useTargets';
 
 /**
  * Clear all application state and data

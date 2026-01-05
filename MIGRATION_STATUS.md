@@ -15,7 +15,7 @@ This document tracks the migration from Zustand stores to React Query with featu
 - [x] Schema, repo, service, hooks implemented
 - [x] UI migrated (`src/features/rooms/ui/rooms-page.tsx`)
 - [x] Routing updated to use new RoomsPage
-- [x] Old store marked as deprecated (`src/store/useRooms.ts`)
+- [x] Old store marked as deprecated (`src/state/useRooms.ts`)
 
 ### Phase 3: All Features Migrated
 - [x] **Targets** (`src/features/targets/`) - Complete
@@ -42,14 +42,14 @@ These pages have been updated but may still reference old stores for compatibili
 ### Legacy Stores Status
 All server state stores are marked as deprecated:
 
-- `src/store/useRooms.ts` - ✅ Deprecated, use `@/features/rooms`
-- `src/store/useTargets.ts` - ✅ Deprecated, use `@/features/targets`
-- `src/store/useProfile.ts` - ✅ Deprecated, use `@/features/profile`
-- `src/store/useDashboardStats.ts` - ✅ Deprecated, use `@/features/dashboard`
-- `src/store/useGameFlow.ts` - ⚠️ Still in use, needs migration
-- `src/store/useScenarios.ts` - ⚠️ Still in use
-- `src/store/useSessions.ts` - ⚠️ Still in use
-- `src/store/useStats.ts` - ⚠️ Still in use
+- `src/state/useRooms.ts` - ✅ Deprecated, use `@/features/rooms`
+- `src/state/useTargets.ts` - ✅ Deprecated, use `@/features/targets`
+- `src/state/useProfile.ts` - ✅ Deprecated, use `@/features/profile`
+- `src/state/useDashboardStats.ts` - ✅ Deprecated, use `@/features/dashboard`
+- `src/state/useGameFlow.ts` - ⚠️ Still in use, needs migration
+- `src/state/useScenarios.ts` - ⚠️ Still in use
+- `src/state/useSessions.ts` - ⚠️ Still in use
+- `src/state/useStats.ts` - ⚠️ Still in use
 
 ## 📋 Remaining Work
 

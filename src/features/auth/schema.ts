@@ -14,18 +14,18 @@ export const authSessionSchema = z.object({
 });
 
 export const signInSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
+  email: z.string().email('Please enter a valid email'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
 export const signUpSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
-  userData: z.record(z.unknown()).optional(),
+  name: z.string().min(1, 'Name is required'),
+  email: z.string().email('Please enter a valid email'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
 export const resetPasswordSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email('Please enter a valid email'),
 });
 
 export const updatePasswordSchema = z.object({

@@ -5,9 +5,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { NormalizedGameDevice } from '@/hooks/useGameDevices';
-import type { DeviceStatus } from '@/services/device-game-flow';
-import type { Target } from '@/store/useTargets';
+import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
+import type { DeviceStatus } from '@/features/games/lib/device-game-flow';
+import type { Target } from '@/features/targets/schema';
 
 interface TargetSelectionCardProps {
   loadingDevices: boolean;

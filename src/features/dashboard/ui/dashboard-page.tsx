@@ -1,20 +1,17 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Target as TargetIcon, Users, Calendar, Bell, TrendingUp, Activity, Play, User, X, BarChart, Award, CheckCircle, Gamepad2, Trophy } from 'lucide-react';
-import { useStats } from '@/store/useStats';
-import { useTargetsSummary, useTargetsWithDetails } from '@/features/targets';
+import { useTargetsWithDetails } from '@/features/targets';
 import { useRooms } from '@/features/rooms';
 import { useDashboardMetrics } from '@/features/dashboard';
-import { useScenarios, type ScenarioHistory } from '@/store/useScenarios';
-import { useSessions, type Session } from '@/store/useSessions';
-import { useAuth } from '@/providers/AuthProvider';
-// Legacy store - will be removed after full migration
-import { useTargets } from '@/store/useTargets';
+import { useScenarios, type ScenarioHistory } from '@/state/useScenarios';
+import { useSessions, type Session } from '@/state/useSessions';
+import { useAuth } from '@/shared/hooks/use-auth';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { useInitialSync } from '@/hooks/useInitialSync';
+import { useIsMobile } from '@/shared/hooks/use-mobile';
+import { useInitialSync } from '@/features/dashboard/hooks/use-initial-sync';
 import type { TargetsSummary } from '@/lib/edge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -211,22 +208,11 @@ const Dashboard: React.FC = () => {
   const hasInitializedRef = useRef(false);
   const targetsRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
   
-  // Real data from stores
-  const { 
-    metrics,
-    activeTargets, 
-    roomsCreated, 
-    pendingInvites, 
-    isLoading: statsLoading, 
-    fetchStats
-  } = useStats();
-  
   // Get user authentication first (needed for useDashboardMetrics)
   const { user, session, loading: authLoading } = useAuth();
   
   // Use new React Query hooks
   // Don't force fetch on mount - let React Query use cached data if available
-  const { data: targetsData } = useTargetsSummary(false);
   const { data: roomsData, isLoading: roomsLoading, refetch: refetchRooms } = useRooms(false);
   
   const { data: dashboardMetricsData, isLoading: metricsLoading } = useDashboardMetrics(false, user?.id);
@@ -242,8 +228,7 @@ const Dashboard: React.FC = () => {
   // Store refetch function in ref to keep it stable
   targetsRefetchRef.current = targetsWithDetails.refetch;
   
-  // Legacy targets store for compatibility (will be removed)
-  const { targets: rawTargets, setTargets, fetchTargetDetails } = useTargets();
+  const rawTargets = targetsWithDetails.targets ?? [];
   const rooms = roomsData?.rooms || [];
   
   // Use new React Query data if available, fallback to legacy
@@ -261,7 +246,7 @@ const Dashboard: React.FC = () => {
   // dashboardMetricsData comes from useDashboardMetrics React Query hook
   // Use React Query data instead of Zustand store to avoid duplicate fetches
   // dashboardMetricsData comes from useDashboardMetrics React Query hook
-  const summary: TargetsSummary | null = dashboardMetricsData?.metrics?.summary ?? metrics?.summary ?? null;
+  const summary: TargetsSummary | null = dashboardMetricsData?.metrics?.summary ?? null;
   // Use React Query loading state instead of Zustand loading state
   // statsLoading from Zustand may be stuck if fetchStats is never called
   const summaryLoading = metricsLoading;
@@ -292,9 +277,6 @@ const Dashboard: React.FC = () => {
     // useInitialSync handles sessions fetching.
     // We only need to refresh non-React Query stores here.
     const refreshAllData = async () => {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'dashboard-page.tsx:286',message:'refreshAllData start',data:{userId:user?.id,stackTrace:new Error().stack?.split('\n').slice(1,4).join('|')},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
       try {
         // Only refresh Zustand stores that aren't handled by React Query or useInitialSync
         // - fetchStats removed: useDashboardMetrics React Query hook handles this (H2 fix)
@@ -305,9 +287,6 @@ const Dashboard: React.FC = () => {
         ];
 
         await Promise.all(refreshPromises);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'dashboard-page.tsx:301',message:'refreshAllData complete',data:{promiseCount:refreshPromises.length},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
       } catch (error) {
         console.error('[Dashboard] Failed to refresh dashboard data', error);
       }

@@ -5,10 +5,10 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, Play, Square, Timer, Target, BookmarkPlus } from 'lucide-react';
-import type { NormalizedGameDevice } from '@/hooks/useGameDevices';
-import type { SessionHitRecord } from '@/services/device-game-flow';
-import type { TelemetryEnvelope } from '@/services/thingsboard-client';
-import { tbSubscribeTelemetry } from '@/services/thingsboard-client';
+import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
+import type { SessionHitRecord } from '@/features/games/lib/device-game-flow';
+import type { TelemetryEnvelope } from '@/features/games/lib/thingsboard-client';
+import { tbSubscribeTelemetry } from '@/features/games/lib/thingsboard-client';
 import {
   formatSecondsWithMillis,
   formatSessionDuration,

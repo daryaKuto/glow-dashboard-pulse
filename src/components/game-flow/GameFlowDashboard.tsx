@@ -16,8 +16,8 @@ import {
   Clock,
   Activity
 } from 'lucide-react';
-import { useGameFlow } from '@/store/useGameFlow';
-import { DeviceStatus } from '@/services/device-game-flow';
+import { useGameFlow } from '@/state/useGameFlow';
+import { DeviceStatus } from '@/features/games/lib/device-game-flow';
 import { toast } from '@/components/ui/sonner';
 
 interface GameFlowDashboardProps {

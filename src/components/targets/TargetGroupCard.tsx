@@ -16,9 +16,9 @@ import {
   X,
   Plus
 } from 'lucide-react';
-import { Group } from '@/store/useTargetGroups';
-import type { Room } from '@/store/useRooms';
-import type { Target as TargetType } from '@/store/useTargets';
+import { Group } from '@/state/useTargetGroups';
+import type { Room } from '@/features/rooms/schema';
+import type { Target as TargetType } from '@/features/targets/schema';
 
 interface TargetGroupCardProps {
   group: Group;
@@ -241,4 +241,3 @@ const TargetGroupCard: React.FC<TargetGroupCardProps> = ({
 };
 
 export default TargetGroupCard;
-

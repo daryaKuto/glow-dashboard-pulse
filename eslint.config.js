@@ -24,6 +24,20 @@ export default tseslint.config(
         { allowConstantExport: true },
       ],
       "@typescript-eslint/no-unused-vars": "off",
+      // Prevent direct Supabase imports outside data layer and services
+      "no-restricted-imports": ["error", {
+        patterns: [{
+          group: ["@/integrations/supabase/client"],
+          message: "Use @/data/supabase-client instead. Direct Supabase imports only allowed in src/data/",
+        }],
+      }],
+    },
+  },
+  // Override for data layer - allow direct Supabase imports
+  {
+    files: ["src/data/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": "off",
     },
   }
 );

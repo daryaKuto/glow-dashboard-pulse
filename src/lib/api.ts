@@ -1,7 +1,7 @@
-import dualAuthService, { type DualAuthResult } from '@/services/dual-auth';
-import { supabase } from '@/integrations/supabase/client';
-import type { GameTemplate } from '@/types/game';
-import type { Target } from '@/store/useTargets';
+import dualAuthService, { type DualAuthResult } from '@/features/auth/lib/dual-auth';
+import { supabase } from '@/data/supabase-client';
+import type { GameTemplate } from '@/features/games/schema';
+import type { Target } from '@/features/targets/schema';
 import {
   fetchDashboardMetrics,
   fetchRoomsData,
@@ -11,7 +11,7 @@ import {
   type EdgeRoom,
   type TargetsSummary,
 } from '@/lib/edge';
-import { supabaseRoomsService, type CreateRoomData, type UserRoom } from '@/services/supabase-rooms';
+import { supabaseRoomsService, type CreateRoomData, type UserRoom } from '@/features/rooms/lib/supabase-rooms';
 
 const TARGETS_KEY = 'targets';
 const ROOMS_KEY = 'rooms';

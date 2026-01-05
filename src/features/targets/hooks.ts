@@ -1,15 +1,23 @@
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { toast } from '@/components/ui/sonner';
+import { useAuth } from '@/shared/hooks';
 import {
   getTargetsWithTelemetry,
   getTargetDetailsService,
+  getTargetDetailsWithPermissionService,
   getTargetsSummaryService,
   mergeTargetDetails,
   sendDeviceCommandService,
+  sendDeviceCommandWithPermissionService,
   setDeviceAttributesService,
+  setDeviceAttributesWithPermissionService,
   getTargetCustomNamesService,
   setTargetCustomNameService,
+  setTargetCustomNameWithPermissionService,
   removeTargetCustomNameService,
+  removeTargetCustomNameWithPermissionService,
+  type UserContext,
+  type TargetContext,
 } from './service';
 import type {
   Target,
@@ -18,6 +26,17 @@ import type {
   TargetsSummary,
 } from './schema';
 import type { TargetsWithSummary } from './repo';
+
+/**
+ * Helper to build UserContext from auth user
+ */
+function buildUserContext(userId: string | undefined): UserContext | null {
+  if (!userId) return null;
+  return {
+    userId,
+    // subscriptionTier could be fetched from user profile if needed
+  };
+}
 
 /**
  * React Query hooks for Targets feature
@@ -44,16 +63,10 @@ export function useTargets(force = false) {
   return useQuery({
     queryKey: targetsKeys.list(force),
     queryFn: async () => {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'targets/hooks.ts:46',message:'useTargets queryFn start',data:{force},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
-      // #endregion
       const result = await getTargetsWithTelemetry(force);
       if (!result.ok) {
         throw new Error(result.error.message);
       }
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'targets/hooks.ts:51',message:'useTargets queryFn complete',data:{force,hasData:!!result.data,targetCount:result.data?.targets?.length??0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
-      // #endregion
       return result.data;
     },
     staleTime: 60 * 1000, // 60 seconds - increased to reduce refetches
@@ -90,16 +103,10 @@ export function useTargetDetails(
   return useQuery({
     queryKey: targetsKeys.details(deviceIds, options),
     queryFn: async () => {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'targets/hooks.ts:86',message:'useTargetDetails queryFn start',data:{deviceIdsCount:deviceIds.length,enabled},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4,H5'})}).catch(()=>{});
-      // #endregion
       const result = await getTargetDetailsService(deviceIds, options);
       if (!result.ok) {
         throw new Error(result.error.message);
       }
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'targets/hooks.ts:91',message:'useTargetDetails queryFn complete',data:{deviceIdsCount:deviceIds.length,detailsCount:result.data?.length??0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4,H5'})}).catch(()=>{});
-      // #endregion
       return result.data;
     },
     enabled: enabled && deviceIds.length > 0,
@@ -284,3 +291,203 @@ export function useRemoveTargetCustomName() {
     },
   });
 }
+
+// ============================================================================
+// Permission-Aware Hooks
+// These hooks enforce permission checks before performing operations.
+// Use these when you need to respect ownership and subscription tier limits.
+// ============================================================================
+
+/**
+ * Get target details with permission check
+ * Validates user can request batch details based on subscription tier.
+ */
+export function useTargetDetailsWithPermission(
+  deviceIds: string[],
+  options?: TargetDetailsOptions,
+  enabled = true
+) {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: [...targetsKeys.details(deviceIds, options), 'with-permission'],
+    queryFn: async () => {
+      const userContext = buildUserContext(user?.id);
+      if (!userContext) {
+        throw new Error('User must be authenticated to view target details');
+      }
+
+      const result = await getTargetDetailsWithPermissionService(
+        userContext,
+        deviceIds,
+        options
+      );
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    enabled: enabled && deviceIds.length > 0 && !!user?.id,
+    staleTime: 30 * 1000,
+    refetchOnMount: false,
+  });
+}
+
+/**
+ * Send RPC command to devices with permission check
+ * Validates user owns the targets before sending commands.
+ */
+export function useDeviceCommandWithPermission() {
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      targets,
+      method,
+      params,
+    }: {
+      targets: TargetContext[];
+      method: string;
+      params?: Record<string, unknown>;
+    }) => {
+      const userContext = buildUserContext(user?.id);
+      if (!userContext) {
+        throw new Error('User must be authenticated to send device commands');
+      }
+
+      const result = await sendDeviceCommandWithPermissionService(
+        userContext,
+        targets,
+        method,
+        params
+      );
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to send command: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Set device attributes with permission check
+ * Validates user owns the targets before updating attributes.
+ */
+export function useSetDeviceAttributesWithPermission() {
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      targets,
+      attributes,
+    }: {
+      targets: TargetContext[];
+      attributes: Record<string, unknown>;
+    }) => {
+      const userContext = buildUserContext(user?.id);
+      if (!userContext) {
+        throw new Error('User must be authenticated to update device attributes');
+      }
+
+      const result = await setDeviceAttributesWithPermissionService(
+        userContext,
+        targets,
+        attributes
+      );
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    onSuccess: () => {
+      toast.success('Device settings updated');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to update device: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Set a custom name for a target with permission check
+ * Validates user owns the target before renaming.
+ */
+export function useSetTargetCustomNameWithPermission() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      target,
+      originalName,
+      customName,
+    }: {
+      target: TargetContext;
+      originalName: string;
+      customName: string;
+    }) => {
+      const userContext = buildUserContext(user?.id);
+      if (!userContext) {
+        throw new Error('User must be authenticated to rename targets');
+      }
+
+      const result = await setTargetCustomNameWithPermissionService(
+        userContext,
+        target,
+        originalName,
+        customName
+      );
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: targetsKeys.customNames() });
+      toast.success('Target renamed successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to rename target: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Remove a custom name for a target with permission check
+ * Validates user owns the target before removing the custom name.
+ */
+export function useRemoveTargetCustomNameWithPermission() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({ target }: { target: TargetContext }) => {
+      const userContext = buildUserContext(user?.id);
+      if (!userContext) {
+        throw new Error('User must be authenticated to remove target names');
+      }
+
+      const result = await removeTargetCustomNameWithPermissionService(
+        userContext,
+        target
+      );
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: targetsKeys.customNames() });
+      toast.success('Custom name removed');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to remove custom name: ${error.message}`);
+    },
+  });
+}
+
+// Re-export types for consumers
+export type { UserContext, TargetContext } from './service';

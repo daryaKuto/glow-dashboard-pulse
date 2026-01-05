@@ -1,8 +1,7 @@
 import React from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '@/providers/AuthProvider';
-import { useStats } from '@/store/useStats';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useAuth } from '@/shared/hooks/use-auth';
+import { useIsMobile } from '@/shared/hooks/use-mobile';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -21,7 +20,6 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
-  const { wsConnected } = useStats();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const isMobile = useIsMobile();

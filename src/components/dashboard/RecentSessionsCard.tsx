@@ -4,7 +4,7 @@ import { Gamepad2, Trophy, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import type { Session } from '@/store/useSessions';
+import type { Session } from '@/state/useSessions';
 import { formatDurationValue, formatScoreValue } from '@/utils/dashboard';
 
 type RecentSessionsCardProps = {

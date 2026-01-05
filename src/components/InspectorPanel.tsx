@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { useRoomDesigner } from '@/store/useRoomDesigner';
-import { useTargets } from '@/store/useTargets';
+import { useRoomDesigner } from '@/state/useRoomDesigner';
+import { useTargets } from '@/features/targets';
 import { useLocation } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,8 @@ const InspectorPanel: React.FC = () => {
     ungroupTargets
   } = useRoomDesigner();
   
-  const { targets } = useTargets();
+  const { data: targetsData } = useTargets();
+  const targets = targetsData?.targets ?? [];
   
   const [groupName, setGroupName] = useState('');
   const [isEditing, setIsEditing] = useState(false);

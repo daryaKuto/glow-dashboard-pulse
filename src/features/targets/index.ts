@@ -17,6 +17,12 @@ export {
   useTargetCustomNames,
   useSetTargetCustomName,
   useRemoveTargetCustomName,
+  // Permission-aware hooks
+  useTargetDetailsWithPermission,
+  useDeviceCommandWithPermission,
+  useSetDeviceAttributesWithPermission,
+  useSetTargetCustomNameWithPermission,
+  useRemoveTargetCustomNameWithPermission,
   targetsKeys,
 } from './hooks';
 
@@ -29,6 +35,9 @@ export type {
 } from './schema';
 
 export type { TargetsWithSummary } from './repo';
+
+// Permission types
+export type { UserContext, TargetContext } from './hooks';
 
 // Re-export merge function for advanced use cases
 export { mergeTargetDetails } from './service';

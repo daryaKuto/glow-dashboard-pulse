@@ -12,7 +12,7 @@ import {
   useDroppable
 } from '@dnd-kit/core';
 import { restrictToParentElement } from '@dnd-kit/modifiers';
-import { useRoomDesigner } from '@/store/useRoomDesigner';
+import { useRoomDesigner } from '@/state/useRoomDesigner';
 import { useLocation } from 'react-router-dom';
 import TargetIcon from '@/pages/targets/TargetIcon';
 import GroupBox from './GroupBox';

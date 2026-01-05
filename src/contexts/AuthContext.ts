@@ -9,9 +9,8 @@ export interface AuthContextType {
   // Methods
   checkSession: () => Promise<void>;
   signOut: () => Promise<void>;
-  signIn: (email: string, password: string) => Promise<{ token: string; refreshToken: string }>;
-  signInWithGoogle: () => Promise<void>;
-  signUp: (name: string, email: string, password: string) => Promise<{ token: string; refreshToken: string }>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, userData?: Record<string, unknown>) => Promise<void>;
   
   // Password Management
   resetPassword: (email: string) => Promise<void>;

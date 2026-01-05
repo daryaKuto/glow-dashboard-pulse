@@ -1,43 +1,97 @@
 
-import React, { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import { useStats } from '@/store/useStats';
+import React, { useState } from 'react';
+import { useStats } from '@/state/useStats';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useIsMobile } from '@/shared/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Trophy, Target, Users } from 'lucide-react';
-
-interface LeaderboardEntry {
-  id: number;
-  name: string;
-  score: number;
-  hits: number;
-  accuracy: number;
-  rank: number;
-}
+import { useLeaderboardEntries } from '../hooks';
+import type { LeaderboardEntry, LeaderboardQuery } from '../schema';
 
 const Leaderboard: React.FC = () => {
-  const location = useLocation();
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const { wsConnected } = useStats();
-  const [timeframe, setTimeframe] = useState('week');
-  const [activeTab, setActiveTab] = useState('score');
+  const [timeframe, setTimeframe] = useState<LeaderboardQuery['timeframe']>('week');
+  const [activeTab, setActiveTab] = useState<LeaderboardQuery['sortBy']>('score');
 
-  useEffect(() => {
-    // Fetch leaderboard data based on timeframe
-    console.log('Fetching leaderboard data for timeframe:', timeframe);
-  }, [timeframe]);
+  const { data: leaderboardEntries = [], isLoading, error } = useLeaderboardEntries({
+    timeframe,
+    sortBy: activeTab,
+    limit: 10,
+  });
+
+  const handleTimeframeChange = (value: string) => {
+    setTimeframe(value as LeaderboardQuery['timeframe']);
+  };
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value as LeaderboardQuery['sortBy']);
+  };
 
   const getRankIcon = (rank: number) => {
     if (rank === 1) return '🥇';
     if (rank === 2) return '🥈';
     if (rank === 3) return '🥉';
     return `#${rank}`;
+  };
+
+  const renderEntries = (entries: LeaderboardEntry[], metric: LeaderboardQuery['sortBy']) => {
+    if (isLoading) {
+      return (
+        <div className="text-center py-8 text-brand-dark/70 font-body">
+          Loading leaderboard...
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="text-center py-8 text-brand-dark/70 font-body">
+          Unable to load leaderboard data
+        </div>
+      );
+    }
+
+    if (entries.length === 0) {
+      return (
+        <div className="text-center py-8 text-brand-dark/70 font-body">
+          No leaderboard data available
+        </div>
+      );
+    }
+
+    return entries.map((entry) => {
+      const metricValue = metric === 'score' ? entry.score : metric === 'hits' ? entry.hits : entry.accuracy;
+      const metricLabel = metric === 'score' ? 'points' : metric === 'hits' ? 'hits' : 'accuracy';
+      const displayValue = metric === 'accuracy' ? `${Math.round(metricValue)}%` : metricValue;
+      const subLabel =
+        metric === 'score'
+          ? `Score: ${metricValue}`
+          : metric === 'hits'
+          ? `Hits: ${metricValue}`
+          : `Accuracy: ${Math.round(metricValue)}%`;
+
+      return (
+        <div key={entry.id} className="flex items-center justify-between p-4 bg-brand-secondary/5 rounded-lg border border-primary/10">
+          <div className="flex items-center gap-4">
+            <div className="text-2xl font-bold text-brand-primary">{getRankIcon(entry.rank)}</div>
+            <div>
+              <div className="font-medium text-brand-dark font-body">{entry.name}</div>
+              <div className="text-sm text-brand-dark/70 font-body">{subLabel}</div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-h3 font-heading text-brand-dark">{displayValue}</div>
+            <div className="text-sm text-brand-dark/70 font-body">{metricLabel}</div>
+          </div>
+        </div>
+      );
+    });
   };
 
   return (
@@ -61,14 +115,15 @@ const Leaderboard: React.FC = () => {
                   <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
                   <span>{wsConnected ? 'Live' : 'Offline'}</span>
                 </div>
-                <Select value={timeframe} onValueChange={setTimeframe}>
+                <Select value={timeframe} onValueChange={handleTimeframeChange}>
                   <SelectTrigger className="w-32 bg-white border-gray-200 text-brand-dark">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="bg-white border-gray-200">
-                    <SelectItem value="today" className="text-brand-dark hover:bg-brand-secondary/10">Today</SelectItem>
+                    <SelectItem value="day" className="text-brand-dark hover:bg-brand-secondary/10">Today</SelectItem>
                     <SelectItem value="week" className="text-brand-dark hover:bg-brand-secondary/10">This Week</SelectItem>
-                    <SelectItem value="alltime" className="text-brand-dark hover:bg-brand-secondary/10">All Time</SelectItem>
+                    <SelectItem value="month" className="text-brand-dark hover:bg-brand-secondary/10">This Month</SelectItem>
+                    <SelectItem value="all" className="text-brand-dark hover:bg-brand-secondary/10">All Time</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -79,7 +134,7 @@ const Leaderboard: React.FC = () => {
                 <CardTitle className="text-brand-dark font-heading">Top Performers</CardTitle>
               </CardHeader>
               <CardContent>
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
                   <TabsList className="bg-brand-secondary/10 mb-4 w-full">
                     <TabsTrigger value="score" className="flex-1 text-brand-dark data-[state=active]:bg-brand-brown data-[state=active]:text-white">
                       <Trophy className="h-4 w-4 mr-2" />
@@ -96,65 +151,17 @@ const Leaderboard: React.FC = () => {
                   </TabsList>
                   
                   <TabsContent value="score" className="space-y-4">
-                    {/* leaderboardData.map((entry) => ( */}
-                      <div key={1} className="flex items-center justify-between p-4 bg-brand-secondary/5 rounded-lg border border-primary/10">
-                        <div className="flex items-center gap-4">
-                          <div className="text-2xl font-bold text-brand-primary">{getRankIcon(1)}</div>
-                          <div>
-                            <div className="font-medium text-brand-dark font-body">John Doe</div>
-                            <div className="text-sm text-brand-dark/70 font-body">Score: 95</div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-h3 font-heading text-brand-dark">95</div>
-                          <div className="text-sm text-brand-dark/70 font-body">points</div>
-                        </div>
-                      </div>
-                    {/* ))} */}
+                    {renderEntries(leaderboardEntries, 'score')}
                   </TabsContent>
                   
                   <TabsContent value="hits" className="space-y-4">
-                    {/* leaderboardData.map((entry) => ( */}
-                      <div key={1} className="flex items-center justify-between p-4 bg-brand-secondary/5 rounded-lg border border-primary/10">
-                        <div className="flex items-center gap-4">
-                          <div className="text-2xl font-bold text-brand-primary">{getRankIcon(1)}</div>
-                          <div>
-                            <div className="font-medium text-brand-dark font-body">John Doe</div>
-                            <div className="text-sm text-brand-dark/70 font-body">Hits: 48</div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-h3 font-heading text-brand-dark">48</div>
-                          <div className="text-sm text-brand-dark/70 font-body">hits</div>
-                        </div>
-                      </div>
-                    {/* ))} */}
+                    {renderEntries(leaderboardEntries, 'hits')}
                   </TabsContent>
                   
                   <TabsContent value="accuracy" className="space-y-4">
-                    {/* leaderboardData.map((entry) => ( */}
-                      <div key={1} className="flex items-center justify-between p-4 bg-brand-secondary/5 rounded-lg border border-primary/10">
-                        <div className="flex items-center gap-4">
-                          <div className="text-2xl font-bold text-brand-primary">{getRankIcon(1)}</div>
-                          <div>
-                            <div className="font-medium text-brand-dark font-body">John Doe</div>
-                            <div className="text-sm text-brand-dark/70 font-body">Accuracy: 96%</div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-h3 font-heading text-brand-dark">96%</div>
-                          <div className="text-sm text-brand-dark/70 font-body">accuracy</div>
-                        </div>
-                      </div>
-                    {/* ))} */}
+                    {renderEntries(leaderboardEntries, 'accuracy')}
                   </TabsContent>
                 </Tabs>
-                
-                {/* leaderboardData.length === 0 && ( */}
-                  <div className="text-center py-8 text-brand-dark/70 font-body">
-                    No leaderboard data available
-                  </div>
-                {/* ) */}
               </CardContent>
             </Card>
           </div>

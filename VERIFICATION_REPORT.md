@@ -40,7 +40,7 @@
 - [x] React Query hooks created
 - [x] UI components updated to use new hooks
 - [x] Routing updated (`/dashboard/rooms` uses new RoomsPage)
-- [x] Old store marked as deprecated (`src/store/useRooms.ts`)
+- [x] Old store marked as deprecated (`src/state/useRooms.ts`)
 
 ## ✅ Phase 3: All Features Migrated - COMPLETE
 
@@ -92,14 +92,14 @@
 - [x] Rooms page using new hooks (migrated in Phase 2)
 
 ### 4.2 Legacy Stores Status ⚠️
-- [x] `src/store/useRooms.ts` - ✅ Deprecated (marked, not removed - safe for testing)
-- [x] `src/store/useTargets.ts` - ✅ Deprecated (marked, not removed - safe for testing)
-- [x] `src/store/useProfile.ts` - ✅ Deprecated (marked, not removed - safe for testing)
-- [x] `src/store/useDashboardStats.ts` - ✅ Deprecated (marked, not removed - safe for testing)
-- [ ] `src/store/useGameFlow.ts` - ⚠️ Still in use (complex, needs incremental migration)
-- [ ] `src/store/useScenarios.ts` - ⚠️ Still in use
-- [ ] `src/store/useSessions.ts` - ⚠️ Still in use
-- [ ] `src/store/useStats.ts` - ⚠️ Still in use
+- [x] `src/state/useRooms.ts` - ✅ Deprecated (marked, not removed - safe for testing)
+- [x] `src/state/useTargets.ts` - ✅ Deprecated (marked, not removed - safe for testing)
+- [x] `src/state/useProfile.ts` - ✅ Deprecated (marked, not removed - safe for testing)
+- [x] `src/state/useDashboardStats.ts` - ✅ Deprecated (marked, not removed - safe for testing)
+- [ ] `src/state/useGameFlow.ts` - ⚠️ Still in use (complex, needs incremental migration)
+- [ ] `src/state/useScenarios.ts` - ⚠️ Still in use
+- [ ] `src/state/useSessions.ts` - ⚠️ Still in use
+- [ ] `src/state/useStats.ts` - ⚠️ Still in use
 
 **Note:** Per plan, old stores are kept temporarily for safety during migration. They will be removed after thorough testing.
 

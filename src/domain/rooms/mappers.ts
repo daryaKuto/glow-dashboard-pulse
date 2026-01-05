@@ -3,6 +3,20 @@
  * 
  * Transform data between layers.
  * Pure functions - no React or Supabase imports.
+ * 
+ * NOTE: These mappers define a camelCase domain model but are currently UNUSED.
+ * The feature repo (src/features/rooms/repo.ts) handles transformations inline
+ * and returns schema types that match the UI expectations.
+ * 
+ * These mappers are kept for:
+ * 1. Documentation of the conceptual domain model
+ * 2. Future use if we decide to add a strict domain boundary
+ * 3. UI helper functions (createRoomDisplayName, createRoomSummary)
+ * 
+ * If you need to use these, update the repo to:
+ * 1. Call mappers when reading from DB/edge
+ * 2. Return RoomDomainModel instead of Room
+ * 3. Update all consumers to use the domain model
  */
 
 import type { CreateRoomInput, UpdateRoomInput, RoomOrderItem } from './validators';

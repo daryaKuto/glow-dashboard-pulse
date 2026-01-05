@@ -21,7 +21,7 @@ import { Plus, Users, Target, RefreshCw, Eye, X, Check, ArrowRight, ArrowLeft } 
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useIsMobile } from '@/shared/hooks/use-mobile';
 import RoomCard from '@/components/RoomCard';
 import DragDropList from '@/components/DragDropList';
 import { toast } from '@/components/ui/sonner';

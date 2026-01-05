@@ -6,8 +6,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Target } from 'lucide-react';
-import type { Target as TargetType } from '@/store/useTargets';
-import type { Room } from '@/store/useRooms';
+import type { Target as TargetType } from '@/features/targets/schema';
+import type { Room } from '@/features/rooms/schema';
 
 interface CreateGroupModalProps {
   isOpen: boolean;
@@ -274,4 +274,3 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
 };
 
 export default CreateGroupModal;
-

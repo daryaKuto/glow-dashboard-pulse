@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { authService } from '@/features/auth';
+import { isApiOk } from '@/shared/lib/api-response';
 
 export default function OAuthCallback() {
   const navigate = useNavigate();
@@ -8,15 +9,15 @@ export default function OAuthCallback() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        const { data, error } = await supabase.auth.getSessionFromUrl({ storeSession: true });
+        const result = await authService.handleOAuthCallback();
         
-        if (error) {
-          console.error('OAuth callback error:', error);
+        if (!isApiOk(result)) {
+          console.error('OAuth callback error:', result.error);
           navigate('/login');
           return;
         }
 
-        if (data.session) {
+        if (result.data.session) {
           // Successfully authenticated, redirect to dashboard
           navigate('/dashboard');
         } else {
@@ -40,4 +41,4 @@ export default function OAuthCallback() {
       </div>
     </div>
   );
-} 
+}

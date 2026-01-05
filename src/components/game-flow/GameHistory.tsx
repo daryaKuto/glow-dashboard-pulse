@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import React, { useState } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { 
   History, 
   Clock, 
@@ -9,24 +10,19 @@ import {
   Trophy, 
   TrendingUp,
   Calendar,
-  BarChart3
 } from 'lucide-react';
-import { useGameFlow } from '@/store/useGameFlow';
-import { GameHistory as GameHistoryType } from '@/services/device-game-flow';
+import { useGameHistory } from '@/features/games/hooks/use-game-history';
+import { GameHistory as GameHistoryType } from '@/features/games/lib/device-game-flow';
 
 interface GameHistoryProps {
   onGameSelect?: (game: GameHistoryType) => void;
 }
 
-const GameHistory: React.FC<GameHistoryProps> = ({ onGameSelect }) => {
-  const { gameHistory, loadGameHistory } = useGameFlow();
+const GameHistoryComponent: React.FC<GameHistoryProps> = ({ onGameSelect }) => {
+  const { data: gameHistory = [], isLoading, error } = useGameHistory();
   const [selectedGame, setSelectedGame] = useState<GameHistoryType | null>(null);
   const [sortBy, setSortBy] = useState<'date' | 'hits' | 'duration'>('date');
   const [filterBy, setFilterBy] = useState<'all' | 'recent' | 'high-score'>('all');
-
-  useEffect(() => {
-    loadGameHistory();
-  }, [loadGameHistory]);
 
   // Sort and filter games
   const sortedGames = gameHistory
@@ -61,10 +57,11 @@ const GameHistory: React.FC<GameHistoryProps> = ({ onGameSelect }) => {
   );
   const averageHits = totalGames > 0 ? Math.round(totalHits / totalGames) : 0;
   const bestGame = gameHistory.reduce((best, game) => {
+    if (!best) return game;
     const gameHits = game.deviceResults.reduce((sum, result) => sum + result.hitCount, 0);
     const bestHits = best.deviceResults.reduce((sum, result) => sum + result.hitCount, 0);
     return gameHits > bestHits ? game : best;
-  }, gameHistory[0]);
+  }, gameHistory[0] as GameHistoryType | undefined);
 
   const formatDate = (timestamp: number) => {
     return new Date(timestamp).toLocaleDateString('en-US', {
@@ -91,6 +88,49 @@ const GameHistory: React.FC<GameHistoryProps> = ({ onGameSelect }) => {
       result.hitCount > best.hitCount ? result : best
     );
   };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        {/* Statistics Overview Skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardContent className="p-4">
+                <Skeleton className="h-12 w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        {/* Game List Skeleton */}
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardContent className="p-4">
+                <Skeleton className="h-24 w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center">
+          <History className="h-12 w-12 text-red-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            Error Loading History
+          </h3>
+          <p className="text-gray-600">
+            {error instanceof Error ? error.message : 'Failed to load game history'}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -305,4 +345,4 @@ const GameHistory: React.FC<GameHistoryProps> = ({ onGameSelect }) => {
   );
 };
 
-export default GameHistory;
+export default GameHistoryComponent;

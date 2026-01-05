@@ -10,12 +10,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { ColorPicker } from '@/components/ui/color-picker';
-import { useUserPrefs, type TargetPreferences } from '@/store/useUserPrefs';
-import { uploadTargetSound, validateSoundFile } from '@/services/target-sounds';
+import { useUserPrefs, type TargetPreferences } from '@/state/useUserPrefs';
+import { uploadTargetSound, validateSoundFile } from '@/features/targets/lib/target-sounds';
 import { useSetDeviceAttributes } from '@/features/targets';
 import { toast } from '@/components/ui/sonner';
 import { Upload, X, Music, Palette, Loader2, Sparkles, Star, Zap, Crown, CheckCircle2 } from 'lucide-react';
-import { useSubscription } from '@/hooks/useSubscription';
+import { useSubscription } from '@/shared/hooks/use-subscription';
 
 interface TargetCustomizationDialogProps {
   targetId: string;

@@ -174,3 +174,5 @@ All features have React Query hooks:
 
 **The refactor is complete according to the plan!** All critical items are implemented, no fake data is used, and the architecture follows the feature-first pattern with React Query.
 
+
+

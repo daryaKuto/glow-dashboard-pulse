@@ -234,3 +234,5 @@ export function canStopSession(status: GameSessionStatus): boolean {
   return ['running', 'launching'].includes(status);
 }
 
+
+

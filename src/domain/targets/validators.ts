@@ -181,3 +181,5 @@ export function isValidTelemetryTimestamp(timestamp: unknown): timestamp is numb
   return timestamp > 0 && timestamp <= now + tolerance;
 }
 
+
+

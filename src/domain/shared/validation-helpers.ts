@@ -107,3 +107,5 @@ export function truncateString(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 3)}...`;
 }
 
+
+

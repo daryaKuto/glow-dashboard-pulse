@@ -119,14 +119,16 @@ export function calculateAverageAccuracy(sessions: SessionSummary[]): number | n
 }
 
 /**
- * Calculate best score from sessions
+ * Calculate best score from sessions.
+ * For time-based scoring, "best" means the lowest/fastest time.
  */
 export function calculateBestScore(sessions: SessionSummary[]): number | null {
   if (sessions.length === 0) {
     return null;
   }
   
-  return Math.max(...sessions.map(s => s.score));
+  // For time-based scoring, lower is better
+  return Math.min(...sessions.map(s => s.score));
 }
 
 /**

@@ -4,8 +4,9 @@ import { format } from 'date-fns';
 import { useAuth } from '@/shared/hooks/use-auth';
 import { useRooms } from '@/features/rooms';
 import { useUserPrefs } from '@/state/useUserPrefs';
-import { useProfile, useRecentSessions, useStatsTrend, useUpdateProfile, useWifiCredentials, profileKeys } from '@/features/profile';
+import { useProfile, useRecentSessions, useStatsTrend, useUpdateProfile, useWifiCredentials, useUpdateWifiCredentials, profileKeys } from '@/features/profile';
 import { useSetDeviceAttributes } from '@/features/targets';
+import { fetchTargetsWithTelemetry } from '@/features/games/lib/thingsboard-targets';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsMobile } from '@/shared/hooks/use-mobile';
 import Header from '@/components/shared/Header';
@@ -45,7 +46,10 @@ import {
   TrendingUp,
   Crosshair,
   Timer,
-  Award
+  Award,
+  Eye,
+  EyeOff,
+  Settings
 } from 'lucide-react';
 import type { UserPreferences, TargetPreferences } from '@/state/useUserPrefs';
 
@@ -56,6 +60,23 @@ const Profile: React.FC = () => {
   // Use new React Query hooks
   const { data: roomsData, refetch: refetchRooms } = useRooms();
   const liveRooms = roomsData?.rooms || [];
+  
+  // Fetch targets with accurate status directly from ThingsBoard (same approach as Games page)
+  // This uses getBatchServerAttributes to get the real-time 'active' server attribute
+  const [targetStatusMap, setTargetStatusMap] = React.useState<Map<string, string>>(new Map());
+  
+  React.useEffect(() => {
+    fetchTargetsWithTelemetry(false).then(({ targets }) => {
+      const map = new Map<string, string>();
+      targets.forEach(target => {
+        map.set(target.id, target.status);
+      });
+      setTargetStatusMap(map);
+    }).catch(err => {
+      console.error('Failed to fetch targets from ThingsBoard:', err);
+    });
+  }, []);
+  
   const { prefs, loading: prefsLoading, load: loadPrefs, save: savePrefs, updatePref } = useUserPrefs();
   
   // Profile hooks (React Query)
@@ -126,7 +147,12 @@ const Profile: React.FC = () => {
   
   // Derive wifi state from query
   const wifiCredentials = wifiCredentialsData || { ssid: '', password: '' };
-  const wifiError = wifiQueryError?.message || (!wifiCredentialsData && !loadingWifi ? 'No WiFi credentials found. Please ensure your devices are provisioned with WiFi credentials.' : null);
+  
+  // WiFi credentials edit state
+  const [wifiFormData, setWifiFormData] = useState({ ssid: '', password: '' });
+  const [showWifiPassword, setShowWifiPassword] = useState(false);
+  const [wifiFormError, setWifiFormError] = useState<string | null>(null);
+  const updateWifiCredentialsMutation = useUpdateWifiCredentials();
   
   // Device attributes mutation for syncing preferences to ThingsBoard
   const setDeviceAttributesMutation = useSetDeviceAttributes();
@@ -153,6 +179,50 @@ const Profile: React.FC = () => {
       });
     }
   }, [profileData]);
+
+  // Initialize WiFi form when credentials are loaded
+  useEffect(() => {
+    if (wifiCredentials && wifiCredentials.ssid) {
+      setWifiFormData(prev => ({
+        ssid: prev.ssid || wifiCredentials.ssid || '',
+        password: prev.password // Keep password as user entered it
+      }));
+    }
+  }, [wifiCredentials]);
+
+  // Handle WiFi credentials save
+  const handleSaveWifiCredentials = async () => {
+    // Validate form
+    if (!wifiFormData.ssid.trim()) {
+      setWifiFormError('WiFi network name is required');
+      return;
+    }
+    if (!wifiFormData.password || wifiFormData.password.length < 8) {
+      setWifiFormError('Password must be at least 8 characters');
+      return;
+    }
+
+    if (!authUser?.id) {
+      setWifiFormError('User not authenticated');
+      return;
+    }
+
+    try {
+      await updateWifiCredentialsMutation.mutateAsync({
+        userId: authUser.id,
+        credentials: {
+          ssid: wifiFormData.ssid.trim(),
+          password: wifiFormData.password
+        }
+      });
+      // Clear password field after successful save (keep ssid for reference)
+      setWifiFormData(prev => ({ ...prev, password: '' }));
+      setWifiFormError(null);
+    } catch (error) {
+      // Error is handled by the mutation's onError
+      console.error('Error saving WiFi credentials:', error);
+    }
+  };
 
   const handleChange = (targetId: string, field: keyof TargetPreferences, value: string) => {
     setFormPrefs(prev => ({
@@ -453,14 +523,14 @@ const Profile: React.FC = () => {
                       </div>
                     ) : (
                       <>
-                        {/* House WiFi Settings - Read Only Display */}
+                        {/* House WiFi Settings - Editable */}
                         <div className="p-4 border border-brand-primary/20 rounded-lg bg-brand-primary/5">
                           <div className="flex items-center justify-between mb-4">
                             <h4 className="font-semibold text-brand-dark flex items-center gap-2">
                               <Wifi className="h-5 w-5" />
-                              House WiFi Settings {false && <Badge className="bg-yellow-100 text-yellow-800">Demo</Badge>}
+                              Network Credentials
                             </h4>
-                            {!false && (
+                            <div className="flex items-center gap-2">
                               <button
                                 onClick={() => refetchWifiCredentials()}
                                 disabled={loadingWifi}
@@ -468,7 +538,7 @@ const Profile: React.FC = () => {
                               >
                                 {loadingWifi ? 'Refreshing...' : 'Refresh'}
                               </button>
-                            )}
+                            </div>
                           </div>
                           
                           {loadingWifi ? (
@@ -476,46 +546,96 @@ const Profile: React.FC = () => {
                               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-brand-primary mx-auto mb-2"></div>
                               <div className="text-brand-dark/70">Loading WiFi credentials...</div>
                             </div>
-                          ) : wifiError && !false ? (
-                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                              <div className="flex items-center gap-2 text-amber-700">
-                                <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
-                                <span className="text-sm font-medium">No WiFi credentials available</span>
-                              </div>
-                              <p className="text-sm text-amber-600 mt-1">{wifiError}</p>
-                            </div>
-                          ) : (wifiCredentials.ssid || wifiCredentials.password) ? (
-                            <div className="space-y-3">
+                          ) : (
+                            <div className="space-y-4">
+                              {/* Form Error */}
+                              {wifiFormError && (
+                                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                                  <p className="text-sm text-red-600">{wifiFormError}</p>
+                                </div>
+                              )}
+                              
+                              {/* WiFi Form */}
                               <div className="bg-white border border-brand-secondary/20 rounded-lg p-4">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                   <div>
-                                    <div className="text-xs text-brand-dark/60 font-medium mb-1">WiFi Network</div>
-                                    <div className="text-sm font-mono text-brand-dark bg-brand-light/50 px-2 py-1 rounded">
-                                      {wifiCredentials.ssid || 'Not set'}
-                                    </div>
+                                    <Label htmlFor="wifi-ssid" className="text-xs text-brand-dark/60 font-medium mb-1 block">
+                                      WiFi Network Name (SSID)
+                                    </Label>
+                                    <Input
+                                      id="wifi-ssid"
+                                      type="text"
+                                      placeholder="Enter network name"
+                                      value={wifiFormData.ssid}
+                                      onChange={(e) => {
+                                        setWifiFormData(prev => ({ ...prev, ssid: e.target.value }));
+                                        setWifiFormError(null);
+                                      }}
+                                      className="bg-brand-light/50 border-brand-secondary/30 text-brand-dark focus:border-brand-primary"
+                                      maxLength={32}
+                                    />
                                   </div>
                                   <div>
-                                    <div className="text-xs text-brand-dark/60 font-medium mb-1">Password</div>
-                                    <div className="text-sm font-mono text-brand-dark bg-brand-light/50 px-2 py-1 rounded">
-                                      {wifiCredentials.password ? '••••••••' : 'Not set'}
+                                    <Label htmlFor="wifi-password" className="text-xs text-brand-dark/60 font-medium mb-1 block">
+                                      Password
+                                    </Label>
+                                    <div className="relative">
+                                      <Input
+                                        id="wifi-password"
+                                        type={showWifiPassword ? 'text' : 'password'}
+                                        placeholder="Enter password (min 8 characters)"
+                                        value={wifiFormData.password}
+                                        onChange={(e) => {
+                                          setWifiFormData(prev => ({ ...prev, password: e.target.value }));
+                                          setWifiFormError(null);
+                                        }}
+                                        className="bg-brand-light/50 border-brand-secondary/30 text-brand-dark focus:border-brand-primary pr-10"
+                                        maxLength={63}
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowWifiPassword(!showWifiPassword)}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-brand-secondary hover:text-brand-primary transition-colors"
+                                      >
+                                        {showWifiPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                      </button>
                                     </div>
-                            </div>
-                          </div>
-                        </div>
-
-                              <div className="text-xs text-brand-secondary text-center">
-                                {false 
-                                  ? '🎭 Demo WiFi credentials - for demonstration purposes only' 
-                                  : 'WiFi credentials are managed by ThingsBoard and synced across all devices'
-                                }
-                              </div>
+                                  </div>
                                 </div>
-                              ) : (
-                            <div className="text-center py-4 text-brand-dark/60">
-                              <Wifi className="h-8 w-8 mx-auto mb-2 text-brand-secondary/50" />
-                              <div className="text-sm">No WiFi credentials configured</div>
-                              <div className="text-xs text-brand-secondary mt-1">
-                                Credentials will appear here when devices are provisioned
+                                
+                                {/* Current credentials info */}
+                                {wifiCredentials.ssid && (
+                                  <div className="mt-3 pt-3 border-t border-brand-secondary/10">
+                                    <div className="flex items-center gap-2 text-xs text-brand-dark/60">
+                                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                      <span>Current network: <span className="font-mono font-medium text-brand-dark">{wifiCredentials.ssid}</span></span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Save Button */}
+                              <div className="flex items-center justify-between">
+                                <div className="text-xs text-brand-secondary">
+                                  WiFi credentials will be synced to all your devices
+                                </div>
+                                <Button
+                                  onClick={handleSaveWifiCredentials}
+                                  disabled={updateWifiCredentialsMutation.isPending || !wifiFormData.ssid.trim() || wifiFormData.password.length < 8}
+                                  className="bg-brand-primary hover:bg-brand-primary/90 text-brand-surface"
+                                >
+                                  {updateWifiCredentialsMutation.isPending ? (
+                                    <>
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                      Saving...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Save className="h-4 w-4 mr-2" />
+                                      Save Credentials
+                                    </>
+                                  )}
+                                </Button>
                               </div>
                             </div>
                           )}
@@ -568,7 +688,17 @@ const Profile: React.FC = () => {
                                 </Card>
                               ))
                             ) : (
-                              rooms.map((room, index) => (
+                              rooms.map((room, index) => {
+                              // Calculate online targets count using accurate status from ThingsBoard
+                              const targets = (room as any).targets || [];
+                              const onlineTargetsCount = targets.filter((t: any) => {
+                                // Use accurate status from ThingsBoard (same data source as Games page)
+                                const accurateStatus = targetStatusMap.get(t.id) || t.status;
+                                return accurateStatus && accurateStatus.toLowerCase() !== 'offline';
+                              }).length;
+                              const hasOnlineTargets = onlineTargetsCount > 0;
+                              
+                              return (
                               <Card 
                                 key={room.id} 
                                 className={`border transition-all duration-300 hover:shadow-lg hover:scale-105 ${
@@ -602,21 +732,29 @@ const Profile: React.FC = () => {
                                 </CardHeader>
                                 <CardContent className="pt-0">
                                   <div className="space-y-3">
-                                    {/* Room Status */}
+                                    {/* Room Status - based on actual target online status */}
                                     <div className="flex items-center justify-between">
                                       <span className="text-xs text-brand-dark/70 font-medium">Status</span>
                                       <div className="flex items-center gap-1">
                                         <div className={`w-2 h-2 rounded-full ${
-                                          room.targetCount > 0 
+                                          hasOnlineTargets 
                                             ? 'bg-green-500'  // Online/Active
-                                            : 'bg-blue-500'   // Standby/No targets
+                                            : room.targetCount > 0
+                                            ? 'bg-gray-400'   // All targets offline
+                                            : 'bg-blue-500'   // No targets assigned
                                         }`}></div>
                                         <span className={`text-xs font-medium ${
-                                          room.targetCount > 0 
+                                          hasOnlineTargets 
                                             ? 'text-green-700'  // Online
+                                            : room.targetCount > 0
+                                            ? 'text-gray-600'   // Offline
                                             : 'text-blue-700'   // Standby
                                         }`}>
-                                          {room.targetCount > 0 ? 'Online' : 'Standby'}
+                                          {hasOnlineTargets 
+                                            ? `${onlineTargetsCount} Online` 
+                                            : room.targetCount > 0 
+                                            ? 'All Offline' 
+                                            : 'No Targets'}
                                         </span>
                                       </div>
                                     </div>
@@ -634,7 +772,7 @@ const Profile: React.FC = () => {
                                             : 'border-purple-500/40 text-purple-700 bg-purple-100'
                                         }`}
                                       >
-                                        {room.targetCount}
+                                        {onlineTargetsCount}/{room.targetCount}
                                       </Badge>
                                     </div>
                                     
@@ -648,7 +786,8 @@ const Profile: React.FC = () => {
                                   </div>
                                 </CardContent>
                               </Card>
-                            ))
+                              );
+                            })
                             )}
                           </div>
                         </div>

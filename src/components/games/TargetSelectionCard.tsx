@@ -63,14 +63,25 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
   const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
   const previousFirstDeviceIdRef = React.useRef<string | null>(null);
 
+  // Sort devices so online targets appear at the top
+  const sortedDevices = React.useMemo(() => {
+    return [...devices].sort((a, b) => {
+      const aOnline = deriveConnectionStatus(a) !== 'offline';
+      const bOnline = deriveConnectionStatus(b) !== 'offline';
+      if (aOnline && !bOnline) return -1;
+      if (!aOnline && bOnline) return 1;
+      return 0;
+    });
+  }, [devices, deriveConnectionStatus]);
+
   React.useEffect(() => {
     // Snap to the top when room-driven ordering pulls a selected target into the lead slot.
-    if (devices.length === 0) {
+    if (sortedDevices.length === 0) {
       previousFirstDeviceIdRef.current = null;
       return;
     }
 
-    const firstDeviceId = devices[0]?.deviceId ?? null;
+    const firstDeviceId = sortedDevices[0]?.deviceId ?? null;
     const previousFirstDeviceId = previousFirstDeviceIdRef.current;
     previousFirstDeviceIdRef.current = firstDeviceId;
 
@@ -86,7 +97,7 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
 
       viewport?.scrollTo({ top: 0, behavior: 'smooth' });
     }
-  }, [devices, selectedDeviceIds]);
+  }, [sortedDevices, selectedDeviceIds]);
 
   return (
     <Card className={`bg-gray-50 border-gray-200 shadow-sm rounded-md md:rounded-lg flex h-full flex-col ${className ?? ''}`}>
@@ -122,12 +133,12 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
           <div className="flex flex-1 items-center justify-center text-sm text-brand-dark/60">
             Refreshing device list...
           </div>
-        ) : devices.length === 0 ? (
+        ) : sortedDevices.length === 0 ? (
           <p className="flex-1 text-sm text-brand-dark/60">No ThingsBoard devices found for this tenant.</p>
         ) : (
           <ScrollArea ref={scrollAreaRef} className="flex-1 max-h-[280px]">
             <div className="space-y-1.5">
-              {devices.map((device) => {
+              {sortedDevices.map((device) => {
                 const checkboxId = `target-${device.deviceId}`;
                 const connectionStatus = deriveConnectionStatus(device);
                 const isOnline = connectionStatus !== 'offline';

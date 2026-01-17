@@ -12,10 +12,16 @@ async function rateLimitedEdgeCall<T>(
   functionName: string,
   options: Parameters<typeof supabase.functions.invoke>[1]
 ): Promise<ReturnType<typeof supabase.functions.invoke<T>>> {
+  // #region agent log
+  const _rateLimitStartTs = Date.now();
+  // #endregion
   const limiter = getRateLimiter('SUPABASE_EDGE');
   
   if (limiter) {
     const status = limiter.getStatus();
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:rateLimitedEdgeCall:beforeAcquire',message:'Before rate limiter acquire',data:{functionName,availableTokens:status.availableTokens,queuedRequests:status.queuedRequests,isLimited:status.isLimited},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C3'})}).catch(()=>{});
+    // #endregion
     
     // Record warning if approaching limit
     if (status.isLimited) {
@@ -24,6 +30,9 @@ async function rateLimitedEdgeCall<T>(
     
     try {
       await limiter.acquire();
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:rateLimitedEdgeCall:afterAcquire',message:'After rate limiter acquire',data:{functionName,acquireDurationMs:Date.now()-_rateLimitStartTs},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C3'})}).catch(()=>{});
+      // #endregion
     } catch (error) {
       // Log rate limit error but don't block the request entirely
       console.warn(`[Edge] Rate limit exceeded for ${functionName}`, error);
@@ -33,7 +42,14 @@ async function rateLimitedEdgeCall<T>(
     }
   }
   
-  return supabase.functions.invoke<T>(functionName, options);
+  // #region agent log
+  const _invokeStartTs = Date.now();
+  // #endregion
+  const result = await supabase.functions.invoke<T>(functionName, options);
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:rateLimitedEdgeCall:afterInvoke',message:'After supabase invoke',data:{functionName,invokeDurationMs:Date.now()-_invokeStartTs,totalDurationMs:Date.now()-_rateLimitStartTs},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C4'})}).catch(()=>{});
+  // #endregion
+  return result;
 }
 
 interface TargetsFunctionResponse {
@@ -190,6 +206,10 @@ export const mapEdgeTarget = (record: Record<string, any>): Target => ({
 });
 
 export async function fetchTargetsWithTelemetry(force = false): Promise<{ targets: Target[]; cached: boolean; summary: TargetsSummary | null }> {
+  // #region agent log
+  const _fetchStartTs = Date.now();
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:fetchTargetsWithTelemetry:start',message:'Starting targets fetch',data:{force},timestamp:_fetchStartTs,sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+  // #endregion
   // Deduplicate concurrent calls - if a request is already in flight, return the same promise
   // Even with force=true, we should deduplicate concurrent calls to avoid redundant expensive operations
   const cacheKey = 'all'; // Use single cache key to deduplicate all concurrent calls
@@ -272,6 +292,9 @@ export async function fetchTargetsWithTelemetry(force = false): Promise<{ target
     },
     sample: targets.slice(0, 5).map((target) => ({ id: target.id, name: target.name, status: target.status, roomName: target.roomName })),
   });
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:fetchTargetsWithTelemetry:end',message:'Targets fetch complete',data:{targetCount:targets.length,durationMs:Date.now()-_fetchStartTs},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     return { targets, cached: Boolean(data.cached), summary };
   })();
   
@@ -491,11 +514,21 @@ export async function fetchDashboardMetrics(force = false): Promise<{ metrics: D
 }
 
 export async function fetchRoomsData(force = false): Promise<{ rooms: EdgeRoom[]; unassignedTargets: Target[]; cached: boolean }> {
+  // #region agent log
+  const _roomsStartTs = Date.now();
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:fetchRoomsData:start',message:'Starting rooms fetch',data:{force},timestamp:_roomsStartTs,sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
   const payload = force ? { force: true } : {};
+  // #region agent log
+  const _roomsEdgeCallStartTs = Date.now();
+  // #endregion
   const { data, error } = await rateLimitedEdgeCall<RoomsFunctionResponse>('rooms', {
     method: 'POST',
     body: payload,
   });
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:fetchRoomsData:afterEdgeCall',message:'Rooms edge call complete',data:{edgeCallDurationMs:Date.now()-_roomsEdgeCallStartTs,hasError:!!error},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C2'})}).catch(()=>{});
+  // #endregion
 
   if (error) {
     throw error;
@@ -543,6 +576,9 @@ export async function fetchRoomsData(force = false): Promise<{ rooms: EdgeRoom[]
     sample: rooms.slice(0, 5).map((room) => ({ id: room.id, name: room.name, targetCount: room.targetCount })),
   });
 
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:fetchRoomsData:end',message:'Rooms fetch complete',data:{roomCount:rooms.length,durationMs:Date.now()-_roomsStartTs},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
   return result;
 }
 
@@ -939,6 +975,23 @@ export async function fetchGameControlInfo(
   return invokeGameControl('info', { deviceIds });
 }
 
+/**
+ * Settings for game presets that configure scoring and session behavior.
+ */
+export interface GamePresetSettings {
+  /** Required shots per target for scoring. Map of deviceId to required hit count. */
+  goalShotsPerTarget?: Record<string, number>;
+  /**
+   * Whether target engagement order is enforced for multi-target sessions.
+   * When true, targets must be engaged in order (A then B).
+   * When false, targets can be engaged in any order.
+   * Default: false (order not enforced)
+   */
+  orderEnforced?: boolean;
+  /** Additional custom settings */
+  [key: string]: unknown;
+}
+
 export interface GamePreset {
   id: string;
   name: string;
@@ -947,7 +1000,7 @@ export interface GamePreset {
   roomName: string | null;
   durationSeconds: number | null;
   targetIds: string[];
-  settings: Record<string, unknown>;
+  settings: GamePresetSettings;
   createdAt: string;
   updatedAt: string;
 }

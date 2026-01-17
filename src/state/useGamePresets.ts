@@ -26,6 +26,9 @@ export const useGamePresets = create<GamePresetsState>((set, get) => ({
   error: null,
 
   fetchPresets: async () => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useGamePresets.ts:fetchPresets:start',message:'Starting presets fetch',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     mark('useGamePresets-fetch-start');
     const previousPresetCount = get().presets.length;
     const fetchStartedAt = Date.now();
@@ -57,6 +60,9 @@ export const useGamePresets = create<GamePresetsState>((set, get) => ({
         sampleIds: presets.slice(0, 3).map((preset) => preset.id),
         sampleNames: presets.slice(0, 3).map((preset) => preset.name),
       });
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useGamePresets.ts:fetchPresets:end',message:'Presets fetch complete',data:{presetCount:presets.length,durationMs:elapsedMs},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       set({ presets, isLoading: false });
     } catch (error) {
       console.error('[useGamePresets] Failed to fetch presets', error);

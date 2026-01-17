@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Target as TargetIcon, Users, Calendar, Bell, TrendingUp, Activity, Play, User, X, BarChart, Award, CheckCircle, Gamepad2, Trophy } from 'lucide-react';
+import { Target as TargetIcon, Users, Calendar, Bell, TrendingUp, Activity, Play, User, X, BarChart, Award, CheckCircle, Gamepad2, Trophy, Info } from 'lucide-react';
 import { useTargetsWithDetails } from '@/features/targets';
 import { useRooms } from '@/features/rooms';
 import { useDashboardMetrics } from '@/features/dashboard';
@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import dayjs from 'dayjs';
 import TargetActivityCard, {
   RANGE_CONFIG,
@@ -39,12 +40,37 @@ const StatCard: React.FC<{
   icon: React.ReactNode;
   trend?: { value: number; isPositive: boolean };
   isLoading?: boolean;
-}> = ({ title, value, subtitle, icon, trend, isLoading = false }) => (
+  infoTitle?: string;
+  infoContent?: string;
+}> = ({ title, value, subtitle, icon, trend, isLoading = false, infoTitle, infoContent }) => (
   <Card className="bg-white border-gray-200 shadow-sm hover:shadow-md transition-shadow rounded-md md:rounded-lg">
     <CardContent className="p-2 md:p-4">
       <div className="flex items-start gap-2">
         <div className="flex-1 space-y-0.5 md:space-y-1 text-center md:text-left">
-          <p className="text-xs font-medium text-brand-dark/70 font-body">{title}</p>
+          <div className="flex items-center gap-1 justify-center md:justify-start">
+            <p className="text-xs font-medium text-brand-dark/70 font-body">{title}</p>
+            {infoContent && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button 
+                    type="button" 
+                    className="inline-flex items-center justify-center rounded-full hover:bg-brand-dark/10 p-0.5 -m-0.5 transition-colors"
+                    aria-label={`Info about ${title}`}
+                  >
+                    <Info className="h-3 w-3 text-brand-dark/40" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent 
+                  side="bottom" 
+                  align="start"
+                  className="w-64 bg-white border border-gray-200 shadow-lg p-3"
+                >
+                  {infoTitle && <p className="text-xs font-medium text-brand-dark mb-1">{infoTitle}</p>}
+                  <p className="text-xs text-brand-dark/70">{infoContent}</p>
+                </PopoverContent>
+              </Popover>
+            )}
+          </div>
           {isLoading ? (
             <div className="h-4 md:h-6 w-10 md:w-14 bg-gray-200 rounded animate-pulse mx-auto md:mx-0"></div>
           ) : (
@@ -563,8 +589,9 @@ const Dashboard: React.FC = () => {
       )
     : null;
 
+  // For time-based scoring, "best" means the lowest/fastest time
   const bestScoreMetric = sessionScores.length > 0
-    ? Math.max(...sessionScores)
+    ? Math.min(...sessionScores)
     : null;
 
   // Note: Authentication is handled at the route level in App.tsx
@@ -636,6 +663,8 @@ const Dashboard: React.FC = () => {
                     subtitle={summaryReady ? 'Recent sessions' : ''}
                     icon={<Trophy className="w-6 h-6 -ml-1.5 md:ml-0" />}
                     isLoading={sessionsLoading}
+                    infoTitle="How Score is Calculated"
+                    infoContent="Score = time (in seconds) of the last required hit. Lower is better. If goal shots are set, the score is the time when all targets reached their required hits. A session is marked 'DNF' if not all required hits were achieved."
                   />
                   <StatCard
                     title="Completed Sessions"

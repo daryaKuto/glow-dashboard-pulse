@@ -176,7 +176,8 @@ export const buildRangeSummaries = (sessions: Session[]): Record<TimeRange, Rang
       scoreValues.length > 0
         ? Number((scoreValues.reduce((sum, value) => sum + value, 0) / scoreValues.length).toFixed(2))
         : null;
-    const bestScore = scoreValues.length > 0 ? Math.max(...scoreValues) : null;
+    // For time-based scoring, "best" means the lowest/fastest time
+    const bestScore = scoreValues.length > 0 ? Math.min(...scoreValues) : null;
 
     const targetBuckets: TargetBucket[] = bucketDeviceMaps.map((bucketMap, index) => ({
       label: buckets[index].label,

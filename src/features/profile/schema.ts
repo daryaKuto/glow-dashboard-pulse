@@ -67,10 +67,16 @@ export const wifiCredentialsSchema = z.object({
   password: z.string(),
 });
 
+export const updateWifiCredentialsSchema = z.object({
+  ssid: z.string().min(1, 'WiFi network name is required').max(32, 'Network name too long'),
+  password: z.string().min(8, 'Password must be at least 8 characters').max(63, 'Password too long'),
+});
+
 // Inferred types
 export type UserProfileData = z.infer<typeof userProfileDataSchema>;
 export type RecentSession = z.infer<typeof recentSessionSchema>;
 export type UpdateProfile = z.infer<typeof updateProfileSchema>;
 export type UserAnalytics = z.infer<typeof userAnalyticsSchema>;
 export type WifiCredentials = z.infer<typeof wifiCredentialsSchema>;
+export type UpdateWifiCredentials = z.infer<typeof updateWifiCredentialsSchema>;
 

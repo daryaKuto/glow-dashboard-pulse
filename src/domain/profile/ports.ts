@@ -135,5 +135,14 @@ export interface ProfileRepository {
     email: string,
     password: string
   ): Promise<ApiResponse<boolean>>;
+
+  /**
+   * Save WiFi credentials for user
+   */
+  saveWifiCredentials(
+    userId: string,
+    ssid: string,
+    password: string
+  ): Promise<ApiResponse<boolean>>;
 }
 

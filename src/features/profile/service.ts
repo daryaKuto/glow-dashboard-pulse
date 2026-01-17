@@ -14,6 +14,7 @@ import type {
   RecentSession,
   UpdateProfile,
   WifiCredentials,
+  UpdateWifiCredentials,
 } from './schema';
 import type { Database } from '@/integrations/supabase/types';
 import {
@@ -332,6 +333,65 @@ export async function saveThingsBoardCredentialsWithPermissionService(
   }
 
   return profileRepo.saveThingsBoardCredentials(targetUserId, email, password);
+}
+
+/**
+ * Save WiFi credentials for a user
+ */
+export async function saveWifiCredentialsService(
+  userId: string,
+  credentials: UpdateWifiCredentials
+): Promise<ApiResponse<boolean>> {
+  const userIdValidation = validateUserId(userId);
+  if (!userIdValidation.success) {
+    const firstError = userIdValidation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid user ID');
+  }
+
+  if (!isNonEmptyString(credentials.ssid)) {
+    return apiErr('VALIDATION_ERROR', 'WiFi network name is required');
+  }
+
+  if (!isNonEmptyString(credentials.password) || credentials.password.length < 8) {
+    return apiErr('VALIDATION_ERROR', 'Password must be at least 8 characters');
+  }
+
+  return profileRepo.saveWifiCredentials(userId, credentials.ssid, credentials.password);
+}
+
+/**
+ * Save WiFi credentials with permission check
+ */
+export async function saveWifiCredentialsWithPermissionService(
+  requestingUser: UserContext,
+  targetUserId: string,
+  credentials: UpdateWifiCredentials
+): Promise<ApiResponse<boolean>> {
+  const userIdValidation = validateUserId(targetUserId);
+  if (!userIdValidation.success) {
+    const firstError = userIdValidation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid user ID');
+  }
+
+  if (!isNonEmptyString(credentials.ssid)) {
+    return apiErr('VALIDATION_ERROR', 'WiFi network name is required');
+  }
+
+  if (!isNonEmptyString(credentials.password) || credentials.password.length < 8) {
+    return apiErr('VALIDATION_ERROR', 'Password must be at least 8 characters');
+  }
+
+  // Check permission
+  const profileContext: ProfileContext = {
+    profileId: targetUserId,
+    ownerId: targetUserId,
+  };
+  const permissionResult = canUpdateWifiCredentials(requestingUser, profileContext);
+  if (!permissionResult.allowed) {
+    return apiErr(permissionResult.code, permissionResult.reason);
+  }
+
+  return profileRepo.saveWifiCredentials(targetUserId, credentials.ssid, credentials.password);
 }
 
 // ============================================================================

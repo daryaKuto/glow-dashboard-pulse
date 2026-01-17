@@ -69,6 +69,7 @@ import type { LiveSessionSummary } from '@/components/games/types';
 import { useSessionTimer, formatSessionDuration, type SessionLifecycle, type SessionHitEntry } from '@/components/game-session/sessionState';
 import { useGamePresets } from '@/state/useGamePresets';
 import type { GamePreset } from '@/lib/edge';
+import { calculateSessionScore } from '@/domain/games/rules';
 
 type AxiosErrorLike = {
   isAxiosError?: boolean;
@@ -724,6 +725,10 @@ const getTargetBestScore = (target: Target): number | null => {
 // Main Live Game Control page: orchestrates device state, telemetry streams, and session history for operator control.
 const Games: React.FC = () => {
   mark('games-page-render-start');
+  // #region agent log
+  const _pageStartTs = useRef(Date.now());
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:componentMount',message:'Games page component mounting',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'ALL'})}).catch(()=>{});
+  // #endregion
   const isMobile = useIsMobile();
   const { user } = useAuth();
   // Tracks the shadcn sidebar state so we know whether to render the drawer on small screens.
@@ -733,23 +738,35 @@ const Games: React.FC = () => {
   const [gameHistory, setGameHistory] = useState<GameHistory[]>([]);
   // Mirrors the fetch lifecycle so the history section can show skeletons/spinners.
   const [isHistoryLoading, setIsHistoryLoading] = useState(true);
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:historyLoadingInit',message:'isHistoryLoading initialized',data:{isHistoryLoading:true},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
   const { isLoading: loadingDevices, refresh: refreshGameDevices } = useGameDevices({ immediate: false });
   const {
     data: targetsData,
     isLoading: targetsStoreLoading,
     refetch: refetchTargets,
   } = useTargets();
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:useTargets',message:'useTargets hook state',data:{targetsStoreLoading,targetsCount:targetsData?.targets?.length??0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+  // #endregion
   const targetsSnapshot = targetsData?.targets ?? [];
   const refreshTargets = useCallback(async () => {
     await refetchTargets();
   }, [refetchTargets]);
   const { data: roomsData, isLoading: roomsLoading } = useRooms();
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:useRooms',message:'useRooms hook state',data:{roomsLoading,roomsCount:roomsData?.rooms?.length??0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
   const rooms = roomsData?.rooms ?? [];
   const groups = useTargetGroups((state) => state.groups);
   const groupsLoading = useTargetGroups((state) => state.isLoading);
   const fetchGroups = useTargetGroups((state) => state.fetchGroups);
   const gamePresets = useGamePresets((state) => state.presets);
   const presetsLoading = useGamePresets((state) => state.isLoading);
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:useGamePresets',message:'useGamePresets hook state',data:{presetsLoading,presetsCount:gamePresets?.length??0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+  // #endregion
   const presetsSaving = useGamePresets((state) => state.isSaving);
   const presetsError = useGamePresets((state) => state.error);
   const fetchPresets = useGamePresets((state) => state.fetchPresets);
@@ -1413,6 +1430,10 @@ const Games: React.FC = () => {
       return;
     }
 
+    // #region agent log
+    const _historyStartTs = Date.now();
+    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:loadGameHistory:start',message:'Starting history fetch',data:{userId:user.id},timestamp:_historyStartTs,sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     isLoadingHistoryRef.current = true;
     setIsHistoryLoading(true);
     try {
@@ -1477,6 +1498,9 @@ const Games: React.FC = () => {
       console.warn('[Games] Failed to load game history', error);
       setGameHistory([]);
     } finally {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:loadGameHistory:finally',message:'History loading complete',data:{historyCount:gameHistory.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       setIsHistoryLoading(false);
       isLoadingHistoryRef.current = false;
     }
@@ -1764,19 +1788,32 @@ useEffect(() => {
   const deriveConnectionStatus = useCallback(
     (device: NormalizedGameDevice): 'online' | 'standby' | 'offline' => {
       const target = targetById.get(device.deviceId);
+      
+      // First check device's live status from useGameDevices (most up-to-date from ThingsBoard)
+      // This takes priority because targetsSnapshot may have stale cached data
+      const rawStatus = (device.raw?.status ?? '').toString().toLowerCase();
+      const deviceIndicatesOnline = device.isOnline === true || 
+        ['online', 'standby', 'active', 'busy', 'active_online'].includes(rawStatus);
+      
+      // If device data says it's online (including standby), return 'online'
+      // Games page only uses two modes: online or offline
+      if (deviceIndicatesOnline) {
+        return 'online';
+      }
+      
+      // Fall back to target cache status if device doesn't indicate online
       if (target) {
         if (target.status === 'offline') {
           return 'offline';
         }
-        if (target.status === 'standby') {
-          return 'standby';
-        }
-        if (target.status === 'online') {
+        // Treat standby as online for Games page (only two modes: online/offline)
+        if (target.status === 'standby' || target.status === 'online') {
           return 'online';
         }
       }
 
-      const rawStatus = (device.raw?.status ?? '').toString().toLowerCase();
+      // Continue with remaining fallback checks
+      // Games page only uses two modes: online or offline (standby treated as online)
       if (
         rawStatus.includes('offline') ||
         rawStatus.includes('disconnected') ||
@@ -1784,8 +1821,9 @@ useEffect(() => {
       ) {
         return 'offline';
       }
+      // Treat standby/idle as online for Games page
       if (rawStatus === 'standby' || rawStatus === 'idle') {
-        return 'standby';
+        return 'online';
       }
       if (['online', 'active', 'busy', 'active_online'].includes(rawStatus)) {
         return 'online';
@@ -1795,8 +1833,9 @@ useEffect(() => {
       if (rawGameStatus === 'start' || rawGameStatus === 'busy') {
         return 'online';
       }
+      // Treat stop/idle gameStatus as online (device is still connected)
       if (rawGameStatus === 'stop' || rawGameStatus === 'idle') {
-        return 'standby';
+        return 'online';
       }
 
       if (typeof device.raw?.isOnline === 'boolean') {
@@ -3837,13 +3876,26 @@ const handleDeletePreset = useCallback(
     });
   }, [hitHistory, gameStartTime]);
 
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:isInitialDataLoading',message:'Loading state check',data:{isHistoryLoading,roomsLoading,targetsStoreLoading,presetsLoading,groupsLoading},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'ALL'})}).catch(()=>{});
+  // #endregion
   const isInitialDataLoading =
-    // Don't block page rendering on loadingDevices - it's slow (3500ms) and setup sections can render progressively
-    // Only block on critical data that setup sections actually need
-    isHistoryLoading || roomsLoading || targetsStoreLoading || presetsLoading;
+    // Don't block page rendering on loadingDevices or roomsLoading:
+    // - loadingDevices is slow (3500ms) and setup sections can render progressively
+    // - roomsLoading duplicates the same ThingsBoard telemetry fetch that targets-with-telemetry does (see rooms/index.ts)
+    //   Both fetch all devices + telemetry from ThingsBoard, so waiting for both is redundant (~850ms each)
+    // RoomSelectionCard handles its own loading state internally, showing "Loading rooms…" while data loads
+    isHistoryLoading || targetsStoreLoading || presetsLoading;
 
   const displayedSelectedCount = selectedDeviceIds.length;
   const isPageLoading = isInitialDataLoading;
+  // #region agent log
+  useEffect(() => {
+    if (!isPageLoading) {
+      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:step1Rendered',message:'Step 1 rendered (loading complete)',data:{isPageLoading},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'ALL'})}).catch(()=>{});
+    }
+  }, [isPageLoading]);
+  // #endregion
   const sessionDialogTargets =
     isLiveDialogPhase && currentSessionTargets.length > 0 ? currentSessionTargets : pendingSessionTargets;
   const canDismissSessionDialog = sessionLifecycle === 'selecting' && !isStarting && !isLaunchingLifecycle;
@@ -4520,6 +4572,10 @@ function convertHistoryEntryToLiveSummary(entry: GameHistory): LiveSessionSummar
   entry.targetDeviceIds = targets.map((target) => target.deviceId);
   entry.targetDeviceNames = targets.map((target) => target.deviceName);
 
+  // Calculate time-based score using the new scoring system
+  const goalShotsPerTarget = entry.goalShotsPerTarget ?? {};
+  const scoreResult = calculateSessionScore(sortedHitHistory, goalShotsPerTarget, startTime);
+
   return {
     gameId: entry.gameId,
     gameName: entry.gameName,
@@ -4544,7 +4600,9 @@ function convertHistoryEntryToLiveSummary(entry: GameHistory): LiveSessionSummar
       // Ensure goalShotsPerTarget is preserved
       goalShotsPerTarget: entry.goalShotsPerTarget ?? undefined,
     },
-    efficiencyScore,
+    efficiencyScore, // deprecated, kept for backwards compatibility
+    score: scoreResult.score,
+    isValid: scoreResult.isValid,
   };
 }
 
@@ -4562,6 +4620,8 @@ interface BuildLiveSessionSummaryArgs {
   desiredDurationSeconds?: number | null;
   presetId?: string | null;
   goalShotsPerTarget?: Record<string, number>;
+  /** Target order for multi-target sessions with order enforcement */
+  targetOrder?: string[];
 }
 
 // Consolidates telemetry streams and device metadata into a reusable session report.
@@ -4579,6 +4639,7 @@ function buildLiveSessionSummary({
   desiredDurationSeconds = null,
   presetId = null,
   goalShotsPerTarget = {},
+  targetOrder,
 }: BuildLiveSessionSummaryArgs): LiveSessionSummary {
   const safeStart = Number.isFinite(startTime) ? startTime : stopTime;
   const durationMs = Math.max(0, stopTime - safeStart);
@@ -4592,6 +4653,14 @@ function buildLiveSessionSummary({
     .sort((a, b) => a.timestamp - b.timestamp);
   const totalHits = sortedHits.length;
 
+  // Calculate time-based score using the new scoring system
+  // Score = time of last required hit (lower is better)
+  // A run is valid only if all required hits occur
+  const scoreResult = calculateSessionScore(sortedHits, goalShotsPerTarget, safeStart, {
+    targetOrder,
+  });
+
+  // Keep legacy efficiencyScore for backwards compatibility (deprecated)
   const firstHitTimestamp = sortedHits.length > 0 ? sortedHits[0].timestamp : safeStart;
   const lastHitTimestamp = sortedHits.length > 0 ? sortedHits[sortedHits.length - 1].timestamp : firstHitTimestamp;
   const totalSessionSpan = Math.max(1, stopTime - safeStart);
@@ -4667,13 +4736,16 @@ function buildLiveSessionSummary({
     deviceName: device.name ?? device.deviceId,
   }));
 
+  // Use time-based score for the history entry, fallback to efficiencyScore for backwards compatibility
+  const historyEntryScore = scoreResult.score ?? efficiencyScore;
+
   const historyEntry: GameHistory = {
     gameId,
     gameName: gameName ?? `Game ${new Date(safeStart).toLocaleTimeString()}`,
     duration: Math.max(1, Math.ceil(rawDurationSeconds / 60)),
     startTime: safeStart,
     endTime: stopTime,
-    score: efficiencyScore,
+    score: historyEntryScore,
     deviceResults: deviceStats.map(({ deviceId, deviceName, hitCount }) => ({
       deviceId,
       deviceName,
@@ -4722,7 +4794,9 @@ function buildLiveSessionSummary({
     targetDeviceIds: historyEntry.targetDeviceIds ?? targets.map((target) => target.deviceId),
     presetId: historyEntry.presetId ?? null,
     historyEntry,
-    efficiencyScore,
+    efficiencyScore, // deprecated, kept for backwards compatibility
+    score: scoreResult.score,
+    isValid: scoreResult.isValid,
   };
 }
 

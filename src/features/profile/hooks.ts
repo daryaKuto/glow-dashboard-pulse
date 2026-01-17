@@ -6,12 +6,14 @@ import {
   getStatsTrendService,
   updateProfileService,
   getWifiCredentialsService,
+  saveWifiCredentialsService,
 } from './service';
 import type {
   UserProfileData,
   RecentSession,
   UpdateProfile,
   WifiCredentials,
+  UpdateWifiCredentials,
 } from './schema';
 import type { Database } from '@/integrations/supabase/types';
 
@@ -139,6 +141,31 @@ export function useWifiCredentials(userId: string | null | undefined) {
     enabled: !!userId,
     staleTime: 5 * 60 * 1000, // 5 minutes - WiFi credentials don't change often
     retry: 1, // Only retry once for WiFi credentials
+  });
+}
+
+/**
+ * Update WiFi credentials
+ */
+export function useUpdateWifiCredentials() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ userId, credentials }: { userId: string; credentials: UpdateWifiCredentials }) => {
+      const result = await saveWifiCredentialsService(userId, credentials);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    onSuccess: (_data, variables) => {
+      // Invalidate WiFi credentials query to refetch updated data
+      queryClient.invalidateQueries({ queryKey: profileKeys.wifiCredentials(variables.userId) });
+      toast.success('WiFi credentials updated successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to update WiFi credentials: ${error.message}`);
+    },
   });
 }
 

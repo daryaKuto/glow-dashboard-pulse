@@ -309,6 +309,42 @@ export async function saveThingsBoardCredentials(
 }
 
 /**
+ * Save WiFi credentials for a user
+ */
+export async function saveWifiCredentials(
+  userId: string,
+  ssid: string,
+  password: string
+): Promise<ApiResponse<boolean>> {
+  try {
+    const encryptedPassword = encryptPassword(password);
+
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({
+        wifi_ssid_encrypted: ssid,
+        wifi_password_encrypted: encryptedPassword,
+        wifi_last_sync: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
+
+    if (error) {
+      throw error;
+    }
+
+    return apiOk(true);
+  } catch (error) {
+    console.error('[Profile Repo] Error saving WiFi credentials:', error);
+    return apiErr(
+      'SAVE_WIFI_CREDENTIALS_ERROR',
+      error instanceof Error ? error.message : 'Failed to save WiFi credentials',
+      error
+    );
+  }
+}
+
+/**
  * Repository adapter (ports & adapters pattern)
  */
 export const profileRepository: ProfileRepository = {
@@ -318,4 +354,5 @@ export const profileRepository: ProfileRepository = {
   updateProfile,
   getWifiCredentials,
   saveThingsBoardCredentials,
+  saveWifiCredentials,
 };

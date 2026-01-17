@@ -56,9 +56,10 @@ export function calculateSessionTotals(sessions: SessionData[]): SessionTotals {
   const scores = sessions.map((s) => s.score);
   const totalScore = scores.reduce((sum, score) => sum + score, 0);
   
+  // For time-based scoring, "best" means the lowest/fastest time
   return {
     totalSessions: sessions.length,
-    bestScore: Math.max(...scores),
+    bestScore: Math.min(...scores),
     avgScore: Math.round(totalScore / sessions.length),
   };
 }

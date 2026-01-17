@@ -1,9 +1,10 @@
 import React from 'react';
 import dayjs from 'dayjs';
-import { Gamepad2, Trophy, Clock } from 'lucide-react';
+import { Gamepad2, Trophy, Clock, Info } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { Session } from '@/state/useSessions';
 import { formatDurationValue, formatScoreValue } from '@/utils/dashboard';
 
@@ -125,7 +126,35 @@ const RecentSessionsCard: React.FC<RecentSessionsCardProps> = ({ sessions, isLoa
                     </div>
                     <div className="grid grid-cols-3 gap-2 text-[11px] md:text-xs text-brand-dark/70">
                       <div className="rounded-md bg-white/50 px-2 py-1 border border-white/40">
-                        <p className="uppercase tracking-wide text-[10px] text-brand-dark/50">Score</p>
+                        <div className="flex items-center gap-1">
+                          <p className="uppercase tracking-wide text-[10px] text-brand-dark/50">Score</p>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button 
+                                type="button" 
+                                className="inline-flex items-center justify-center rounded-full hover:bg-brand-dark/10 p-0.5 -m-0.5 transition-colors"
+                                aria-label="How score is calculated"
+                              >
+                                <Info className="h-3 w-3 text-brand-dark/40" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent 
+                              side="bottom" 
+                              align="start"
+                              className="w-72 bg-white border border-gray-200 shadow-lg p-3"
+                            >
+                              <p className="text-xs font-medium text-brand-dark mb-1">How Score is Calculated</p>
+                              <p className="text-xs text-brand-dark/70 mb-2">
+                                Score = time in seconds. <span className="font-medium">Lower is better.</span>
+                              </p>
+                              <div className="text-[10px] text-brand-dark/50 border-t border-gray-100 pt-2 space-y-1">
+                                <p><span className="font-medium">With goals:</span> Time of the last required hit</p>
+                                <p><span className="font-medium">Without goals:</span> Time from first to last shot</p>
+                                <p className="text-brand-dark/40 italic">DNF = not all required hits achieved</p>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
                         <p className="font-heading text-sm text-brand-dark">
                           {Number.isFinite(session.score) ? formatScoreValue(session.score) : 'N/A'}
                         </p>

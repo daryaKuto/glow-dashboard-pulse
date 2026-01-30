@@ -12,17 +12,11 @@ async function rateLimitedEdgeCall<T>(
   functionName: string,
   options: Parameters<typeof supabase.functions.invoke>[1]
 ): Promise<ReturnType<typeof supabase.functions.invoke<T>>> {
-  // #region agent log
-  const _rateLimitStartTs = Date.now();
-  // #endregion
   const limiter = getRateLimiter('SUPABASE_EDGE');
   
   if (limiter) {
     const status = limiter.getStatus();
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:rateLimitedEdgeCall:beforeAcquire',message:'Before rate limiter acquire',data:{functionName,availableTokens:status.availableTokens,queuedRequests:status.queuedRequests,isLimited:status.isLimited},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C3'})}).catch(()=>{});
-    // #endregion
-    
+
     // Record warning if approaching limit
     if (status.isLimited) {
       RateLimitMonitor.recordHit('SUPABASE_EDGE', status.availableTokens, status.queuedRequests);
@@ -30,9 +24,6 @@ async function rateLimitedEdgeCall<T>(
     
     try {
       await limiter.acquire();
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:rateLimitedEdgeCall:afterAcquire',message:'After rate limiter acquire',data:{functionName,acquireDurationMs:Date.now()-_rateLimitStartTs},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C3'})}).catch(()=>{});
-      // #endregion
     } catch (error) {
       // Log rate limit error but don't block the request entirely
       console.warn(`[Edge] Rate limit exceeded for ${functionName}`, error);
@@ -42,13 +33,7 @@ async function rateLimitedEdgeCall<T>(
     }
   }
   
-  // #region agent log
-  const _invokeStartTs = Date.now();
-  // #endregion
   const result = await supabase.functions.invoke<T>(functionName, options);
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:rateLimitedEdgeCall:afterInvoke',message:'After supabase invoke',data:{functionName,invokeDurationMs:Date.now()-_invokeStartTs,totalDurationMs:Date.now()-_rateLimitStartTs},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C4'})}).catch(()=>{});
-  // #endregion
   return result;
 }
 
@@ -163,6 +148,47 @@ interface RoomsFunctionResponse {
   cached?: boolean;
 }
 
+/** 12 hours. Must match scripts/check-online-targets-thingsboard.sh RECENT_MS and edge/thingsboard-targets RECENT_THRESHOLD_MS. */
+const RECENT_THRESHOLD_MS = 43200_000;
+
+/**
+ * Derive display status from raw ThingsBoard data. Matches script/edge: when active is null,
+ * only standby if tbLastActivityTime is recent; do not trust rawStatus "idle"/"standby" alone.
+ */
+export function deriveStatusFromRaw(
+  raw: {
+    rawStatus?: string | null;
+    active?: boolean | null;
+    tbLastActivityTime?: number | null;
+    gameStatus?: string | null;
+  }
+): 'online' | 'standby' | 'offline' | null {
+  const { rawStatus, active, tbLastActivityTime, gameStatus } = raw;
+  const hasRaw = active !== undefined && active !== null;
+  const now = Date.now();
+
+  if (gameStatus && ['start', 'busy', 'active'].includes(String(gameStatus).toLowerCase())) {
+    return 'online';
+  }
+  if (hasRaw && active === false) {
+    if (tbLastActivityTime != null && now - tbLastActivityTime <= RECENT_THRESHOLD_MS) return 'standby';
+    return 'offline';
+  }
+  if (hasRaw && active === true) {
+    const norm = (rawStatus ?? '').toLowerCase();
+    if (['online', 'active', 'active_online', 'busy'].includes(norm)) return 'online';
+    // Only standby when server lastActivityTime is recent; else offline (avoids all-standby when edge/TB wrongly sends active: true).
+    if (tbLastActivityTime != null && now - tbLastActivityTime <= RECENT_THRESHOLD_MS) return 'standby';
+    return 'offline';
+  }
+  // When active is null: only standby if server lastActivityTime is recent (match script – no rawStatus idle/standby alone).
+  const norm = (rawStatus ?? '').toLowerCase();
+  if (['online', 'active', 'active_online', 'busy'].includes(norm)) return 'online';
+  if (tbLastActivityTime != null && now - tbLastActivityTime <= RECENT_THRESHOLD_MS) return 'standby';
+  // Do not use rawStatus 'standby'/'idle' alone when active is null – would show offline devices as standby.
+  return 'offline';
+}
+
 const sanitizeStatus = (status: unknown): 'online' | 'standby' | 'offline' => {
   const statusText = typeof status === 'string' ? status.toLowerCase() : '';
   if (statusText === 'online' || statusText === 'active_online') return 'online';
@@ -181,35 +207,81 @@ const coerceRoomId = (value: unknown): string | null => {
   return null;
 };
 
-export const mapEdgeTarget = (record: Record<string, any>): Target => ({
-  id: String(record.id),
-  name: String(record.name ?? 'Unknown Target'),
-  status: sanitizeStatus(record.status),
-  battery: record.battery ?? null,
-  wifiStrength: record.wifiStrength ?? null,
-  roomId: coerceRoomId(record.roomId),
-  telemetry: record.telemetry ?? {},
-  lastEvent: record.lastEvent ?? null,
-  lastGameId: record.lastGameId ?? null,
-  lastGameName: record.lastGameName ?? null,
-  lastHits: record.lastHits ?? null,
-  lastActivity: record.lastActivity ?? null,
-  lastActivityTime: record.lastActivityTime ?? null,
-  deviceName: record.deviceName ?? record.name ?? 'Unknown Target',
-  deviceType: record.type ?? record.deviceType ?? 'default',
-  createdTime: record.createdTime ?? null,
-  additionalInfo: record.additionalInfo ?? {},
-  type: record.type ?? undefined,
-  isNoDataMessage: record.isNoDataMessage ?? false,
-  isErrorMessage: record.isErrorMessage ?? false,
-  message: record.message ?? undefined,
-});
+const sanitizeActivityStatus = (value: unknown): 'active' | 'recent' | 'standby' | undefined => {
+  if (value === 'active' || value === 'recent' || value === 'standby') return value;
+  return undefined;
+};
+
+function coerceActive(value: unknown): boolean | null {
+  if (value === true || value === false) return value;
+  if (value === undefined || value === null) return null;
+  const s = String(value).toLowerCase();
+  if (s === 'true') return true;
+  if (s === 'false') return false;
+  return null;
+}
+
+export const mapEdgeTarget = (record: Record<string, any>): Target => {
+  const rawStatus = record.rawStatus ?? record.status ?? null;
+  const active = coerceActive(record.active);
+  const tbLastActivityTime = record.tbLastActivityTime ?? null;
+  const gameStatus = record.gameStatus ?? null;
+  const derived = deriveStatusFromRaw({
+    rawStatus,
+    active,
+    tbLastActivityTime,
+    gameStatus,
+  });
+  const status = derived ?? sanitizeStatus(record.status);
+  const activityStatus = sanitizeActivityStatus(record.activityStatus)
+    ?? (status === 'standby' ? 'standby' : status === 'online' ? 'active' : undefined);
+
+  // Fallback extraction from raw telemetry for fields the edge may not yet return as top-level.
+  // Ensures normalizeGameDevice gets correct values regardless of edge function deploy order.
+  const telemetry = record.telemetry ?? {};
+  const hitsEntry = Array.isArray(telemetry.hits) && telemetry.hits.length > 0 ? telemetry.hits[0] : null;
+  const hitsValue = hitsEntry?.value ?? null;
+  const totalShotsFromTelemetry = hitsValue != null ? Number(hitsValue) : null;
+  const gameIdEntry = Array.isArray(telemetry.gameId) && telemetry.gameId.length > 0 ? telemetry.gameId[0] : null;
+  const gameIdFromTelemetry = gameIdEntry?.value != null ? String(gameIdEntry.value) : null;
+  const gameStatusEntry = Array.isArray(telemetry.gameStatus) && telemetry.gameStatus.length > 0 ? telemetry.gameStatus[0] : null;
+  const gameStatusFromTelemetry = gameStatusEntry?.value != null ? String(gameStatusEntry.value) : null;
+  const hitTsEntry = Array.isArray(telemetry.hit_ts) && telemetry.hit_ts.length > 0 ? telemetry.hit_ts[0] : null;
+  const lastShotTimeFromTelemetry = typeof hitTsEntry?.ts === 'number' ? hitTsEntry.ts : null;
+
+  return {
+    id: String(record.id),
+    name: String(record.name ?? 'Unknown Target'),
+    status,
+    activityStatus,
+    rawStatus: typeof rawStatus === 'string' ? rawStatus : null,
+    active: typeof active === 'boolean' ? active : null,
+    tbLastActivityTime: typeof tbLastActivityTime === 'number' ? tbLastActivityTime : null,
+    battery: record.battery ?? null,
+    wifiStrength: record.wifiStrength ?? null,
+    roomId: coerceRoomId(record.roomId),
+    telemetry,
+    lastEvent: record.lastEvent ?? null,
+    lastGameId: record.lastGameId ?? gameIdFromTelemetry ?? null,
+    lastGameName: record.lastGameName ?? null,
+    lastHits: record.lastHits ?? (totalShotsFromTelemetry != null && Number.isFinite(totalShotsFromTelemetry) ? totalShotsFromTelemetry : null),
+    totalShots: record.totalShots ?? (totalShotsFromTelemetry != null && Number.isFinite(totalShotsFromTelemetry) ? totalShotsFromTelemetry : null),
+    lastActivity: record.lastActivity ?? null,
+    lastActivityTime: record.lastActivityTime ?? null,
+    lastShotTime: record.lastShotTime ?? lastShotTimeFromTelemetry ?? null,
+    gameStatus: record.gameStatus ?? gameStatusFromTelemetry ?? null,
+    deviceName: record.deviceName ?? record.name ?? 'Unknown Target',
+    deviceType: record.type ?? record.deviceType ?? 'default',
+    createdTime: record.createdTime ?? null,
+    additionalInfo: record.additionalInfo ?? {},
+    type: record.type ?? undefined,
+    isNoDataMessage: record.isNoDataMessage ?? false,
+    isErrorMessage: record.isErrorMessage ?? false,
+    message: record.message ?? undefined,
+  };
+};
 
 export async function fetchTargetsWithTelemetry(force = false): Promise<{ targets: Target[]; cached: boolean; summary: TargetsSummary | null }> {
-  // #region agent log
-  const _fetchStartTs = Date.now();
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:fetchTargetsWithTelemetry:start',message:'Starting targets fetch',data:{force},timestamp:_fetchStartTs,sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-  // #endregion
   // Deduplicate concurrent calls - if a request is already in flight, return the same promise
   // Even with force=true, we should deduplicate concurrent calls to avoid redundant expensive operations
   const cacheKey = 'all'; // Use single cache key to deduplicate all concurrent calls
@@ -292,9 +364,6 @@ export async function fetchTargetsWithTelemetry(force = false): Promise<{ target
     },
     sample: targets.slice(0, 5).map((target) => ({ id: target.id, name: target.name, status: target.status, roomName: target.roomName })),
   });
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:fetchTargetsWithTelemetry:end',message:'Targets fetch complete',data:{targetCount:targets.length,durationMs:Date.now()-_fetchStartTs},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
     return { targets, cached: Boolean(data.cached), summary };
   })();
   
@@ -514,21 +583,11 @@ export async function fetchDashboardMetrics(force = false): Promise<{ metrics: D
 }
 
 export async function fetchRoomsData(force = false): Promise<{ rooms: EdgeRoom[]; unassignedTargets: Target[]; cached: boolean }> {
-  // #region agent log
-  const _roomsStartTs = Date.now();
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:fetchRoomsData:start',message:'Starting rooms fetch',data:{force},timestamp:_roomsStartTs,sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
   const payload = force ? { force: true } : {};
-  // #region agent log
-  const _roomsEdgeCallStartTs = Date.now();
-  // #endregion
   const { data, error } = await rateLimitedEdgeCall<RoomsFunctionResponse>('rooms', {
     method: 'POST',
     body: payload,
   });
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:fetchRoomsData:afterEdgeCall',message:'Rooms edge call complete',data:{edgeCallDurationMs:Date.now()-_roomsEdgeCallStartTs,hasError:!!error},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C2'})}).catch(()=>{});
-  // #endregion
 
   if (error) {
     throw error;
@@ -576,9 +635,6 @@ export async function fetchRoomsData(force = false): Promise<{ rooms: EdgeRoom[]
     sample: rooms.slice(0, 5).map((room) => ({ id: room.id, name: room.name, targetCount: room.targetCount })),
   });
 
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'edge.ts:fetchRoomsData:end',message:'Rooms fetch complete',data:{roomCount:rooms.length,durationMs:Date.now()-_roomsStartTs},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
   return result;
 }
 
@@ -740,6 +796,9 @@ export interface TargetDetail {
   deviceId: string;
   status: 'online' | 'standby' | 'offline';
   activityStatus: 'active' | 'recent' | 'standby';
+  rawStatus?: string | null;
+  active?: boolean | null;
+  tbLastActivityTime?: number | null;
   lastShotTime: number | null;
   totalShots: number;
   recentShotsCount: number;
@@ -916,7 +975,13 @@ export async function fetchGameControlDevices(): Promise<{ devices: GameControlD
 
 export async function invokeGameControl(
   action: 'configure' | 'start' | 'stop' | 'info',
-  payload: { deviceIds?: string[]; gameId?: string | null; gameDuration?: number | null },
+  payload: {
+    deviceIds?: string[];
+    gameId?: string | null;
+    gameDuration?: number | null;
+    desiredDurationSeconds?: number | null;
+    roomId?: string | null;
+  },
 ): Promise<GameControlCommandResponse> {
   const body: Record<string, unknown> = {
     action,
@@ -931,6 +996,12 @@ export async function invokeGameControl(
   }
   if (typeof payload.gameDuration === 'number') {
     body.gameDuration = payload.gameDuration;
+  }
+  if (typeof payload.desiredDurationSeconds === 'number' && payload.desiredDurationSeconds > 0) {
+    body.desiredDurationSeconds = payload.desiredDurationSeconds;
+  }
+  if (payload.roomId) {
+    body.roomId = payload.roomId;
   }
 
   const headers: Record<string, string> = {};

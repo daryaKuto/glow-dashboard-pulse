@@ -6,7 +6,7 @@ import { useRooms } from '@/features/rooms';
 import { useUserPrefs } from '@/state/useUserPrefs';
 import { useProfile, useRecentSessions, useStatsTrend, useUpdateProfile, useWifiCredentials, useUpdateWifiCredentials, profileKeys } from '@/features/profile';
 import { useSetDeviceAttributes } from '@/features/targets';
-import { fetchTargetsWithTelemetry } from '@/features/games/lib/thingsboard-targets';
+import { fetchTargetsWithTelemetry } from '@/lib/edge';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsMobile } from '@/shared/hooks/use-mobile';
 import Header from '@/components/shared/Header';
@@ -61,8 +61,7 @@ const Profile: React.FC = () => {
   const { data: roomsData, refetch: refetchRooms } = useRooms();
   const liveRooms = roomsData?.rooms || [];
   
-  // Fetch targets with accurate status directly from ThingsBoard (same approach as Games page)
-  // This uses getBatchServerAttributes to get the real-time 'active' server attribute
+  // Fetch targets with status via edge (same source as Targets page, Dashboard)
   const [targetStatusMap, setTargetStatusMap] = React.useState<Map<string, string>>(new Map());
   
   React.useEffect(() => {
@@ -73,7 +72,7 @@ const Profile: React.FC = () => {
       });
       setTargetStatusMap(map);
     }).catch(err => {
-      console.error('Failed to fetch targets from ThingsBoard:', err);
+      console.error('Failed to fetch targets:', err);
     });
   }, []);
   

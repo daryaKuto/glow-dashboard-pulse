@@ -327,8 +327,11 @@ const Dashboard: React.FC = () => {
       ? currentTargets.length
       : summary?.totalTargets ?? 0;
     const onlineTargetsValue = usingDetailedTargets
-      ? currentTargets.filter((target) => target.status === 'online' || target.status === 'standby').length
+      ? currentTargets.filter((target) => target.status === 'online').length
       : summary?.onlineTargets ?? 0;
+    const standbyTargetsValue = usingDetailedTargets
+      ? currentTargets.filter((target) => target.status === 'standby').length
+      : 0;
     const totalRoomsValue = rooms.length > 0 ? rooms.length : summary?.totalRooms ?? 0;
 
     const recentScenarios = sessions.slice(0, 3);
@@ -346,13 +349,14 @@ const Dashboard: React.FC = () => {
 
     return {
       onlineTargets: onlineTargetsValue,
+      standbyTargets: standbyTargetsValue,
       totalTargets: totalTargetsValue,
       avgScore: avgScoreValue,
       totalRooms: totalRoomsValue,
     };
   }, [currentTargets, rooms.length, sessions, summary]);
 
-  const { onlineTargets, totalTargets, avgScore, totalRooms } = stats;
+  const { onlineTargets, standbyTargets, totalTargets, avgScore, totalRooms } = stats;
   
   const completedSessionsCount = useMemo(
     () => sessions.filter((session) => (session.score ?? 0) > 0).length,
@@ -646,7 +650,13 @@ const Dashboard: React.FC = () => {
                   <StatCard
                     title="Total Registered Targets"
                     value={summaryReady ? totalTargets : '—'}
-                    subtitle={summaryReady ? `${onlineTargets} online` : ''}
+                    subtitle={
+                      summaryReady
+                        ? [onlineTargets > 0 && `${onlineTargets} online`, standbyTargets > 0 && `${standbyTargets} standby`]
+                            .filter(Boolean)
+                            .join(', ') || '0 online'
+                        : ''
+                    }
                     icon={<TargetIcon className="w-6 h-6 -ml-1.5 md:ml-0" />}
                     isLoading={summaryPending || !summaryReady}
                   />

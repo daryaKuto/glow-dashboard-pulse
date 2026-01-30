@@ -148,9 +148,15 @@ export const useDirectTbTelemetry = ({
       return;
     }
 
+    // Capture the subscription start time so we can discard stale cached
+    // telemetry that ThingsBoard sends as an initial snapshot when the
+    // WebSocket opens.  Only events newer than this threshold are real.
+    const subscriptionStartedAt = Date.now();
+
     console.info('[DirectTelemetry] Subscribing to ThingsBoard telemetry', {
       gameId,
       trackedDevices,
+      subscriptionStartedAt,
     });
 
     const unsubscribe = tbSubscribeTelemetry(
@@ -180,16 +186,28 @@ export const useDirectTbTelemetry = ({
         }
         const deviceName = deviceNameMap.get(deviceId) ?? deviceId;
 
+        // Drop stale cached telemetry from before this subscription opened.
+        // ThingsBoard sends the latest cached values as an initial snapshot
+        // when the WebSocket connects — these are historical, not live events.
+        if (eventTimestamp < subscriptionStartedAt) {
+          console.info('[DirectTelemetry] Dropping stale cached telemetry', {
+            deviceId,
+            eventTimestamp,
+            subscriptionStartedAt,
+            ageMs: subscriptionStartedAt - eventTimestamp,
+            eventValue,
+            gameIdValue,
+          });
+          return;
+        }
+
         console.info('[DirectTelemetry] Raw telemetry received', {
           entityId: payload.entityId,
           deviceId,
           gameIdValue,
+          eventTimestamp,
           telemetry,
         });
-
-        if (gameIdValue !== gameId) {
-          return;
-        }
 
         if (eventValue === 'start' || eventValue === 'busy') {
           console.info('[DirectTelemetry] Ready event received', { deviceId, eventValue, eventTimestamp });

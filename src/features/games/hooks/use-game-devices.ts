@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DeviceStatus } from '@/features/games/lib/device-game-flow';
-import { fetchTargetsWithTelemetry } from '@/features/games/lib/thingsboard-targets';
+import { fetchTargetsWithTelemetry } from '@/lib/edge';
 import type { Target } from '@/features/targets/schema';
 
 export interface NormalizedGameDevice extends DeviceStatus {

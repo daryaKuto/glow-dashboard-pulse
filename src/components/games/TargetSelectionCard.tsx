@@ -27,10 +27,14 @@ interface TargetSelectionCardProps {
   className?: string;
 }
 
-// Emits the badge that summarizes the ThingsBoard status for a device.
+// Emits the badge that summarizes connectivity/game status (same approach as Targets page: gray for offline).
 const deviceStatusBadge = (device: DeviceStatus, isOnline: boolean) => {
   if (!isOnline) {
-    return <Badge variant="destructive" className="text-xs">Offline</Badge>;
+    return (
+      <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-600 border-gray-200">
+        Offline
+      </Badge>
+    );
   }
   switch (device.gameStatus) {
     case 'start':
@@ -125,7 +129,7 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
             </div>
           </div>
           <p className="text-xs text-brand-dark/60">
-            {selectedCount} selected • {totalOnlineSelectableTargets} online
+            {selectedCount} selected • {totalOnlineSelectableTargets} available
           </p>
         </div>
 
@@ -141,6 +145,7 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
               {sortedDevices.map((device) => {
                 const checkboxId = `target-${device.deviceId}`;
                 const connectionStatus = deriveConnectionStatus(device);
+                // Online and standby are both selectable; only offline disables the checkbox (rooms, groups, game setup allowed for standby).
                 const isOnline = connectionStatus !== 'offline';
                 const targetRecord = targetDetails.get(device.deviceId);
                 const displayName = targetRecord?.customName || device.name;
@@ -148,6 +153,7 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
                   (typeof targetRecord?.lastActivityTime === 'number' ? targetRecord.lastActivityTime : null) ??
                   (typeof device.raw?.lastActivityTime === 'number' ? device.raw.lastActivityTime : null) ??
                   (typeof device.lastSeen === 'number' ? device.lastSeen : 0);
+                // Same status differentiation as Targets page: online (green), standby (yellow), offline (gray).
                 const connectionLabel =
                   connectionStatus === 'online'
                     ? 'Online'
@@ -155,11 +161,17 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
                       ? 'Standby'
                       : 'Offline';
                 const connectionColor =
-                  connectionStatus === 'online'
-                    ? 'text-green-600'
+                  connectionStatus === 'offline'
+                    ? 'text-gray-400'
                     : connectionStatus === 'standby'
-                      ? 'text-amber-600'
-                      : 'text-red-600';
+                      ? 'text-yellow-500'
+                      : 'text-green-600';
+                const connectionDotBg =
+                  connectionStatus === 'online'
+                    ? 'bg-green-500'
+                    : connectionStatus === 'standby'
+                      ? 'bg-yellow-500'
+                      : 'bg-gray-400';
                 const hits = hitCounts[device.deviceId] ?? device.hitCount ?? 0;
                 const isChecked = selectedDeviceIds.includes(device.deviceId);
 
@@ -183,7 +195,7 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
                         </label>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-brand-dark/60">
                           <span className={`flex items-center gap-1 font-medium ${connectionColor}`}>
-                            <span className="inline-block h-2 w-2 rounded-full bg-current" />
+                            <span className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${connectionDotBg}`} />
                             {connectionLabel}
                           </span>
                           {hits > 0 && <span>Hits {hits}</span>}

@@ -73,41 +73,19 @@ const TargetCard: React.FC<{
   const totalShots = mergedTotalShots;
   const lastShotTime = target.lastShotTime ?? target.lastActivityTime ?? null;
 
-  const activityStatus = target.activityStatus ?? 'standby';
-  const isOnline = target.status === 'online' || target.status === 'standby';
+  // Use backend status only: online / standby / offline. No re-derivation in UI.
+  const status = target.status;
+  const activityStatus = target.activityStatus ?? null;
+  const isOnline = status === 'online' || status === 'standby';
   const ConnectionIcon = isOnline ? Wifi : WifiOff;
-  const connectionColor = !isOnline
-    ? 'text-gray-400'
-    : activityStatus === 'active'
-      ? 'text-green-600'
-      : activityStatus === 'recent'
-        ? 'text-blue-600'
-        : 'text-amber-500';
-  const connectionLabel = !isOnline
-    ? 'Offline'
-    : activityStatus === 'standby'
-      ? 'Standby'
-      : activityStatus === 'recent'
-        ? 'Recently Active'
-        : 'Online';
-
-  // Log displayed values for verification (only in debug mode)
-  const isDebugMode = localStorage.getItem('DEBUG_SHOT_RECORDS') === 'true';
-  if (isDebugMode) {
-    console.log(`📊 [TargetCard] ${target.name} (${target.id})`, {
-      deviceId: target.id,
-      deviceName: target.name,
-      status: target.status,
-      roomId: target.roomId,
-      battery: target.battery,
-      wifiStrength: target.wifiStrength,
-      totalShots,
-      aggregatedHits: totalHitCount ?? null,
-      activityStatus,
-      lastShotTime: lastShotTime,
-      lastShotTimeReadable: lastShotTime ? new Date(lastShotTime).toISOString() : 'Never'
-    });
-  }
+  const connectionColor =
+    status === 'offline'
+      ? 'text-gray-400'
+      : status === 'standby'
+        ? 'text-yellow-500'
+        : 'text-green-600';
+  const connectionLabel =
+    status === 'offline' ? 'Offline' : status === 'standby' ? 'Standby' : 'Online';
 
   return (
     <Card className="bg-white border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 rounded-sm md:rounded-lg">
@@ -116,10 +94,10 @@ const TargetCard: React.FC<{
           <div className="flex-1 flex flex-col items-center min-w-0">
             <div className="flex items-center gap-1 md:gap-2 mb-1 w-full max-w-full">
               <div className={`w-2 h-2 md:w-4 md:h-4 rounded-full flex-shrink-0 ${
-                target.status === 'online' 
-                  ? 'bg-green-500' 
-                  : target.status === 'standby' 
-                    ? 'bg-amber-500' 
+                status === 'online'
+                  ? 'bg-green-500'
+                  : status === 'standby'
+                    ? 'bg-yellow-500'
                     : 'bg-gray-400'
               }`}></div>
               <h3 className="font-heading font-semibold text-brand-dark text-xs md:text-base text-center break-words overflow-hidden text-ellipsis flex-1 min-w-0" title={displayName}>{displayName}</h3>
@@ -238,7 +216,7 @@ const TargetCard: React.FC<{
                     ? 'bg-green-100 text-green-700 border-green-200'
                     : activityStatus === 'recent'
                       ? 'bg-blue-100 text-blue-700 border-blue-200'
-                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                      : 'bg-yellow-50 text-yellow-700 border-yellow-200'
               }`}
             >
               {connectionLabel}
@@ -268,20 +246,20 @@ const TargetCard: React.FC<{
   );
 };
 
-// Stats Summary Component
+// Stats Summary – uses backend target.status only (online=green, standby=yellow, offline=gray)
 const TargetsSummary: React.FC<{
   targets: Target[];
   rooms: Room[];
 }> = ({ targets, rooms }) => {
-  const onlineTargets = targets.filter(t => t.status === 'online' || t.status === 'standby').length;
-  const standbyTargets = targets.filter(t => (t.activityStatus ?? 'standby') === 'standby').length;
+  const onlineTargets = targets.filter(t => t.status === 'online').length;
+  const standbyTargets = targets.filter(t => t.status === 'standby').length;
   const offlineTargets = targets.filter(t => t.status === 'offline').length;
   const unassignedTargets = targets.filter(t => !t.roomId).length;
 
   const stats = [
     { label: 'Total Targets', value: targets.length, color: 'text-brand-dark' },
     { label: 'Online', value: onlineTargets, color: 'text-green-600' },
-    { label: 'Standby', value: standbyTargets, color: 'text-amber-600' },
+    { label: 'Standby', value: standbyTargets, color: 'text-yellow-600' },
     { label: 'Offline', value: offlineTargets, color: 'text-gray-600' },
     { label: 'Unassigned', value: unassignedTargets, color: 'text-yellow-600' },
   ];
@@ -430,6 +408,29 @@ const Targets: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setTargets(storeTargets);
+  }, [storeTargets]);
+
+  // Live target details: log fetched targets to console for debugging
+  useEffect(() => {
+    if (storeTargets.length === 0) return;
+    const timestamp = new Date().toISOString();
+    console.log('[Targets] Live target details fetched', {
+      timestamp,
+      count: storeTargets.length,
+      targets: storeTargets.map((t) => ({
+        id: t.id,
+        name: t.name,
+        status: t.status,
+        activityStatus: t.activityStatus,
+        rawStatus: t.rawStatus,
+        active: t.active,
+        tbLastActivityTime: t.tbLastActivityTime,
+        lastShotTime: t.lastShotTime,
+        lastActivityTime: t.lastActivityTime,
+        gameStatus: t.gameStatus,
+        roomId: t.roomId,
+      })),
+    });
   }, [storeTargets]);
 
   useEffect(() => {

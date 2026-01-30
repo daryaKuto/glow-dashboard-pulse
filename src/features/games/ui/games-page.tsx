@@ -40,6 +40,7 @@ import {
   tbSetShared,
   tbSendOneway,
 } from '@/features/games/lib/thingsboard-client';
+import { invokeGameControl, type GameControlCommandResponse } from '@/lib/edge';
 import {
   fetchAllGameHistory as fetchPersistedGameHistory,
   saveGameHistory,
@@ -725,10 +726,6 @@ const getTargetBestScore = (target: Target): number | null => {
 // Main Live Game Control page: orchestrates device state, telemetry streams, and session history for operator control.
 const Games: React.FC = () => {
   mark('games-page-render-start');
-  // #region agent log
-  const _pageStartTs = useRef(Date.now());
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:componentMount',message:'Games page component mounting',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'ALL'})}).catch(()=>{});
-  // #endregion
   const isMobile = useIsMobile();
   const { user } = useAuth();
   // Tracks the shadcn sidebar state so we know whether to render the drawer on small screens.
@@ -738,35 +735,23 @@ const Games: React.FC = () => {
   const [gameHistory, setGameHistory] = useState<GameHistory[]>([]);
   // Mirrors the fetch lifecycle so the history section can show skeletons/spinners.
   const [isHistoryLoading, setIsHistoryLoading] = useState(true);
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:historyLoadingInit',message:'isHistoryLoading initialized',data:{isHistoryLoading:true},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
   const { isLoading: loadingDevices, refresh: refreshGameDevices } = useGameDevices({ immediate: false });
   const {
     data: targetsData,
     isLoading: targetsStoreLoading,
     refetch: refetchTargets,
   } = useTargets();
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:useTargets',message:'useTargets hook state',data:{targetsStoreLoading,targetsCount:targetsData?.targets?.length??0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-  // #endregion
   const targetsSnapshot = targetsData?.targets ?? [];
   const refreshTargets = useCallback(async () => {
     await refetchTargets();
   }, [refetchTargets]);
   const { data: roomsData, isLoading: roomsLoading } = useRooms();
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:useRooms',message:'useRooms hook state',data:{roomsLoading,roomsCount:roomsData?.rooms?.length??0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
   const rooms = roomsData?.rooms ?? [];
   const groups = useTargetGroups((state) => state.groups);
   const groupsLoading = useTargetGroups((state) => state.isLoading);
   const fetchGroups = useTargetGroups((state) => state.fetchGroups);
   const gamePresets = useGamePresets((state) => state.presets);
   const presetsLoading = useGamePresets((state) => state.isLoading);
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:useGamePresets',message:'useGamePresets hook state',data:{presetsLoading,presetsCount:gamePresets?.length??0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
-  // #endregion
   const presetsSaving = useGamePresets((state) => state.isSaving);
   const presetsError = useGamePresets((state) => state.error);
   const fetchPresets = useGamePresets((state) => state.fetchPresets);
@@ -1430,10 +1415,6 @@ const Games: React.FC = () => {
       return;
     }
 
-    // #region agent log
-    const _historyStartTs = Date.now();
-    fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:loadGameHistory:start',message:'Starting history fetch',data:{userId:user.id},timestamp:_historyStartTs,sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     isLoadingHistoryRef.current = true;
     setIsHistoryLoading(true);
     try {
@@ -1498,9 +1479,6 @@ const Games: React.FC = () => {
       console.warn('[Games] Failed to load game history', error);
       setGameHistory([]);
     } finally {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:loadGameHistory:finally',message:'History loading complete',data:{historyCount:gameHistory.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       setIsHistoryLoading(false);
       isLoadingHistoryRef.current = false;
     }
@@ -1785,77 +1763,16 @@ useEffect(() => {
     return map;
   }, [availableDevices]);
 
+  // Status from edge device list (device.raw.status from useGameDevices / edge fetchTargetsWithTelemetry).
   const deriveConnectionStatus = useCallback(
     (device: NormalizedGameDevice): 'online' | 'standby' | 'offline' => {
-      const target = targetById.get(device.deviceId);
-      
-      // First check device's live status from useGameDevices (most up-to-date from ThingsBoard)
-      // This takes priority because targetsSnapshot may have stale cached data
-      const rawStatus = (device.raw?.status ?? '').toString().toLowerCase();
-      const deviceIndicatesOnline = device.isOnline === true || 
-        ['online', 'standby', 'active', 'busy', 'active_online'].includes(rawStatus);
-      
-      // If device data says it's online (including standby), return 'online'
-      // Games page only uses two modes: online or offline
-      if (deviceIndicatesOnline) {
-        return 'online';
+      const status = device.raw?.status;
+      if (status === 'online' || status === 'standby' || status === 'offline') {
+        return status;
       }
-      
-      // Fall back to target cache status if device doesn't indicate online
-      if (target) {
-        if (target.status === 'offline') {
-          return 'offline';
-        }
-        // Treat standby as online for Games page (only two modes: online/offline)
-        if (target.status === 'standby' || target.status === 'online') {
-          return 'online';
-        }
-      }
-
-      // Continue with remaining fallback checks
-      // Games page only uses two modes: online or offline (standby treated as online)
-      if (
-        rawStatus.includes('offline') ||
-        rawStatus.includes('disconnected') ||
-        rawStatus === 'inactive'
-      ) {
-        return 'offline';
-      }
-      // Treat standby/idle as online for Games page
-      if (rawStatus === 'standby' || rawStatus === 'idle') {
-        return 'online';
-      }
-      if (['online', 'active', 'busy', 'active_online'].includes(rawStatus)) {
-        return 'online';
-      }
-
-      const rawGameStatus = (device.raw?.gameStatus ?? '').toString().toLowerCase();
-      if (rawGameStatus === 'start' || rawGameStatus === 'busy') {
-        return 'online';
-      }
-      // Treat stop/idle gameStatus as online (device is still connected)
-      if (rawGameStatus === 'stop' || rawGameStatus === 'idle') {
-        return 'online';
-      }
-
-      if (typeof device.raw?.isOnline === 'boolean') {
-        return device.raw.isOnline ? 'online' : 'offline';
-      }
-
-      if (typeof device.isOnline === 'boolean') {
-        return device.isOnline ? 'online' : 'offline';
-      }
-
-      const lastActivity =
-        (typeof target?.lastActivityTime === 'number' ? target.lastActivityTime : null) ??
-        (typeof device.lastSeen === 'number' ? device.lastSeen : null);
-      if (lastActivity) {
-        return Date.now() - lastActivity <= DEVICE_ONLINE_STALE_THRESHOLD_MS ? 'online' : 'offline';
-      }
-
       return 'offline';
     },
-    [targetById],
+    [],
   );
 
   const roomSelections = useMemo(() => {
@@ -1983,7 +1900,7 @@ useEffect(() => {
       if (requireOnline && offlineTargets.length > 0) {
         const message =
           offlineTargets.length === resolvedTargets.length
-            ? 'Selected targets are offline. Choose at least one online target.'
+            ? 'Selected targets are offline. Choose at least one online or standby target.'
             : 'Some selected targets are offline. Deselect offline devices to continue.';
         setErrorMessage(message);
         toast.error(message);
@@ -2004,7 +1921,7 @@ useEffect(() => {
 
       const effectiveTargets = requireOnline ? onlineTargets : resolvedTargets;
       if (effectiveTargets.length === 0) {
-        const message = 'No online targets available for this session.';
+        const message = 'No online or standby targets available for this session.';
         setErrorMessage(message);
         toast.error(message);
         return null;
@@ -3037,57 +2954,48 @@ const handleDeletePreset = useCallback(
     console.info('[Games] Disabling direct telemetry stream (stop initiated)');
     setDirectTelemetryEnabled(false);
 
-    const stopResults = await Promise.allSettled(
-      directSessionTargets.map(async ({ deviceId }) => {
-        updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'pending' }));
-        let attemptedRefresh = false;
+    // Route stop commands through the edge function (server-side) so the RPC
+    // reaches ThingsBoard without browser CORS / timeout constraints.
+    const stopDeviceIds = directSessionTargets.map(({ deviceId }) => deviceId);
+    stopDeviceIds.forEach((deviceId) => {
+      updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'pending' }));
+    });
 
-        const sendStopCommand = async () => {
-          try {
-            await tbSendOneway(deviceId, 'stop', {
-              ts: stopTimestamp,
-              values: {
-                deviceId,
-                event: 'stop',
-                gameId: directSessionGameId,
-              },
-            });
-          } catch (error) {
-            const status = resolveHttpStatus(error);
-            if (status === 504) {
-              console.info('[Games] ThingsBoard stop RPC timed out (expected for oneway command)', {
-                deviceId,
-                gameId: directSessionGameId,
-              });
-            } else if (status === 401 && !attemptedRefresh) {
-              attemptedRefresh = true;
-              await refreshDirectAuthToken();
-              await sendStopCommand();
-            } else if (isAxiosNetworkError(error)) {
-              console.info('[Games] ThingsBoard stop RPC hit a network issue; command may still apply', {
-                deviceId,
-              });
-            } else {
-              throw error;
-            }
-          }
-        };
+    let stopResponse: GameControlCommandResponse | null = null;
+    try {
+      console.info('[Games] Sending stop via edge game-control', {
+        deviceIds: stopDeviceIds,
+        gameId: directSessionGameId,
+      });
+      stopResponse = await invokeGameControl('stop', {
+        deviceIds: stopDeviceIds,
+        gameId: directSessionGameId,
+      });
+      console.info('[Games] Edge game-control stop response', stopResponse);
+    } catch (error) {
+      console.error('[Games] Edge game-control stop failed', error);
+      stopResponse = null;
+    }
 
-        try {
-          await tbSetShared(deviceId, { status: 'free' });
-          await sendStopCommand();
-          updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'success' }));
-        } catch (error) {
-          console.error('[Games] Failed to stop device via ThingsBoard', error);
-          updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'error' }));
-          throw error;
-        }
-      }),
-    );
+    // Map per-device results
+    const stopResultMap = new Map<string, boolean>();
+    if (stopResponse?.results) {
+      for (const result of stopResponse.results) {
+        stopResultMap.set(result.deviceId, result.success);
+      }
+    }
 
-    const stopFailures = stopResults.filter((result) => result.status === 'rejected');
-    if (stopFailures.length > 0) {
-      toast.error(`${stopFailures.length} device(s) may not have received the stop command.`);
+    stopDeviceIds.forEach((deviceId) => {
+      const success = stopResultMap.get(deviceId) ?? false;
+      updateDirectStartStates((prev) => ({
+        ...prev,
+        [deviceId]: success ? 'success' : 'error',
+      }));
+    });
+
+    const stopFailureCount = stopDeviceIds.filter((id) => !stopResultMap.get(id)).length;
+    if (stopFailureCount > 0) {
+      toast.error(`${stopFailureCount} device(s) may not have received the stop command.`);
     } else {
       toast.success('Stop commands sent to all devices.');
     }
@@ -3201,7 +3109,6 @@ const handleDeletePreset = useCallback(
     setDirectSessionGameId,
     setAvailableDevices,
     resetSetupFlow,
-    refreshDirectAuthToken,
     loadLiveDevices,
     loadGameHistory,
     toast,
@@ -3346,71 +3253,47 @@ const handleDeletePreset = useCallback(
         return next;
       });
 
-      await Promise.allSettled(
-        targetsToCommand.map(async ({ deviceId }) => {
-          let attemptedRefresh = false;
-          const run = async () => {
-            const sharedAttributes: Record<string, unknown> = {
-              gameId: activeGameId,
-              status: 'busy',
-            };
-            if (sessionDurationSeconds && sessionDurationSeconds > 0) {
-              sharedAttributes.desiredDurationSeconds = sessionDurationSeconds;
-            }
-            if (sessionRoomId) {
-              sharedAttributes.roomId = sessionRoomId;
-            }
+      // Route start commands through the edge function (server-side) so the RPC
+      // reaches ThingsBoard without browser CORS / timeout constraints.
+      let edgeResponse: GameControlCommandResponse | null = null;
+      try {
+        console.info('[Games] Sending start via edge game-control', {
+          deviceIds: uniqueIds,
+          gameId: activeGameId,
+          desiredDurationSeconds: sessionDurationSeconds,
+          roomId: sessionRoomId,
+        });
+        edgeResponse = await invokeGameControl('start', {
+          deviceIds: uniqueIds,
+          gameId: activeGameId,
+          desiredDurationSeconds: sessionDurationSeconds,
+          roomId: sessionRoomId,
+        });
+        console.info('[Games] Edge game-control start response', edgeResponse);
+      } catch (error) {
+        console.error('[Games] Edge game-control start failed', error);
+        edgeResponse = null;
+      }
 
-            await tbSetShared(deviceId, sharedAttributes);
+      // Map per-device results from the edge response
+      const deviceResultMap = new Map<string, boolean>();
+      if (edgeResponse?.results) {
+        for (const result of edgeResponse.results) {
+          deviceResultMap.set(result.deviceId, result.success);
+        }
+      }
 
-            const commandValues: Record<string, unknown> = {
-              deviceId,
-              event: 'start',
-              gameId: activeGameId,
-            };
-            if (sessionDurationSeconds && sessionDurationSeconds > 0) {
-              commandValues.desiredDurationSeconds = sessionDurationSeconds;
-            }
-            if (sessionRoomId) {
-              commandValues.roomId = sessionRoomId;
-            }
+      // Update per-device states
+      uniqueIds.forEach((deviceId) => {
+        const success = deviceResultMap.get(deviceId) ?? false;
+        updateDirectStartStates((prev) => ({
+          ...prev,
+          [deviceId]: success ? 'success' : 'error',
+        }));
+      });
 
-            try {
-              await tbSendOneway(deviceId, 'start', {
-                ts: timestamp,
-                values: commandValues,
-              });
-            } catch (error) {
-              const status = resolveHttpStatus(error);
-              if (status === 504) {
-                console.info('[Games] ThingsBoard start RPC timed out (expected for oneway)', { deviceId, gameId: activeGameId });
-              } else if (status === 401 && !attemptedRefresh) {
-                attemptedRefresh = true;
-                await refreshDirectAuthToken();
-                await run();
-                return;
-              } else if (isAxiosNetworkError(error)) {
-                console.info('[Games] ThingsBoard start RPC hit a network issue; command may still apply', { deviceId });
-              } else {
-                throw error;
-              }
-            }
-          };
-
-          try {
-            await run();
-            updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'success' }));
-          } catch (error) {
-            updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'error' }));
-            console.error('[Games] ThingsBoard start command failed', { deviceId, error });
-            throw error;
-          }
-        }),
-      );
-
-      const finalStates = directStartStatesRef.current;
-      const successIds = uniqueIds.filter((deviceId) => finalStates[deviceId] === 'success');
-      const errorIds = uniqueIds.filter((deviceId) => finalStates[deviceId] === 'error');
+      const successIds = uniqueIds.filter((deviceId) => deviceResultMap.get(deviceId) === true);
+      const errorIds = uniqueIds.filter((deviceId) => !deviceResultMap.get(deviceId));
 
       if (successIds.length === 0) {
         setDirectFlowActive(false);
@@ -3429,11 +3312,16 @@ const handleDeletePreset = useCallback(
         return { successIds: [], errorIds };
       }
 
+      // All RPCs dispatched — transition to running.
+      // Oneway RPCs (504 timeout = expected) don't receive a device acknowledgment,
+      // so we anchor the timer to RPC-completion time and go straight to 'running'.
+      const rpcCompleteTimestamp = Date.now();
       setDirectFlowActive(true);
       setDirectTelemetryEnabled(true);
       setSessionLifecycle('running');
-      setGameStartTime((prev) => prev ?? timestamp);
-      markTelemetryConfirmed(timestamp);
+      startSessionTimer(rpcCompleteTimestamp);
+      setGameStartTime((prev) => prev ?? rpcCompleteTimestamp);
+      markTelemetryConfirmed(rpcCompleteTimestamp);
       setDirectControlError(errorIds.length > 0 ? 'Some devices failed to start. Retry failed devices.' : null);
 
       if (errorIds.length > 0) {
@@ -3448,7 +3336,6 @@ const handleDeletePreset = useCallback(
       directSessionTargets,
       directSessionGameId,
       updateDirectStartStates,
-      refreshDirectAuthToken,
       toast,
       setDirectFlowActive,
       setDirectTelemetryEnabled,
@@ -3461,6 +3348,7 @@ const handleDeletePreset = useCallback(
       setHitHistory,
       setDirectControlError,
       markTelemetryConfirmed,
+      startSessionTimer,
       sessionDurationSeconds,
       sessionRoomId,
     ],
@@ -3533,7 +3421,9 @@ const handleDeletePreset = useCallback(
       setSessionLifecycle('launching');
       setDirectFlowActive(true);
       setDirectTelemetryEnabled(false);
-      startSessionTimer(timestamp);
+      // Don't start the timer here — it will be started by executeDirectStart
+      // when all RPC commands complete, so the timer is synchronized with when
+      // devices actually received the start command (not when the button was pressed).
 
       updateDirectStartStates(() => {
         const next: Record<string, 'idle' | 'pending' | 'success' | 'error'> = {};
@@ -3876,9 +3766,6 @@ const handleDeletePreset = useCallback(
     });
   }, [hitHistory, gameStartTime]);
 
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:isInitialDataLoading',message:'Loading state check',data:{isHistoryLoading,roomsLoading,targetsStoreLoading,presetsLoading,groupsLoading},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'ALL'})}).catch(()=>{});
-  // #endregion
   const isInitialDataLoading =
     // Don't block page rendering on loadingDevices or roomsLoading:
     // - loadingDevices is slow (3500ms) and setup sections can render progressively
@@ -3889,13 +3776,6 @@ const handleDeletePreset = useCallback(
 
   const displayedSelectedCount = selectedDeviceIds.length;
   const isPageLoading = isInitialDataLoading;
-  // #region agent log
-  useEffect(() => {
-    if (!isPageLoading) {
-      fetch('http://127.0.0.1:7242/ingest/833eaf25-0547-420d-a570-1d7cab6b5873',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'games-page.tsx:step1Rendered',message:'Step 1 rendered (loading complete)',data:{isPageLoading},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'ALL'})}).catch(()=>{});
-    }
-  }, [isPageLoading]);
-  // #endregion
   const sessionDialogTargets =
     isLiveDialogPhase && currentSessionTargets.length > 0 ? currentSessionTargets : pendingSessionTargets;
   const canDismissSessionDialog = sessionLifecycle === 'selecting' && !isStarting && !isLaunchingLifecycle;
@@ -4008,7 +3888,7 @@ const handleDeletePreset = useCallback(
                           </span>
                         </div>
                         <h2 className="font-heading text-lg text-brand-dark text-left">Select targets, group, or room</h2>
-                        <p className="text-xs text-brand-dark/60 text-left">Choose at least one online target to continue.</p>
+                        <p className="text-xs text-brand-dark/60 text-left">Choose at least one online or standby target to continue.</p>
                       </div>
                       <div className="space-y-4">
                         <div className="grid gap-4 md:grid-cols-3 md:items-start">
@@ -4354,7 +4234,7 @@ const handleDeletePreset = useCallback(
                       </div>
                       {!canLaunchGame && (
                         <p className="text-xs text-brand-dark/60">
-                          Complete the previous steps with at least one online target to enable launch.
+                          Complete the previous steps with at least one online or standby target to enable launch.
                         </p>
                       )}
                     </CardContent>

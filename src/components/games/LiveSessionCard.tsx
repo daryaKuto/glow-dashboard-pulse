@@ -48,6 +48,84 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
       ? formatSessionDuration(desiredDurationSeconds)
       : 'No time limit';
 
+  // All hooks must be called unconditionally (before any early return) to satisfy React's rules of hooks.
+  // Calculate per-target split statistics
+  const perTargetStats = useMemo(() => {
+    if (!recentSummary) return [];
+
+    const stats: Record<string, { splits: number[]; hitCount: number; deviceName: string }> = {};
+
+    // Initialize from targets
+    recentSummary.targets.forEach((target) => {
+      stats[target.deviceId] = { splits: [], hitCount: 0, deviceName: target.deviceName };
+    });
+
+    // Populate hit counts from device stats
+    recentSummary.deviceStats?.forEach((stat) => {
+      if (stats[stat.deviceId]) {
+        stats[stat.deviceId].hitCount = stat.hitCount;
+      }
+    });
+
+    // Populate splits
+    recentSummary.splits?.forEach((split) => {
+      if (stats[split.deviceId]) {
+        stats[split.deviceId].splits.push(split.time);
+      }
+    });
+
+    return Object.entries(stats).map(([deviceId, data]) => {
+      const avgSplit = data.splits.length > 0
+        ? data.splits.reduce((a, b) => a + b, 0) / data.splits.length
+        : null;
+      const fastestSplit = data.splits.length > 0 ? Math.min(...data.splits) : null;
+      return {
+        deviceId,
+        deviceName: customNames.get(deviceId) ?? data.deviceName,
+        hitCount: data.hitCount,
+        splitCount: data.splits.length,
+        avgSplit,
+        fastestSplit,
+      };
+    });
+  }, [recentSummary, customNames]);
+
+  // Calculate transition statistics by direction
+  const transitionStats = useMemo(() => {
+    if (!recentSummary?.transitions) return [];
+
+    const stats: Record<string, { count: number; times: number[]; fromName: string; toName: string }> = {};
+
+    recentSummary.transitions.forEach((transition) => {
+      const key = `${transition.fromDevice}->${transition.toDevice}`;
+      if (!stats[key]) {
+        stats[key] = {
+          count: 0,
+          times: [],
+          fromName: customNames.get(transition.fromDevice) ?? transition.fromDevice,
+          toName: customNames.get(transition.toDevice) ?? transition.toDevice,
+        };
+      }
+      stats[key].count++;
+      stats[key].times.push(transition.time);
+    });
+
+    return Object.entries(stats).map(([key, data]) => ({
+      key,
+      fromName: data.fromName,
+      toName: data.toName,
+      count: data.count,
+      avgTime: data.times.reduce((a, b) => a + b, 0) / data.times.length,
+    }));
+  }, [recentSummary?.transitions, customNames]);
+
+  // Calculate average transition time for the stats grid
+  const avgTransitionTime = useMemo(() => {
+    if (!recentSummary?.transitions || recentSummary.transitions.length === 0) return null;
+    const totalTime = recentSummary.transitions.reduce((sum, t) => sum + t.time, 0);
+    return totalTime / recentSummary.transitions.length;
+  }, [recentSummary?.transitions]);
+
   if (isRunning) {
     return (
       <Card className="bg-white border-brand-primary/20 shadow-lg rounded-md md:rounded-xl">
@@ -130,83 +208,6 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
   const getDisplayName = (deviceId: string, defaultName: string): string => {
     return customNames.get(deviceId) ?? defaultName;
   };
-
-  // Calculate per-target split statistics (moved outside conditional for hooks rules)
-  const perTargetStats = useMemo(() => {
-    if (!recentSummary) return [];
-    
-    const stats: Record<string, { splits: number[]; hitCount: number; deviceName: string }> = {};
-    
-    // Initialize from targets
-    recentSummary.targets.forEach((target) => {
-      stats[target.deviceId] = { splits: [], hitCount: 0, deviceName: target.deviceName };
-    });
-    
-    // Populate hit counts from device stats
-    recentSummary.deviceStats?.forEach((stat) => {
-      if (stats[stat.deviceId]) {
-        stats[stat.deviceId].hitCount = stat.hitCount;
-      }
-    });
-    
-    // Populate splits
-    recentSummary.splits?.forEach((split) => {
-      if (stats[split.deviceId]) {
-        stats[split.deviceId].splits.push(split.time);
-      }
-    });
-    
-    return Object.entries(stats).map(([deviceId, data]) => {
-      const avgSplit = data.splits.length > 0 
-        ? data.splits.reduce((a, b) => a + b, 0) / data.splits.length 
-        : null;
-      const fastestSplit = data.splits.length > 0 ? Math.min(...data.splits) : null;
-      return {
-        deviceId,
-        deviceName: customNames.get(deviceId) ?? data.deviceName,
-        hitCount: data.hitCount,
-        splitCount: data.splits.length,
-        avgSplit,
-        fastestSplit,
-      };
-    });
-  }, [recentSummary, customNames]);
-  
-  // Calculate transition statistics by direction
-  const transitionStats = useMemo(() => {
-    if (!recentSummary?.transitions) return [];
-    
-    const stats: Record<string, { count: number; times: number[]; fromName: string; toName: string }> = {};
-    
-    recentSummary.transitions.forEach((transition) => {
-      const key = `${transition.fromDevice}->${transition.toDevice}`;
-      if (!stats[key]) {
-        stats[key] = { 
-          count: 0, 
-          times: [], 
-          fromName: customNames.get(transition.fromDevice) ?? transition.fromDevice,
-          toName: customNames.get(transition.toDevice) ?? transition.toDevice,
-        };
-      }
-      stats[key].count++;
-      stats[key].times.push(transition.time);
-    });
-    
-    return Object.entries(stats).map(([key, data]) => ({
-      key,
-      fromName: data.fromName,
-      toName: data.toName,
-      count: data.count,
-      avgTime: data.times.reduce((a, b) => a + b, 0) / data.times.length,
-    }));
-  }, [recentSummary?.transitions, customNames]);
-  
-  // Calculate average transition time for the stats grid
-  const avgTransitionTime = useMemo(() => {
-    if (!recentSummary?.transitions || recentSummary.transitions.length === 0) return null;
-    const totalTime = recentSummary.transitions.reduce((sum, t) => sum + t.time, 0);
-    return totalTime / recentSummary.transitions.length;
-  }, [recentSummary?.transitions]);
 
   if (recentSummary) {
     console.debug('[LiveSessionCard] Rendering last session summary', { gameId: recentSummary.gameId });

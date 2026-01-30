@@ -65,7 +65,8 @@ const TELEMETRY_KEYS = ['hits', 'hit_ts', 'battery', 'wifiStrength', 'event', 'g
 const telemetryErrorLogState = new Map<string, number>();
 const DEFAULT_HISTORY_KEYS = ['hits', 'hit_ts'];
 const ACTIVE_THRESHOLD_MS = 30_000;
-const RECENT_THRESHOLD_MS = 600_000;
+// 12 hours – must match scripts/check-online-targets-thingsboard.sh RECENT_MS and edge targets-with-telemetry
+const RECENT_THRESHOLD_MS = 43200_000;
 const DEFAULT_HISTORY_RANGE_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_HISTORY_LIMIT = 500;
 const DEFAULT_RECENT_WINDOW_MS = 5 * 60 * 1000;
@@ -129,53 +130,39 @@ const latestSeriesEntry = (series: unknown): TelemetrySeriesEntry => {
   return series as TelemetrySeriesEntry;
 };
 
-const determineStatus = (
+// Matches edge targets-with-telemetry and scripts/check-online-targets-thingsboard.sh
+export const determineStatus = (
   rawStatus: string | null,
   gameStatus: string | null,
-  lastShotTime: number | null,
+  _lastShotTime: number | null,
   isActiveFromTb: boolean | null,
   lastActivityTime: number | null,
 ): 'online' | 'offline' | 'standby' => {
-  // Priority 1: If device is in an active game state, always show as online
-  if (gameStatus && ['start', 'busy', 'active'].includes(gameStatus.toLowerCase())) {
+  const now = Date.now();
+  const hasRecentActivity =
+    lastActivityTime != null && now - lastActivityTime <= RECENT_THRESHOLD_MS;
+
+  if (gameStatus && ['start', 'busy', 'active'].includes(String(gameStatus).toLowerCase())) {
     return 'online';
   }
-
-  // Priority 2: Use ThingsBoard's actual 'active' server-side attribute (most reliable)
-  // This reflects real device connection status based on inactivityTimeout
   if (isActiveFromTb === false) {
+    if (hasRecentActivity) return 'standby';
     return 'offline';
   }
-  
   if (isActiveFromTb === true) {
-    // Device is connected, check if it's actively being used or just idle
-    const normalizedStatus = rawStatus?.toLowerCase() ?? '';
-    if (['online', 'active', 'active_online', 'busy'].includes(normalizedStatus)) {
+    const normalized = (rawStatus ?? '').toLowerCase();
+    if (['online', 'active', 'active_online', 'busy'].includes(normalized)) {
       return 'online';
     }
-    // Connected but idle
-    return 'standby';
+    if (hasRecentActivity) return 'standby';
+    return 'offline';
   }
-
-  // Priority 3: Fallback to status string checks (less reliable)
-  const normalizedStatus = rawStatus?.toLowerCase() ?? '';
-  if (['online', 'active', 'active_online', 'busy'].includes(normalizedStatus)) {
+  // When active is null: only standby if server lastActivityTime is recent (matches script)
+  const normalized = (rawStatus ?? '').toLowerCase();
+  if (['online', 'active', 'active_online', 'busy'].includes(normalized)) {
     return 'online';
   }
-  if (['standby', 'idle'].includes(normalizedStatus)) {
-    return 'standby';
-  }
-
-  // Priority 4: Check ThingsBoard's lastActivityTime (more reliable than our lastShotTime)
-  if (lastActivityTime !== null && Date.now() - lastActivityTime <= RECENT_THRESHOLD_MS) {
-    return 'standby'; // Recently active but not currently connected
-  }
-
-  // Priority 5: Check our own lastShotTime as last resort
-  if (lastShotTime !== null && Date.now() - lastShotTime <= RECENT_THRESHOLD_MS) {
-    return 'standby';
-  }
-
+  if (hasRecentActivity) return 'standby';
   return 'offline';
 };
 
@@ -432,6 +419,12 @@ const mapDeviceToTarget = (
   };
 };
 
+/**
+ * @deprecated Use `fetchTargetsWithTelemetry` from `@/lib/edge` instead.
+ * Direct ThingsBoard fetching is no longer used for Games setup — the edge
+ * function provides the same data server-side with caching (~500ms vs ~3500ms).
+ * Kept only for reference; `determineStatus` is still actively used by tests.
+ */
 export const fetchTargetsWithTelemetry = async (
   _force = false,
 ): Promise<{ targets: Target[]; summary: TargetsSummary | null; cached: boolean }> => {
@@ -541,6 +534,11 @@ export const fetchTargetsWithTelemetry = async (
   return fetchPromise;
 };
 
+/**
+ * @deprecated Use `fetchTargetDetails` from `@/lib/edge` instead.
+ * Direct ThingsBoard fetching is no longer used — the edge function
+ * `target-details` provides the same data server-side.
+ */
 export const fetchTargetDetails = async (
   deviceIds: string[],
   options: TargetDetailsOptions = {},

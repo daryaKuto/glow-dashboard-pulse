@@ -30,6 +30,12 @@ export const targetSchema = z.object({
   totalShots: z.number().nullable().optional(),
   recentShotsCount: z.number().optional(),
   activityStatus: activityStatusSchema.optional(),
+  /** Raw from ThingsBoard: device status string. UI derives display status from this + active + tbLastActivityTime. */
+  rawStatus: z.string().nullable().optional(),
+  /** Raw from ThingsBoard: server attribute active (connection state). */
+  active: z.boolean().nullable().optional(),
+  /** Raw from ThingsBoard: server attribute lastActivityTime (ms). UI uses for standby threshold. */
+  tbLastActivityTime: z.number().nullable().optional(),
   gameStatus: z.string().nullable().optional(),
   errors: z.array(z.string()).optional(),
   deviceName: z.string().optional(),
@@ -46,6 +52,9 @@ export const targetDetailSchema = z.object({
   deviceId: z.string(),
   status: targetStatusSchema,
   activityStatus: activityStatusSchema.optional(),
+  rawStatus: z.string().nullable().optional(),
+  active: z.boolean().nullable().optional(),
+  tbLastActivityTime: z.number().nullable().optional(),
   lastShotTime: z.number().nullable(),
   totalShots: z.number(),
   recentShotsCount: z.number(),

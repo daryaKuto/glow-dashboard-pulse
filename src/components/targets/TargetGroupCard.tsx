@@ -16,12 +16,12 @@ import {
   X,
   Plus
 } from 'lucide-react';
-import { Group } from '@/state/useTargetGroups';
+import type { TargetGroup } from '@/features/targets';
 import type { Room } from '@/features/rooms/schema';
 import type { Target as TargetType } from '@/features/targets/schema';
 
 interface TargetGroupCardProps {
-  group: Group;
+  group: TargetGroup;
   room?: Room | null;
   onEdit: (groupId: string, newName: string) => void;
   onDelete: () => void;

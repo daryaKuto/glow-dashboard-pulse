@@ -5,6 +5,7 @@
 // Hooks
 export {
   useDashboardMetrics,
+  useDashboardSessions,
   dashboardKeys,
 } from './hooks';
 
@@ -14,6 +15,8 @@ export type {
   DashboardMetricsTotals,
   DashboardRecentSession,
 } from './schema';
+
+export type { DashboardSession } from './hooks';
 
 export type { DashboardMetricsResult } from './repo';
 

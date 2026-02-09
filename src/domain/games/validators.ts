@@ -234,5 +234,61 @@ export function canStopSession(status: GameSessionStatus): boolean {
   return ['running', 'launching'].includes(status);
 }
 
+/**
+ * Validate game configuration (target count, shots per target, time limit)
+ * Returns { valid: true } or { valid: false, violation: string }
+ */
+export function validateGameConfiguration(
+  targetCount: number,
+  shotsPerTarget: number,
+  timeLimitMs: number | null
+): { valid: true } | { valid: false; violation: string } {
+  // Validate target count
+  if (!Number.isFinite(targetCount) || targetCount < GAME_CONSTRAINTS.MIN_TARGETS) {
+    return {
+      valid: false,
+      violation: `Target count must be at least ${GAME_CONSTRAINTS.MIN_TARGETS}`,
+    };
+  }
+  if (targetCount > GAME_CONSTRAINTS.MAX_TARGETS) {
+    return {
+      valid: false,
+      violation: `Target count cannot exceed ${GAME_CONSTRAINTS.MAX_TARGETS}`,
+    };
+  }
+
+  // Validate shots per target
+  if (!Number.isFinite(shotsPerTarget) || shotsPerTarget < GAME_CONSTRAINTS.MIN_SHOTS_PER_TARGET) {
+    return {
+      valid: false,
+      violation: `Shots per target must be at least ${GAME_CONSTRAINTS.MIN_SHOTS_PER_TARGET}`,
+    };
+  }
+  if (shotsPerTarget > GAME_CONSTRAINTS.MAX_SHOTS_PER_TARGET) {
+    return {
+      valid: false,
+      violation: `Shots per target cannot exceed ${GAME_CONSTRAINTS.MAX_SHOTS_PER_TARGET}`,
+    };
+  }
+
+  // Validate time limit (if provided)
+  if (timeLimitMs !== null) {
+    if (!Number.isFinite(timeLimitMs) || timeLimitMs < GAME_CONSTRAINTS.MIN_TIME_LIMIT_MS) {
+      return {
+        valid: false,
+        violation: `Time limit must be at least ${GAME_CONSTRAINTS.MIN_TIME_LIMIT_MS}ms`,
+      };
+    }
+    if (timeLimitMs > GAME_CONSTRAINTS.MAX_TIME_LIMIT_MS) {
+      return {
+        valid: false,
+        violation: `Time limit cannot exceed ${GAME_CONSTRAINTS.MAX_TIME_LIMIT_MS}ms`,
+      };
+    }
+  }
+
+  return { valid: true };
+}
+
 
 

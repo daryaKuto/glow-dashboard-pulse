@@ -1,3 +1,10 @@
+/**
+ * Game Flow Dashboard Component
+ *
+ * Primary UI for managing live game sessions with ThingsBoard IoT devices.
+ * Displays device list, game controls, and live hit counts during active sessions.
+ */
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -5,27 +12,27 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { 
-  Target as TargetIcon, 
-  Play, 
-  Square, 
-  Wifi, 
-  WifiOff, 
-  CheckCircle, 
+import {
+  Target as TargetIcon,
+  Play,
+  Square,
+  Wifi,
+  WifiOff,
+  CheckCircle,
   AlertCircle,
-  Clock,
   Activity
 } from 'lucide-react';
-import { useGameFlow } from '@/state/useGameFlow';
+import { useGameFlow } from '@/features/games/state/useGameFlow';
 import { DeviceStatus } from '@/features/games/lib/device-game-flow';
 import { toast } from '@/components/ui/sonner';
+import type { GameSession } from '@/features/games/schema';
 
 interface GameFlowDashboardProps {
   availableDevices: DeviceStatus[];
-  onGameComplete?: (results: any) => void;
+  onGameComplete?: (results: GameSession | null) => void;
 }
 
-const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
+export const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
   availableDevices,
   onGameComplete
 }) => {
@@ -74,7 +81,7 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
       setError('Please enter a game name');
       return;
     }
-    
+
     if (selectedDevices.length === 0) {
       setError('Please select at least one device');
       return;
@@ -145,7 +152,7 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
     if (!device.isOnline) {
       return <Badge variant="destructive" className="text-xs">Offline</Badge>;
     }
-    
+
     switch (device.gameStatus) {
       case 'start':
         return <Badge variant="default" className="text-xs bg-green-500">Active</Badge>;
@@ -189,10 +196,10 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
 
       {/* Main Dashboard */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* Left Column - Device Management */}
         <div className="lg:col-span-1 space-y-4">
-          
+
           {/* Device Table */}
           <Card>
             <CardHeader>
@@ -217,12 +224,12 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
                         <Checkbox
                           id={`device-${device.deviceId}`}
                           checked={selectedDevices.includes(device.deviceId)}
-                          onCheckedChange={(checked) => 
+                          onCheckedChange={(checked) =>
                             handleDeviceSelection(device.deviceId, checked as boolean)
                           }
                           disabled={!device.isOnline}
                         />
-                        <Label 
+                        <Label
                           htmlFor={`device-${device.deviceId}`}
                           className={`font-medium ${
                             device.isOnline ? 'text-gray-900' : 'text-gray-400'
@@ -233,7 +240,7 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
                       </div>
                       {getDeviceStatusBadge(device)}
                     </div>
-                    
+
                     <div className="flex items-center justify-between text-sm text-gray-600">
                       <div className="flex items-center gap-1">
                         {getWifiIndicator(device.wifiStrength)}
@@ -263,7 +270,7 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
 
         {/* Right Column - Game Management */}
         <div className="lg:col-span-2 space-y-4">
-          
+
           {/* Current Game Status */}
           {currentSession ? (
             <Card>
@@ -275,7 +282,7 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  
+
                   {/* Game Info */}
                   <div className="grid grid-cols-3 gap-4">
                     <div className="text-center">
@@ -310,7 +317,7 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
                         Configure Devices
                       </Button>
                     )}
-                    
+
                     {currentSession.status === 'configuring' && !isGameActive && (
                       <Button
                         onClick={handleStartGame}
@@ -320,7 +327,7 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
                         Start Game
                       </Button>
                     )}
-                    
+
                     {isGameActive && (
                       <Button
                         onClick={handleStopGame}
@@ -331,7 +338,7 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
                         Stop Game
                       </Button>
                     )}
-                    
+
                     <Button
                       onClick={handleEndGame}
                       variant="outline"
@@ -401,7 +408,7 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
                   placeholder="Enter game name"
                 />
               </div>
-              
+
               <div>
                 <Label htmlFor="gameDuration">Duration (minutes)</Label>
                 <select
@@ -416,7 +423,7 @@ const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
                   <option value={60}>60 minutes</option>
                 </select>
               </div>
-              
+
               <div className="flex gap-2 pt-4">
                 <Button
                   onClick={handleCreateGame}

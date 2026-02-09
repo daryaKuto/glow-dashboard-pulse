@@ -31,7 +31,7 @@ import { useGameDevices, type NormalizedGameDevice, DEVICE_ONLINE_STALE_THRESHOL
 import { useTargets } from '@/features/targets';
 import type { Target } from '@/features/targets/schema';
 import { useRooms } from '@/features/rooms';
-import { useTargetGroups } from '@/state/useTargetGroups';
+import { useTargetGroups } from '@/features/targets';
 import { useGameTelemetry, type SplitRecord, type TransitionRecord } from '@/features/games/hooks/use-game-telemetry';
 import { useThingsboardToken } from '@/features/games/hooks/use-thingsboard-token';
 import { useDirectTbTelemetry } from '@/features/games/hooks/use-direct-tb-telemetry';
@@ -68,8 +68,7 @@ import {
 import type { LiveSessionSummary } from '@/components/games/types';
 
 import { useSessionTimer, formatSessionDuration, type SessionLifecycle, type SessionHitEntry } from '@/components/game-session/sessionState';
-import { useGamePresets } from '@/state/useGamePresets';
-import type { GamePreset } from '@/lib/edge';
+import { useGamePresets, useSaveGamePreset, useDeleteGamePreset, type GamePreset } from '@/features/games';
 import { calculateSessionScore } from '@/domain/games/rules';
 
 type AxiosErrorLike = {
@@ -747,16 +746,14 @@ const Games: React.FC = () => {
   }, [refetchTargets]);
   const { data: roomsData, isLoading: roomsLoading } = useRooms();
   const rooms = roomsData?.rooms ?? [];
-  const groups = useTargetGroups((state) => state.groups);
-  const groupsLoading = useTargetGroups((state) => state.isLoading);
-  const fetchGroups = useTargetGroups((state) => state.fetchGroups);
-  const gamePresets = useGamePresets((state) => state.presets);
-  const presetsLoading = useGamePresets((state) => state.isLoading);
-  const presetsSaving = useGamePresets((state) => state.isSaving);
-  const presetsError = useGamePresets((state) => state.error);
-  const fetchPresets = useGamePresets((state) => state.fetchPresets);
-  const savePreset = useGamePresets((state) => state.savePreset);
-  const deletePresetFromStore = useGamePresets((state) => state.deletePreset);
+  // Target groups - now using React Query hook (replaces Zustand useTargetGroups store)
+  const { groups, isLoading: groupsLoading, refetch: refetchGroups } = useTargetGroups();
+  // Game presets - now using React Query hooks (replaces Zustand useGamePresets store)
+  const { data: gamePresets = [], isLoading: presetsLoading, error: presetsQueryError, refetch: refetchPresets } = useGamePresets();
+  const savePresetMutation = useSaveGamePreset();
+  const deletePresetMutation = useDeleteGamePreset();
+  const presetsSaving = savePresetMutation.isPending;
+  const presetsError = presetsQueryError?.message ?? savePresetMutation.error?.message ?? deletePresetMutation.error?.message ?? null;
   // Canonical list of targets decorated with live telemetry that powers the tables and selectors.
   const [availableDevices, setAvailableDevices] = useState<NormalizedGameDevice[]>([]);
   // Surface-level error banner for operator actions (start/stop failures, auth issues).
@@ -957,7 +954,6 @@ const Games: React.FC = () => {
   const hasLoadedDevicesRef = useRef(false);
   const seededDurationSummaryIdRef = useRef<string | null>(null);
   const presetsErrorRef = useRef<string | null>(null);
-  const hasFetchedPresetsRef = useRef(false);
   // Centralised token manager so the Games page always has a fresh ThingsBoard JWT for sockets/RPCs.
   const { session: tbSession, refresh: refreshThingsboardSession } = useThingsboardToken();
   // Prevents duplicate auto-stop triggers once the desired duration elapses.
@@ -1599,70 +1595,8 @@ const Games: React.FC = () => {
     }
   }, [targetsSnapshot.length, targetsStoreLoading, refreshTargets, loadingDevices]);
 
-  // Removed duplicate fetchRooms() call - React Query hooks handle room fetching
-  // Rooms are already fetched by React Query useRooms hook used elsewhere
-  // This eliminates duplicate rooms payload calls
-  const hasLoadedRoomsRef = useRef(false);
-  useEffect(() => {
-    if (hasLoadedRoomsRef.current) {
-      return;
-    }
-    hasLoadedRoomsRef.current = true;
-    let cancelled = false;
-
-    const loadGroups = async () => {
-      try {
-        // Only fetch groups - rooms are handled by React Query
-        await fetchGroups();
-      } catch (err) {
-        if (!cancelled) {
-          console.warn('[Games] Failed to fetch groups for selection card', err);
-        }
-      }
-    };
-
-    void loadGroups();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
-
-  useEffect(() => {
-    if (hasFetchedPresetsRef.current) {
-      return;
-    }
-    hasFetchedPresetsRef.current = true;
-    let cancelled = false;
-
-    const run = async () => {
-      mark('games-fetch-presets-start');
-      throttledLog('games-fetch-presets', 10000, '[Games] Fetching game presets (initial load)', {
-        at: new Date().toISOString(),
-        existingPresetCount: gamePresets.length,
-      });
-      try {
-        await fetchPresets();
-        mark('games-fetch-presets-end');
-        const duration = measure('games-fetch-presets-duration', 'games-fetch-presets-start', 'games-fetch-presets-end');
-        console.info('⚡ [Performance] Game presets fetch', { duration: `${duration.toFixed(2)}ms` });
-      } catch (err) {
-        mark('games-fetch-presets-error');
-        if (!cancelled) {
-          console.warn('[Games] Failed to fetch game presets', {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [fetchPresets]);
+  // Note: React Query hooks (useRooms, useTargetGroups) handle fetching automatically
+  // Game presets are now fetched automatically by React Query when useGamePresets hook is used
 
 const stagedPresetTargets = useMemo<NormalizedGameDevice[]>(() => {
   if (pendingSessionTargets.length > 0) {
@@ -2214,17 +2148,20 @@ useEffect(() => {
       return;
     }
     console.info('[Games] Manual game preset refresh triggered');
-    await fetchPresets();
-    const { error, presets: refreshedPresets } = useGamePresets.getState();
-    console.info('[Games] Manual preset refresh completed', {
-      at: new Date().toISOString(),
-      error,
-      presetCount: refreshedPresets.length,
-    });
-    if (!error) {
+    try {
+      const result = await refetchPresets();
+      console.info('[Games] Manual preset refresh completed', {
+        at: new Date().toISOString(),
+        presetCount: result.data?.length ?? 0,
+      });
       toast.success('Game presets refreshed.');
+    } catch (err) {
+      console.error('[Games] Manual preset refresh failed', {
+        at: new Date().toISOString(),
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
-  }, [fetchPresets, presetsLoading]);
+  }, [refetchPresets, presetsLoading]);
 
   const handleUsePreviousSettings = useCallback(async () => {
     if (!recentSessionSummary) {
@@ -2337,16 +2274,16 @@ const handleDeletePreset = useCallback(
       setDeletingPresetId(preset.id);
       console.info('[Games] Deleting game preset', { presetId: preset.id, name: preset.name });
       try {
-        await deletePresetFromStore(preset.id);
-        toast.success(`Preset "${preset.name}" deleted.`);
+        await deletePresetMutation.mutateAsync(preset.id);
+        // Toast is handled by the mutation hook
       } catch (error) {
         console.error('[Games] Failed to delete preset', { presetId: preset.id, error });
-        toast.error('Failed to delete preset. Please try again.');
+        // Error toast is handled by the mutation hook
       } finally {
         setDeletingPresetId(null);
       }
   },
-  [deletePresetFromStore, deletingPresetId],
+  [deletePresetMutation, deletingPresetId],
 );
 
   const sessionRoomName = useMemo(() => {
@@ -2494,10 +2431,10 @@ const handleDeletePreset = useCallback(
     });
 
     try {
-      console.debug('[Games] Calling savePreset()', {
+      console.debug('[Games] Calling savePresetMutation.mutateAsync()', {
         at: new Date().toISOString(),
       });
-      await savePreset({
+      await savePresetMutation.mutateAsync({
         name: trimmedName,
         description,
         roomId: resolvedRoomId,
@@ -2506,29 +2443,27 @@ const handleDeletePreset = useCallback(
         targetIds,
         settings,
       });
-      console.debug('[Games] savePreset() resolved, refreshing presets', {
+      console.debug('[Games] savePresetMutation resolved', {
         at: new Date().toISOString(),
       });
-      await fetchPresets();
-      toast.success(`Preset "${trimmedName}" saved.`);
+      // Toast is handled by the mutation hook
       setIsSavePresetDialogOpen(false);
       resetSavePresetForm();
     } catch (error) {
       console.error('[Games] Failed to save preset', error);
-      toast.error('Failed to save preset. Please try again.');
+      // Error toast is handled by the mutation hook
     }
   }, [
-    fetchPresets,
+    goalShotsPerTarget,
     resetSavePresetForm,
     rooms,
-    savePreset,
+    savePresetMutation,
     savePresetDescription,
     savePresetDurationInput,
     savePresetIncludeRoom,
     savePresetName,
     sessionRoomId,
     stagedPresetTargets,
-    toast,
   ]);
 
   const handleDesiredDurationChange = useCallback((value: number | null) => {

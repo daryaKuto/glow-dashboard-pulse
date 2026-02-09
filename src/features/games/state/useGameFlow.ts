@@ -1,13 +1,38 @@
+/**
+ * Game Flow Zustand Store
+ *
+ * Manages real-time game session state for ThingsBoard IoT device communication.
+ * This store is intentionally Zustand-based (not React Query) because it handles
+ * a live, latency-sensitive WebSocket pipeline during active game sessions.
+ *
+ * Data flow:
+ * ThingsBoard WebSocket (game-telemetry.ts)
+ *   → DeviceGameFlowService singleton (device-game-flow.ts)
+ *     → processes events (hit, connect, info, timeout, stop, disconnect)
+ *     → updates in-memory device statuses + active sessions
+ *   → useGameFlow Zustand store (this file)
+ *     → mirrors device statuses into reactive state
+ *     → exposes actions: createGame, configureDevices, startGame, stopGame, endGame
+ *   → GameFlowDashboard component (game-flow-dashboard.tsx)
+ *     → renders device list, game controls, live hit counts
+ *
+ * Game history persistence is handled by React Query hooks:
+ * - useGameHistory() for fetching history
+ * - useSaveGameHistory() for saving
+ * - useAddGameToHistory() for manual additions
+ * See: src/features/games/hooks/use-game-history.ts
+ */
+
 import { create } from 'zustand';
-import { 
-  deviceGameFlowService, 
-  DeviceStatus, 
-  GameSession, 
-  GameHistory, 
+import {
+  deviceGameFlowService,
+  DeviceStatus,
+  GameSession,
+  GameHistory,
   DeviceGameEvent,
   type GameCommandWarning,
 } from '@/features/games/lib/device-game-flow';
-import { fetchAllGameHistory as fetchPersistedGameHistory, saveGameHistory as persistGameHistory } from '@/features/games/lib/game-history';
+import { saveGameHistory as persistGameHistory } from '@/features/games/lib/game-history';
 
 type ConfigureDevicesResult = {
   ok: boolean;
@@ -16,36 +41,20 @@ type ConfigureDevicesResult = {
   warnings: GameCommandWarning[];
 };
 
-/**
- * @deprecated gameHistory, loadGameHistory, saveGameToHistory, addGameToHistory
- * are deprecated. Use the React Query hooks from @/features/games instead:
- * - useGameHistory() for fetching history
- * - useSaveGameHistory() for saving
- * - useAddGameToHistory() for manual additions
- * 
- * These are kept for backward compatibility during migration.
- * See: src/features/games/hooks/use-game-history.ts
- */
 interface GameFlowState {
   // Current game session
   currentSession: GameSession | null;
-  
+
   // Device management
   devices: DeviceStatus[];
   selectedDevices: string[];
-  
-  /**
-   * @deprecated Use useGameHistory() hook from @/features/games instead.
-   * This state is kept for backward compatibility.
-   */
-  gameHistory: GameHistory[];
-  
+
   // UI state
   isConfiguring: boolean;
   isGameActive: boolean;
   error: string | null;
   periodicInfoInterval: NodeJS.Timeout | null;
-  
+
   // Actions
   initializeDevices: (devices: DeviceStatus[]) => Promise<void>;
   selectDevices: (deviceIds: string[]) => void;
@@ -54,43 +63,36 @@ interface GameFlowState {
   startGame: () => Promise<boolean>;
   stopGame: () => Promise<boolean>;
   endGame: () => Promise<void>;
-  
+
   // Device monitoring
   subscribeToDevices: () => void;
   unsubscribeFromDevices: () => void;
-  
-  /**
-   * @deprecated Use useGameHistory() hook from @/features/games instead.
-   */
-  loadGameHistory: (isDemoMode?: boolean) => Promise<void>;
-  /**
-   * @deprecated Use useSaveGameHistory() hook from @/features/games instead.
-   */
-  saveGameToHistory: (session: GameSession) => void;
-  /**
-   * @deprecated Use useAddGameToHistory() hook from @/features/games instead.
-   */
-  addGameToHistory: (historyEntry: GameHistory) => void;
-  
+
   // Error handling
   setError: (error: string | null) => void;
   clearError: () => void;
+
+  // Reset for logout
+  reset: () => void;
 }
 
-export const useGameFlow = create<GameFlowState>((set, get) => ({
+const initialState = {
   currentSession: null,
   devices: [],
   selectedDevices: [],
-  gameHistory: [],
   isConfiguring: false,
   isGameActive: false,
   error: null,
   periodicInfoInterval: null,
+};
+
+export const useGameFlow = create<GameFlowState>((set, get) => ({
+  ...initialState,
 
   initializeDevices: async (initialDevices: DeviceStatus[]) => {
     try {
       set({ error: null });
-      
+
       const devices = initialDevices.map((device) => ({
         ...device,
         hitTimes: device.hitTimes ? [...device.hitTimes] : [],
@@ -104,11 +106,11 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
       uniqueDeviceIds.forEach(deviceId => {
         deviceGameFlowService.subscribeToDeviceEvents(deviceId, (event: DeviceGameEvent) => {
           deviceGameFlowService.processDeviceEvent(event);
-          
+
           // Update local state
           const updatedDevices = deviceGameFlowService.getAllDeviceStatuses();
           set({ devices: updatedDevices });
-          
+
           // Update current session if active
           const { currentSession } = get();
           if (currentSession) {
@@ -119,8 +121,8 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
           }
         });
       });
-      
-      console.log(`Initialized ${deviceIds.length} devices for game flow`);
+
+      console.log(`Initialized ${uniqueDeviceIds.length} devices for game flow`);
     } catch (error) {
       console.error('Failed to initialize devices:', error);
       set({ error: 'Failed to initialize devices' });
@@ -134,13 +136,13 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
   createGame: async (gameName: string, duration: number) => {
     try {
       set({ error: null });
-      
+
       const { selectedDevices } = get();
       if (selectedDevices.length === 0) {
         set({ error: 'No devices selected' });
         return false;
       }
-      
+
       const gameId = `GM-${Date.now()}`;
       const session = deviceGameFlowService.createGameSession(
         gameId,
@@ -148,7 +150,7 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
         duration,
         selectedDevices
       );
-      
+
       set({ currentSession: session });
       console.log(`Created game session: ${gameId}`);
       return true;
@@ -177,9 +179,9 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
       );
 
       if (results.failed.length > 0) {
-        set({ 
+        set({
           error: `Failed to configure ${results.failed.length} devices`,
-          isConfiguring: false 
+          isConfiguring: false
         });
         return { ok: false, success: results.success, failed: results.failed, warnings: results.warnings };
       }
@@ -200,19 +202,19 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
   startGame: async () => {
     try {
       set({ error: null });
-      
+
       const { currentSession } = get();
       if (!currentSession) {
         set({ error: 'No active game session' });
         return false;
       }
-      
+
       const deviceIds = currentSession.devices.map(d => d.deviceId);
       const results = await deviceGameFlowService.startGame(
         deviceIds,
         currentSession.gameId
       );
-      
+
       if (results.failed.length > 0) {
         set({ error: `Failed to start game on ${results.failed.length} devices` });
         return false;
@@ -223,23 +225,23 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
           results.warnings.map(entry => `${entry.deviceId}:${entry.warning}`).join(', ')
         );
       }
-      
+
       // Update session status
       deviceGameFlowService.updateGameSessionStatus(currentSession.gameId, 'active');
       const updatedSession = deviceGameFlowService.getGameSession(currentSession.gameId);
-      
+
       // Start periodic info requests as per DeviceManagement.md
       const intervalId = deviceGameFlowService.startPeriodicInfoRequests(
-        deviceIds, 
+        deviceIds,
         currentSession.gameId
       );
-      
-      set({ 
+
+      set({
         currentSession: updatedSession,
         isGameActive: true,
         periodicInfoInterval: intervalId
       });
-      
+
       console.log(`Started game on ${results.success.length} devices with periodic monitoring`);
       return true;
     } catch (error) {
@@ -252,19 +254,19 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
   stopGame: async () => {
     try {
       set({ error: null });
-      
+
       const { currentSession } = get();
       if (!currentSession) {
         set({ error: 'No active game session' });
         return false;
       }
-      
+
       const deviceIds = currentSession.devices.map(d => d.deviceId);
       const results = await deviceGameFlowService.stopGame(
         deviceIds,
         currentSession.gameId
       );
-      
+
       if (results.failed.length > 0) {
         set({ error: `Failed to stop game on ${results.failed.length} devices` });
         return false;
@@ -275,23 +277,23 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
           results.warnings.map(entry => `${entry.deviceId}:${entry.warning}`).join(', ')
         );
       }
-      
+
       // Stop periodic info requests
       const { periodicInfoInterval } = get();
       if (periodicInfoInterval) {
         deviceGameFlowService.stopPeriodicInfoRequests(periodicInfoInterval);
       }
-      
+
       // Update session status
       deviceGameFlowService.updateGameSessionStatus(currentSession.gameId, 'stopped');
       const updatedSession = deviceGameFlowService.getGameSession(currentSession.gameId);
-      
-      set({ 
+
+      set({
         currentSession: updatedSession,
         isGameActive: false,
         periodicInfoInterval: null
       });
-      
+
       console.log(`Stopped game on ${results.success.length} devices`);
       return true;
     } catch (error) {
@@ -305,32 +307,53 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
     try {
       const { currentSession, periodicInfoInterval } = get();
       if (!currentSession) return;
-      
+
       // Stop periodic info requests
       if (periodicInfoInterval) {
         deviceGameFlowService.stopPeriodicInfoRequests(periodicInfoInterval);
       }
-      
+
       // Unsubscribe from device events
       currentSession.devices.forEach(device => {
         deviceGameFlowService.unsubscribeFromDeviceEvents(device.deviceId);
       });
-      
-      // Save to history
-      get().saveGameToHistory(currentSession);
-      
+
+      // Build game history entry for persistence
+      if (currentSession.endTime) {
+        const historyEntry = buildGameHistoryEntry(currentSession);
+
+        // Persist to backend using the game-history library function
+        // Note: React Query cache invalidation happens automatically in components
+        // that use useGameHistory() when they refetch
+        void persistGameHistory(historyEntry)
+          .then(({ status, sessionPersisted, sessionPersistError }) => {
+            if (status) {
+              console.info('[useGameFlow] Game history entry', status, historyEntry.gameId);
+            }
+            if (!sessionPersisted) {
+              console.warn('[useGameFlow] Session analytics failed to persist', {
+                gameId: historyEntry.gameId,
+                sessionPersistError,
+              });
+            }
+          })
+          .catch((error) => {
+            console.warn('[useGameFlow] Failed to persist game history', error);
+          });
+      }
+
       // Clean up
       deviceGameFlowService.updateGameSessionStatus(currentSession.gameId, 'completed');
-      
-      set({ 
+
+      set({
         currentSession: null,
         isGameActive: false,
         isConfiguring: false,
         selectedDevices: [],
         periodicInfoInterval: null
       });
-      
-      console.log(`🏁 Ended game session: ${currentSession.gameId}`);
+
+      console.log(`Ended game session: ${currentSession.gameId}`);
     } catch (error) {
       console.error('Failed to end game:', error);
       set({ error: 'Failed to end game' });
@@ -342,7 +365,7 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
     devices.forEach(device => {
       deviceGameFlowService.subscribeToDeviceEvents(device.deviceId, (event: DeviceGameEvent) => {
         deviceGameFlowService.processDeviceEvent(event);
-        
+
         // Update local state
         const updatedDevices = deviceGameFlowService.getAllDeviceStatuses();
         set({ devices: updatedDevices });
@@ -357,137 +380,98 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
     });
   },
 
-  loadGameHistory: async () => {
-    // Pulls the canonical history from Supabase so the Zustand store mirrors what the edge layer has persisted.
-    try {
-      const { history } = await fetchPersistedGameHistory();
-      set({ gameHistory: history });
-    } catch (error) {
-      console.error('Failed to load game history:', error);
-      set({ gameHistory: [] });
-    }
-  },
-
-  saveGameToHistory: (session: GameSession) => {
-    if (!session.endTime) return;
-    
-    // Convert the active session into the persisted summary shape before saving locally and via Supabase.
-    const targetStats = session.devices.map((device) => {
-      const hitTimes = Array.isArray(device.hitTimes) ? [...device.hitTimes] : [];
-      hitTimes.sort((a, b) => a - b);
-
-      const intervals = hitTimes.slice(1).map((timestamp, idx) => (timestamp - hitTimes[idx]) / 1000);
-
-      return {
-        deviceId: device.deviceId,
-        deviceName: device.name,
-        hitCount: device.hitCount,
-        hitTimes,
-        averageInterval: intervals.length
-          ? Number((intervals.reduce((sum, value) => sum + value, 0) / intervals.length).toFixed(2))
-          : 0,
-        firstHitTime: hitTimes[0] ?? 0,
-        lastHitTime: hitTimes[hitTimes.length - 1] ?? 0,
-      };
-    });
-
-    const totalHits = targetStats.reduce((sum, stat) => sum + stat.hitCount, 0);
-    const durationMs = Math.max(0, session.endTime - session.startTime);
-    const actualDurationSeconds = Number((durationMs / 1000).toFixed(2));
-
-    const allHits = targetStats
-      .flatMap((stat) => stat.hitTimes.map((timestamp) => ({ deviceId: stat.deviceId, timestamp })))
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    const overallIntervals = allHits
-      .slice(1)
-      .map((entry, idx) => (entry.timestamp - allHits[idx].timestamp) / 1000);
-
-    const switchTimes: number[] = [];
-    for (let i = 1; i < allHits.length; i++) {
-      if (allHits[i].deviceId !== allHits[i - 1].deviceId) {
-        const switchSpan = (allHits[i].timestamp - allHits[i - 1].timestamp) / 1000;
-        switchTimes.push(Number(switchSpan.toFixed(2)));
-      }
-    }
-
-    const historyEntry: GameHistory = {
-      gameId: session.gameId,
-      gameName: session.gameName,
-      duration: session.duration,
-      startTime: session.startTime,
-      endTime: session.endTime,
-      deviceResults: targetStats.map(({ deviceId, deviceName, hitCount }) => ({
-        deviceId,
-        deviceName,
-        hitCount,
-      })),
-      totalHits,
-      actualDuration: actualDurationSeconds,
-      averageHitInterval: overallIntervals.length
-        ? Number((overallIntervals.reduce((sum, value) => sum + value, 0) / overallIntervals.length).toFixed(2))
-        : null,
-      targetStats,
-      crossTargetStats: {
-        totalSwitches: switchTimes.length,
-        averageSwitchTime: switchTimes.length
-          ? Number((switchTimes.reduce((sum, value) => sum + value, 0) / switchTimes.length).toFixed(2))
-          : 0,
-        switchTimes,
-      },
-    };
-    
-    set(state => ({
-      gameHistory: [historyEntry, ...state.gameHistory]
-    }));
-
-    void persistGameHistory(historyEntry)
-      .then(({ status, sessionPersisted, sessionPersistError }) => {
-        if (status) {
-          console.info('[useGameFlow] Game history entry', status, historyEntry.gameId);
-        }
-        if (!sessionPersisted) {
-          console.warn('[useGameFlow] Session analytics failed to persist', {
-            gameId: historyEntry.gameId,
-            sessionPersistError,
-          });
-        }
-      })
-      .catch((error) => {
-        console.warn('[useGameFlow] Failed to persist game history', error);
-      });
-  },
-
-  addGameToHistory: (historyEntry: GameHistory) => {
-    // Allows callers (e.g., admin tooling) to push externally sourced history into the shared store.
-    set(state => ({
-      gameHistory: [historyEntry, ...state.gameHistory]
-    }));
-    
-    console.log('💾 Game added to history:', historyEntry);
-
-    void persistGameHistory(historyEntry)
-      .then(({ status, sessionPersisted, sessionPersistError }) => {
-        if (status) {
-          console.info('[useGameFlow] Manual history entry', status, historyEntry.gameId);
-        }
-        if (!sessionPersisted) {
-          console.warn('[useGameFlow] Session analytics failed to persist (manual)', {
-            gameId: historyEntry.gameId,
-            sessionPersistError,
-          });
-        }
-      })
-      .catch((error) => {
-        console.warn('[useGameFlow] Failed to persist manual history entry', error);
-      });
-  },
-
   setError: (error: string | null) => {
     set({ error });
   },
 
   clearError: () => {
     set({ error: null });
-  }
+  },
+
+  reset: () => {
+    const { periodicInfoInterval, devices } = get();
+
+    // Stop periodic info if running
+    if (periodicInfoInterval) {
+      deviceGameFlowService.stopPeriodicInfoRequests(periodicInfoInterval);
+    }
+
+    // Unsubscribe from all device events
+    devices.forEach(device => {
+      deviceGameFlowService.unsubscribeFromDeviceEvents(device.deviceId);
+    });
+
+    set(initialState);
+    console.log('[useGameFlow] Store reset');
+  },
 }));
+
+/**
+ * Build a GameHistory entry from a completed session
+ */
+function buildGameHistoryEntry(session: GameSession): GameHistory {
+  const targetStats = session.devices.map((device) => {
+    const hitTimes = Array.isArray(device.hitTimes) ? [...device.hitTimes] : [];
+    hitTimes.sort((a, b) => a - b);
+
+    const intervals = hitTimes.slice(1).map((timestamp, idx) => (timestamp - hitTimes[idx]) / 1000);
+
+    return {
+      deviceId: device.deviceId,
+      deviceName: device.name,
+      hitCount: device.hitCount,
+      hitTimes,
+      averageInterval: intervals.length
+        ? Number((intervals.reduce((sum, value) => sum + value, 0) / intervals.length).toFixed(2))
+        : 0,
+      firstHitTime: hitTimes[0] ?? 0,
+      lastHitTime: hitTimes[hitTimes.length - 1] ?? 0,
+    };
+  });
+
+  const totalHits = targetStats.reduce((sum, stat) => sum + stat.hitCount, 0);
+  const durationMs = Math.max(0, (session.endTime ?? Date.now()) - session.startTime);
+  const actualDurationSeconds = Number((durationMs / 1000).toFixed(2));
+
+  const allHits = targetStats
+    .flatMap((stat) => stat.hitTimes.map((timestamp) => ({ deviceId: stat.deviceId, timestamp })))
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const overallIntervals = allHits
+    .slice(1)
+    .map((entry, idx) => (entry.timestamp - allHits[idx].timestamp) / 1000);
+
+  const switchTimes: number[] = [];
+  for (let i = 1; i < allHits.length; i++) {
+    if (allHits[i].deviceId !== allHits[i - 1].deviceId) {
+      const switchSpan = (allHits[i].timestamp - allHits[i - 1].timestamp) / 1000;
+      switchTimes.push(Number(switchSpan.toFixed(2)));
+    }
+  }
+
+  return {
+    gameId: session.gameId,
+    gameName: session.gameName,
+    duration: session.duration,
+    startTime: session.startTime,
+    endTime: session.endTime ?? Date.now(),
+    deviceResults: targetStats.map(({ deviceId, deviceName, hitCount }) => ({
+      deviceId,
+      deviceName,
+      hitCount,
+    })),
+    totalHits,
+    actualDuration: actualDurationSeconds,
+    averageHitInterval: overallIntervals.length
+      ? Number((overallIntervals.reduce((sum, value) => sum + value, 0) / overallIntervals.length).toFixed(2))
+      : null,
+    targetStats,
+    crossTargetStats: {
+      totalSwitches: switchTimes.length,
+      averageSwitchTime: switchTimes.length
+        ? Number((switchTimes.reduce((sum, value) => sum + value, 0) / switchTimes.length).toFixed(2))
+        : 0,
+      switchTimes,
+    },
+  };
+}

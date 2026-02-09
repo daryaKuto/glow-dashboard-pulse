@@ -489,5 +489,235 @@ export function useRemoveTargetCustomNameWithPermission() {
   });
 }
 
+// ============================================================================
+// Target Groups Hooks
+// These hooks replace the Zustand useTargetGroups store with React Query.
+// ============================================================================
+
+import {
+  supabaseTargetGroupsService,
+  type GroupWithTargets,
+  type CreateGroupData,
+} from './lib/supabase-target-groups';
+
+/**
+ * Target group shape for UI consumption
+ */
+export type TargetGroup = {
+  id: string;
+  name: string;
+  roomId?: string | null;
+  targetCount: number;
+  targets?: Target[];
+};
+
+// Query keys for target groups
+export const targetGroupsKeys = {
+  all: ['target-groups'] as const,
+  list: () => [...targetGroupsKeys.all, 'list'] as const,
+};
+
+/**
+ * Map GroupWithTargets from service to TargetGroup for UI
+ */
+function mapGroupWithTargetsToTargetGroup(group: GroupWithTargets): TargetGroup {
+  return {
+    id: group.id,
+    name: group.name,
+    roomId: group.room_id || null,
+    targetCount: group.target_count || 0,
+    targets: group.targets,
+  };
+}
+
+/**
+ * Get all target groups with their assigned targets
+ * Replaces Zustand useTargetGroups.fetchGroups()
+ */
+export function useTargetGroups(forceRefresh = false) {
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: targetGroupsKeys.list(),
+    queryFn: async () => {
+      const groupsWithTargets = await supabaseTargetGroupsService.getAllGroupsWithAssignments(forceRefresh);
+      return groupsWithTargets.map(mapGroupWithTargetsToTargetGroup);
+    },
+    staleTime: 30 * 1000, // 30 seconds
+    refetchOnMount: false,
+  });
+
+  return {
+    groups: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error?.message ?? null,
+    refetch: query.refetch,
+  };
+}
+
+/**
+ * Create a new target group
+ */
+export function useCreateTargetGroup() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (groupData: CreateGroupData) => {
+      if (groupData.targetIds.length < 2) {
+        throw new Error('A group must have at least 2 targets');
+      }
+      return await supabaseTargetGroupsService.createGroup(groupData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: targetGroupsKeys.all });
+      queryClient.invalidateQueries({ queryKey: targetsKeys.all });
+      toast.success('Group created successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create group');
+    },
+  });
+}
+
+/**
+ * Update a target group
+ */
+export function useUpdateTargetGroup() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      groupId,
+      updates,
+    }: {
+      groupId: string;
+      updates: Partial<CreateGroupData>;
+    }) => {
+      if (updates.targetIds !== undefined && updates.targetIds.length < 2) {
+        throw new Error('A group must have at least 2 targets');
+      }
+      return await supabaseTargetGroupsService.updateGroup(groupId, updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: targetGroupsKeys.all });
+      queryClient.invalidateQueries({ queryKey: targetsKeys.all });
+      toast.success('Group updated successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update group');
+    },
+  });
+}
+
+/**
+ * Delete a target group
+ */
+export function useDeleteTargetGroup() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (groupId: string) => {
+      await supabaseTargetGroupsService.deleteGroup(groupId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: targetGroupsKeys.all });
+      queryClient.invalidateQueries({ queryKey: targetsKeys.all });
+      toast.success('Group deleted successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete group');
+    },
+  });
+}
+
+/**
+ * Assign targets to a group
+ */
+export function useAssignTargetsToGroup() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      groupId,
+      targetIds,
+    }: {
+      groupId: string;
+      targetIds: string[];
+    }) => {
+      await supabaseTargetGroupsService.assignTargetsToGroup(groupId, targetIds);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: targetGroupsKeys.all });
+      queryClient.invalidateQueries({ queryKey: targetsKeys.all });
+      toast.success(
+        `${variables.targetIds.length} target${variables.targetIds.length > 1 ? 's' : ''} assigned to group successfully`
+      );
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to assign targets to group');
+    },
+  });
+}
+
+/**
+ * Unassign targets from a group
+ */
+export function useUnassignTargetsFromGroup() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      groupId,
+      targetIds,
+    }: {
+      groupId: string;
+      targetIds: string[];
+    }) => {
+      await supabaseTargetGroupsService.unassignTargetsFromGroup(groupId, targetIds);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: targetGroupsKeys.all });
+      queryClient.invalidateQueries({ queryKey: targetsKeys.all });
+      toast.success(
+        `${variables.targetIds.length} target${variables.targetIds.length > 1 ? 's' : ''} unassigned from group successfully`
+      );
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to unassign targets from group');
+    },
+  });
+}
+
+/**
+ * Assign a group to a room
+ */
+export function useAssignGroupToRoom() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      groupId,
+      roomId,
+    }: {
+      groupId: string;
+      roomId: string | null;
+    }) => {
+      await supabaseTargetGroupsService.assignGroupToRoom(groupId, roomId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: targetGroupsKeys.all });
+      toast.success(
+        `Group ${variables.roomId === null ? 'unassigned from' : 'assigned to'} room successfully`
+      );
+    },
+    onError: (error: Error) => {
+      toast.error(
+        error.message || `Failed to ${error.message?.includes('unassign') ? 'unassign group from' : 'assign group to'} room`
+      );
+    },
+  });
+}
+
 // Re-export types for consumers
 export type { UserContext, TargetContext } from './service';
+export type { CreateGroupData, GroupWithTargets } from './lib/supabase-target-groups';

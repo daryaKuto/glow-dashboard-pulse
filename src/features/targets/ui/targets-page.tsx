@@ -1,7 +1,20 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRooms, type Room } from '@/features/rooms';
-import { useTargetGroups, type Group } from '@/state/useTargetGroups';
-import { useTargets, useTargetDetails, mergeTargetDetails, targetsKeys, useTargetCustomNames } from '@/features/targets';
+import {
+  useTargets,
+  useTargetDetails,
+  mergeTargetDetails,
+  targetsKeys,
+  useTargetCustomNames,
+  // Target groups hooks (replaces Zustand useTargetGroups store)
+  useTargetGroups,
+  useCreateTargetGroup,
+  useUpdateTargetGroup,
+  useDeleteTargetGroup,
+  useAssignTargetsToGroup,
+  useUnassignTargetsFromGroup,
+  type TargetGroup,
+} from '@/features/targets';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/components/ui/sonner';
 import Header from '@/components/shared/Header';
@@ -45,7 +58,6 @@ import TargetGroupCard from '@/components/targets/TargetGroupCard';
 import RenameTargetDialog from '@/components/targets/RenameTargetDialog';
 import { useSubscription } from '@/shared/hooks/use-subscription';
 import { PremiumLockIcon } from '@/components/shared/SubscriptionGate';
-import { useUserPrefs } from '@/state/useUserPrefs';
 import { useAuth } from '@/shared/hooks/use-auth';
 
 // Modern Target Card Component with ThingsBoard integration
@@ -289,16 +301,14 @@ const Targets: React.FC = () => {
   // Use new React Query hooks
   const { data: roomsData, isLoading: roomsLoading, refetch: refetchRooms } = useRooms();
   const liveRooms = roomsData?.rooms || [];
-  const {
-    groups,
-    isLoading: groupsLoading,
-    fetchGroups,
-    createGroup,
-    updateGroup,
-    deleteGroup,
-    unassignTargetsFromGroup,
-    assignTargetsToGroup,
-  } = useTargetGroups();
+
+  // Target groups - now using React Query hooks (replaces Zustand useTargetGroups store)
+  const { groups, isLoading: groupsLoading, refetch: refetchGroups } = useTargetGroups();
+  const createGroupMutation = useCreateTargetGroup();
+  const updateGroupMutation = useUpdateTargetGroup();
+  const deleteGroupMutation = useDeleteTargetGroup();
+  const assignTargetsMutation = useAssignTargetsToGroup();
+  const unassignTargetsMutation = useUnassignTargetsFromGroup();
   // Use new React Query hooks
   // Changed force to false - React Query will use cached data if available, reducing duplicate calls
   const { data: targetsData, isLoading: targetsStoreLoading, refetch: refetchTargets } = useTargets(false);
@@ -355,9 +365,7 @@ const Targets: React.FC = () => {
   const [newTargetRoomId, setNewTargetRoomId] = useState<string>('');
   const [customizingTargetId, setCustomizingTargetId] = useState<string | null>(null);
   const { data: customNames = new Map() } = useTargetCustomNames();
-  
-  const { load: loadPrefs } = useUserPrefs();
-  
+
   // Check subscription status and log for debugging
   const { isPremium, tier, isLoading: subscriptionLoading } = useSubscription();
   const { user } = useAuth();
@@ -397,12 +405,6 @@ const Targets: React.FC = () => {
 
     return FETCH_DEBUG_DEFAULT;
   }, [FETCH_DEBUG_DEFAULT]);
-
-
-  // Load user preferences on mount
-  useEffect(() => {
-    loadPrefs();
-  }, [loadPrefs]);
 
   // Sync targets from the shared store and ensure edge data is loaded
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -603,13 +605,8 @@ const Targets: React.FC = () => {
     }
   }, [liveRooms.length, refetchRooms]);
 
-  useEffect(() => {
-    if (!groups.length) {
-      fetchGroups().catch(error => {
-        console.error('Failed to fetch groups:', error);
-      });
-    }
-  }, [groups.length, fetchGroups]);
+  // Note: React Query useTargetGroups() handles initial fetch automatically
+  // Manual refetch is available via refetchGroups() if needed
 
   // Consolidated verification summary for easy comparison with check script.
   useEffect(() => {
@@ -894,7 +891,7 @@ const Targets: React.FC = () => {
     roomId?: string | null;
     targetIds: string[];
   }) => {
-    await createGroup({
+    await createGroupMutation.mutateAsync({
       name: groupData.name,
       roomId: groupData.roomId,
       targetIds: groupData.targetIds
@@ -904,14 +901,14 @@ const Targets: React.FC = () => {
   // Handle group deletion
   const handleDeleteGroup = async (groupId: string) => {
     if (confirm('Are you sure you want to delete this group? Targets will remain but will be ungrouped.')) {
-      await deleteGroup(groupId);
+      await deleteGroupMutation.mutateAsync(groupId);
     }
   };
 
   // Handle removing a target from a group
   const handleRemoveTargetFromGroup = async (groupId: string, targetId: string) => {
     try {
-      await unassignTargetsFromGroup(groupId, [targetId]);
+      await unassignTargetsMutation.mutateAsync({ groupId, targetIds: [targetId] });
     } catch (error) {
       console.error('Failed to remove target from group:', error);
     }
@@ -920,7 +917,7 @@ const Targets: React.FC = () => {
   // Handle adding targets to a group
   const handleAddTargetsToGroup = async (groupId: string, targetIds: string[]) => {
     try {
-      await assignTargetsToGroup(groupId, targetIds);
+      await assignTargetsMutation.mutateAsync({ groupId, targetIds });
       setGroupIdToAddTargets(null);
     } catch (error) {
       console.error('Failed to add targets to group:', error);
@@ -934,7 +931,7 @@ const Targets: React.FC = () => {
 
   // Handle group update
   const handleUpdateGroup = async (groupId: string, updates: { name?: string; roomId?: string | null }) => {
-    await updateGroup(groupId, updates);
+    await updateGroupMutation.mutateAsync({ groupId, updates });
   };
 
   // Handle target rename
@@ -1365,10 +1362,7 @@ const Targets: React.FC = () => {
           targetId={customizingTarget.id}
           targetName={customizingTarget.name}
           isOpen={!!customizingTargetId}
-          onClose={() => {
-            setCustomizingTargetId(null);
-            loadPrefs(); // Reload preferences after closing
-          }}
+          onClose={() => setCustomizingTargetId(null)}
         />
       )}
 

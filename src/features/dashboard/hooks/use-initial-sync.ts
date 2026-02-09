@@ -8,13 +8,18 @@
  * - useHistoricalActivity (replaced by React Query patterns)
  * - useShootingActivityPolling (replaced by React Query polling)
  * - useSmartPolling (replaced by React Query stale-while-revalidate)
+ *
+ * Migration Note (Phase 1A):
+ * - Sessions are now handled by useDashboardSessions React Query hook
+ * - No need to manually sync sessions via Zustand store
+ * - This hook now primarily tracks when initial data fetch is complete
  */
 
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/shared/hooks/use-auth';
 import { useTargets } from '@/features/targets';
 import { useRooms } from '@/features/rooms';
-import { useSessions } from '@/state/useSessions';
+import { useDashboardSessions } from '@/features/dashboard';
 
 export interface InitialSyncStatus {
   isComplete: boolean;
@@ -32,11 +37,17 @@ export interface InitialSyncStatus {
 /**
  * Hook for ONE-TIME sync on login
  * After this completes, all data operations use ONLY Supabase
+ *
+ * Note: Now that all data is fetched via React Query, this hook primarily
+ * serves to track when the initial data load is complete for UI feedback.
  */
 export const useInitialSync = () => {
   const { user, loading } = useAuth();
   const targetsQuery = useTargets(false);
   const roomsQuery = useRooms(false);
+  // Use React Query hook for sessions (replaces Zustand useSessions)
+  const sessionsQuery = useDashboardSessions(user?.id, 100);
+
   const [syncStatus, setSyncStatus] = useState<InitialSyncStatus>({
     isComplete: false,
     isLoading: false,
@@ -54,84 +65,85 @@ export const useInitialSync = () => {
     syncStartedRef.current = false;
   }, [user?.id]);
 
-  const performInitialSync = async () => {
-    if (!user) {
+  // Track when all React Query hooks have completed their initial fetch
+  useEffect(() => {
+    if (!user || loading) {
       return;
     }
 
+    // Check if all queries have completed (success or error)
+    const targetsComplete = !targetsQuery.isLoading && (targetsQuery.isSuccess || targetsQuery.isError);
+    const roomsComplete = !roomsQuery.isLoading && (roomsQuery.isSuccess || roomsQuery.isError);
+    const sessionsComplete = !sessionsQuery.isLoading && (sessionsQuery.isSuccess || sessionsQuery.isError);
+
+    const allComplete = targetsComplete && roomsComplete && sessionsComplete;
+    const anyLoading = targetsQuery.isLoading || roomsQuery.isLoading || sessionsQuery.isLoading;
+
+    if (anyLoading && !syncStatus.isLoading) {
+      setSyncStatus(prev => ({
+        ...prev,
+        isLoading: true,
+        startTime: Date.now(),
+      }));
+    }
+
+    if (allComplete && !syncStatus.isComplete) {
+      // Collect any errors
+      const errors = [
+        targetsQuery.error?.message,
+        roomsQuery.error?.message,
+        sessionsQuery.error?.message,
+      ].filter(Boolean);
+
+      setSyncStatus({
+        isComplete: true,
+        isLoading: false,
+        error: errors.length > 0 ? errors.join('; ') : null,
+        syncedData: {
+          targetCount: targetsQuery.data?.targets.length ?? 0,
+          roomCount: roomsQuery.data?.rooms.length ?? 0,
+          sessionCount: sessionsQuery.data?.length ?? 0,
+          userNotFound: undefined,
+        },
+      });
+    }
+  }, [
+    user,
+    loading,
+    targetsQuery.isLoading,
+    targetsQuery.isSuccess,
+    targetsQuery.isError,
+    targetsQuery.data,
+    targetsQuery.error,
+    roomsQuery.isLoading,
+    roomsQuery.isSuccess,
+    roomsQuery.isError,
+    roomsQuery.data,
+    roomsQuery.error,
+    sessionsQuery.isLoading,
+    sessionsQuery.isSuccess,
+    sessionsQuery.isError,
+    sessionsQuery.data,
+    sessionsQuery.error,
+    syncStatus.isComplete,
+    syncStatus.isLoading,
+  ]);
+
+  // Manual retry for failed syncs - refetch all queries
+  const retrySync = async () => {
+    if (!user) return;
     setSyncStatus({
       isComplete: false,
       isLoading: true,
       error: null,
       startTime: Date.now(),
-      syncedData: null
+      syncedData: null,
     });
-
-    try {
-      // React Query hooks (useRooms, useTargets) handle fetching rooms and targets
-      // We only need to sync sessions here to populate Zustand store
-      // This prevents duplicate edge function calls (H3, H4 fixes)
-      // Note: Zustand stores for rooms/targets are legacy and React Query handles the data
-
-      // Get counts from Zustand stores if available (may be empty if React Query hasn't populated yet)
-      // These are for sync status reporting only
-      const targetCount = targetsQuery.data?.targets.length ?? 0;
-      const roomCount = roomsQuery.data?.rooms.length ?? 0;
-
-      await useSessions.getState().fetchSessions(user.id, { includeFullHistory: true, limit: 100 }); // API maximum is 100
-      const sessionCount = useSessions.getState().sessions.length;
-
-      setSyncStatus({
-        isComplete: true,
-        isLoading: false,
-        error: null,
-        syncedData: {
-        targetCount,
-        roomCount,
-        sessionCount,
-        userNotFound: undefined,
-      },
-    });
-    } catch (error) {
-      console.error('❌ Initial sync failed:', error);
-
-      setSyncStatus({
-        isComplete: false,
-        isLoading: false,
-        error: error instanceof Error ? error.message : 'Sync failed',
-        syncedData: null
-      });
-    }
-  };
-
-  // Perform ONE-TIME sync when user is available - NON-BLOCKING
-  useEffect(() => {
-    if (!user || loading || syncStatus.isComplete || syncStatus.isLoading) {
-      return;
-    }
-
-    if (syncStartedRef.current) {
-      return;
-    }
-
-    const now = Date.now();
-    const timeSinceLastSync = now - lastSyncTimeRef.current;
-    if (timeSinceLastSync < SYNC_COOLDOWN_MS) {
-      return;
-    }
-
-    syncStartedRef.current = true;
-    lastSyncTimeRef.current = now;
-
-    performInitialSync().catch((error) => {
-      console.warn('Background sync failed:', error);
-    });
-  }, [user, loading, syncStatus.isComplete, syncStatus.isLoading]);
-
-  // Manual retry for failed syncs
-  const retrySync = async () => {
-    if (!user) return;
-    await performInitialSync();
+    await Promise.all([
+      targetsQuery.refetch(),
+      roomsQuery.refetch(),
+      sessionsQuery.refetch(),
+    ]);
   };
 
   // Ready after sync completes or fails

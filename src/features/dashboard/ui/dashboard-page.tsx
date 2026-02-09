@@ -3,9 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { Target as TargetIcon, Users, Calendar, Bell, TrendingUp, Activity, Play, User, X, BarChart, Award, CheckCircle, Gamepad2, Trophy, Info } from 'lucide-react';
 import { useTargetsWithDetails } from '@/features/targets';
 import { useRooms } from '@/features/rooms';
-import { useDashboardMetrics } from '@/features/dashboard';
-import { useScenarios, type ScenarioHistory } from '@/state/useScenarios';
-import { useSessions, type Session } from '@/state/useSessions';
+import { useDashboardMetrics, useDashboardSessions, type DashboardSession } from '@/features/dashboard';
 import { useAuth } from '@/shared/hooks/use-auth';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
@@ -259,8 +257,9 @@ const Dashboard: React.FC = () => {
   
   // Use new React Query data if available, fallback to legacy
   const currentTargets = targetsWithDetails.targets || rawTargets;
-  const { isLoading: scenariosLoading, fetchScenarios } = useScenarios();
-  const { sessions, isLoading: sessionsLoading, fetchSessions } = useSessions();
+
+  // Use React Query for sessions (replaces Zustand useSessions store)
+  const { data: sessions = [], isLoading: sessionsLoading } = useDashboardSessions(user?.id, 100);
 
   // Initial sync with ThingsBoard (only on dashboard)
   const { syncStatus, isReady } = useInitialSync();
@@ -288,7 +287,7 @@ const Dashboard: React.FC = () => {
   // Don't use statsLoading here since we're not calling fetchStats anymore
   const summaryPending = summaryLoading || !summaryReady;
   const shouldShowSkeleton =
-    summaryPending || sessionsLoading || targetsWithDetails.isLoading || roomsLoading || scenariosLoading;
+    summaryPending || sessionsLoading || targetsWithDetails.isLoading || roomsLoading;
 
   useEffect(() => {
     if (authLoading || !user?.id || hasInitializedRef.current) {
@@ -298,28 +297,14 @@ const Dashboard: React.FC = () => {
     // Mark as initialized to prevent infinite loop
     hasInitializedRef.current = true;
 
-    // Refresh all data on initial mount
-    // Note: React Query hooks will handle initial fetches automatically.
-    // useInitialSync handles sessions fetching.
-    // We only need to refresh non-React Query stores here.
-    const refreshAllData = async () => {
-      try {
-        // Only refresh Zustand stores that aren't handled by React Query or useInitialSync
-        // - fetchStats removed: useDashboardMetrics React Query hook handles this (H2 fix)
-        // - fetchSessions removed: useInitialSync handles this (H1 fix)
-        // - React Query hooks handle: rooms, targets, dashboard metrics
-        const refreshPromises: Array<Promise<unknown>> = [
-          fetchScenarios(),
-        ];
-
-        await Promise.all(refreshPromises);
-      } catch (error) {
-        console.error('[Dashboard] Failed to refresh dashboard data', error);
-      }
-    };
-
-    refreshAllData();
-  }, [authLoading, user?.id, fetchScenarios]);
+    // Note: All data fetching is now handled by React Query hooks:
+    // - useDashboardMetrics handles dashboard metrics
+    // - useDashboardSessions handles session history
+    // - useTargetsWithDetails handles targets
+    // - useRooms handles rooms
+    // - useInitialSync handles one-time ThingsBoard sync
+    // No manual Zustand store refreshes needed.
+  }, [authLoading, user?.id]);
 
   const stats = useMemo(() => {
     const usingDetailedTargets = currentTargets.length > 0;
@@ -334,15 +319,15 @@ const Dashboard: React.FC = () => {
       : 0;
     const totalRoomsValue = rooms.length > 0 ? rooms.length : summary?.totalRooms ?? 0;
 
-    const recentScenarios = sessions.slice(0, 3);
+    const recentSessions = sessions.slice(0, 3);
     const avgScoreValue =
-      recentScenarios.length > 0
+      recentSessions.length > 0
         ? Number(
             (
-              recentScenarios.reduce(
+              recentSessions.reduce(
                 (sum, session) => sum + (Number.isFinite(session.score) ? session.score ?? 0 : 0),
                 0,
-              ) / recentScenarios.length
+              ) / recentSessions.length
             ).toFixed(2),
           )
         : 0;
@@ -712,7 +697,7 @@ const Dashboard: React.FC = () => {
                   sessions={sessions}
                   isLoading={shouldShowSkeleton}
                   onViewAll={() => {
-                    window.location.href = '/dashboard/scenarios';
+                    window.location.href = '/dashboard/games';
                   }}
                 />
               </div>

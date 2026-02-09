@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { ColorPicker } from '@/components/ui/color-picker';
-import { useUserPrefs, type TargetPreferences } from '@/state/useUserPrefs';
+import { useUserPreferences, useSaveUserPreferences, type TargetPreferences } from '@/features/profile';
 import { uploadTargetSound, validateSoundFile } from '@/features/targets/lib/target-sounds';
 import { useSetDeviceAttributes } from '@/features/targets';
 import { toast } from '@/components/ui/sonner';
@@ -31,12 +31,14 @@ export const TargetCustomizationDialog: React.FC<TargetCustomizationDialogProps>
   onClose,
 }) => {
   const { isPremium } = useSubscription();
-  const { prefs, save, updatePref } = useUserPrefs();
+  // Use React Query hooks (replaces Zustand useUserPrefs store)
+  const { data: prefs = {} } = useUserPreferences();
+  const savePreferencesMutation = useSaveUserPreferences();
   const setDeviceAttributesMutation = useSetDeviceAttributes();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   const currentPrefs = prefs[targetId] || {};
-  
+
   // Local state for form
   const [soundEnabled, setSoundEnabled] = useState(currentPrefs.soundEnabled ?? false);
   const [lightEnabled, setLightEnabled] = useState(currentPrefs.lightEnabled ?? false);
@@ -86,7 +88,7 @@ export const TargetCustomizationDialog: React.FC<TargetCustomizationDialogProps>
     setUploading(true);
     try {
       const result = await uploadTargetSound(targetId, selectedFile);
-      
+
       if (result.error) {
         toast.error(result.error);
         return;
@@ -109,8 +111,8 @@ export const TargetCustomizationDialog: React.FC<TargetCustomizationDialogProps>
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Update local preferences
-      const updatedPrefs: TargetPreferences = {
+      // Build updated preferences for this target
+      const updatedTargetPrefs: TargetPreferences = {
         ...currentPrefs,
         soundEnabled,
         lightEnabled,
@@ -118,26 +120,18 @@ export const TargetCustomizationDialog: React.FC<TargetCustomizationDialogProps>
         customSoundUrl: soundEnabled ? customSoundUrl : undefined,
       };
 
-      // Update in Zustand store
-      updatePref(targetId, 'soundEnabled', soundEnabled);
-      updatePref(targetId, 'lightEnabled', lightEnabled);
-      if (lightEnabled) {
-        updatePref(targetId, 'lightColor', lightColor);
-      }
-      if (soundEnabled && customSoundUrl) {
-        updatePref(targetId, 'customSoundUrl', customSoundUrl);
-      }
-
-      // Save to Supabase
+      // Build the full preferences object with the update
       const newPrefs = {
         ...prefs,
-        [targetId]: updatedPrefs,
+        [targetId]: updatedTargetPrefs,
       };
-      await save(newPrefs);
+
+      // Save to Supabase via React Query mutation
+      await savePreferencesMutation.mutateAsync(newPrefs);
 
       // Sync to ThingsBoard via device-command Edge Function
       const attributes: Record<string, unknown> = {};
-      
+
       if (soundEnabled && customSoundUrl) {
         attributes.customSoundUrl = customSoundUrl;
         attributes.soundEnabled = true;
@@ -345,9 +339,9 @@ export const TargetCustomizationDialog: React.FC<TargetCustomizationDialogProps>
 
         {/* Action Buttons */}
         <div className="flex justify-between gap-2 pt-4 premium-gradient-border-top">
-          <Button 
-            variant="outline" 
-            onClick={handleReset} 
+          <Button
+            variant="outline"
+            onClick={handleReset}
             disabled={saving}
             className="premium-outline-button"
           >
@@ -355,17 +349,17 @@ export const TargetCustomizationDialog: React.FC<TargetCustomizationDialogProps>
             Reset to Default
           </Button>
           <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              onClick={onClose} 
+            <Button
+              variant="outline"
+              onClick={onClose}
               disabled={saving}
               className="premium-outline-button"
             >
               Cancel
             </Button>
-            <Button 
-              onClick={handleSave} 
-              disabled={saving} 
+            <Button
+              onClick={handleSave}
+              disabled={saving}
               className="premium-button-gradient"
             >
               {saving ? (
@@ -386,4 +380,3 @@ export const TargetCustomizationDialog: React.FC<TargetCustomizationDialogProps>
     </Dialog>
   );
 };
-

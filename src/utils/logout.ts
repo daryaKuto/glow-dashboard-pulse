@@ -1,30 +1,28 @@
 /**
  * Comprehensive logout utility
  * Clears all application state, localStorage, and resets stores
+ *
+ * This utility follows the architecture pattern where:
+ * - React Query cache is cleared via queryClient.clear() for all server data
+ * - Feature-scoped state (like game flow) is reset via feature public APIs
  */
 
-import { useGameFlow } from '@/state/useGameFlow';
-import { useStats } from '@/state/useStats';
-import { useProfile } from '@/state/useProfile';
-import { useRooms } from '@/state/useRooms';
-import { useTargets } from '@/state/useTargets';
+import { resetGameFlowState } from '@/features/games';
+import { queryClient } from '@/app/query-client';
 
 /**
  * Clear all application state and data
  */
 export const clearAllApplicationState = () => {
   console.log('[Logout] Clearing all application state...');
-  
+
   try {
-    // Clear localStorage completely
     localStorage.clear();
     console.log('[Logout] localStorage cleared');
-    
-    // Clear sessionStorage
+
     sessionStorage.clear();
     console.log('[Logout] sessionStorage cleared');
-    
-    // Clear any cached data in browser
+
     if ('caches' in window) {
       caches.keys().then(names => {
         names.forEach(name => {
@@ -32,8 +30,7 @@ export const clearAllApplicationState = () => {
         });
       });
     }
-    
-    // Clear any service worker registrations
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then(registrations => {
         registrations.forEach(registration => {
@@ -41,7 +38,7 @@ export const clearAllApplicationState = () => {
         });
       });
     }
-    
+
     console.log('[Logout] Application state cleared successfully');
   } catch (error) {
     console.error('[Logout] Error clearing application state:', error);
@@ -49,33 +46,28 @@ export const clearAllApplicationState = () => {
 };
 
 /**
- * Reset all Zustand stores to their initial state
+ * Reset all data caches and stores
+ *
+ * Uses a single queryClient.clear() call for all React Query-managed server data,
+ * and calls feature-specific reset functions for any remaining Zustand stores.
  */
 export const resetAllStores = () => {
   console.log('[Logout] Resetting all stores...');
-  
+
   try {
-    // Reset stores that have reset methods
-    const stores = [
-      useGameFlow,
-      useStats,
-      useProfile,
-      useRooms,
-      useTargets,
-    ];
-    
-    stores.forEach(store => {
-      try {
-        const storeInstance = store.getState();
-        if (storeInstance && typeof storeInstance.reset === 'function') {
-          storeInstance.reset();
-          console.log(`[Logout] Reset store: ${store.name || 'Unknown'}`);
-        }
-      } catch (error) {
-        console.warn(`[Logout] Could not reset store:`, error);
-      }
-    });
-    
+    // Clear all React Query caches (covers all server data)
+    queryClient.clear();
+    console.log('[Logout] React Query cache cleared');
+
+    // Reset the game flow store via its public API
+    // (the only remaining Zustand store with runtime state)
+    try {
+      resetGameFlowState();
+      console.log('[Logout] GameFlow store reset');
+    } catch (error) {
+      console.warn('[Logout] Could not reset GameFlow store:', error);
+    }
+
     console.log('[Logout] All stores reset successfully');
   } catch (error) {
     console.error('[Logout] Error resetting stores:', error);
@@ -84,36 +76,20 @@ export const resetAllStores = () => {
 
 /**
  * Complete logout process
- * This should be called when the user logs out
  */
 export const performCompleteLogout = () => {
   console.log('[Logout] Starting complete logout process...');
-  
-  // Clear all application state
+
   clearAllApplicationState();
-  
-  // Reset all stores
   resetAllStores();
-  
-  // Clear any WebSocket connections
-  try {
-    // Close any open WebSocket connections
-    if (window.WebSocket) {
-      // This is a basic approach - in a real app you'd track WebSocket instances
-      console.log('[Logout] WebSocket connections should be closed by their respective services');
-    }
-  } catch (error) {
-    console.warn('[Logout] Error closing WebSocket connections:', error);
-  }
-  
+
   // Clear any intervals or timeouts
   try {
-    // Clear all intervals and timeouts
     const highestTimeoutId = setTimeout(() => {}, 0);
     for (let i = 0; i < highestTimeoutId; i++) {
       clearTimeout(i);
     }
-    
+
     const highestIntervalId = setInterval(() => {}, 0);
     for (let i = 0; i < highestIntervalId; i++) {
       clearInterval(i);
@@ -121,6 +97,6 @@ export const performCompleteLogout = () => {
   } catch (error) {
     console.warn('[Logout] Error clearing intervals/timeouts:', error);
   }
-  
+
   console.log('[Logout] Complete logout process finished');
 };

@@ -14,9 +14,7 @@ import OAuthCallback from './pages/auth/callback';
 import DashboardPage from './features/dashboard/ui/dashboard-page';
 import TargetsPage from './features/targets/ui/targets-page';
 import RoomsPage from './features/rooms/ui/rooms-page';
-import RoomDesigner from './features/rooms/ui/room-designer-page';
 import GamesPage from './features/games/ui/games-page';
-// import Scenarios from './pages/Scenarios'; // Commented out - moved to scenarios folder
 import LeaderboardPage from './features/leaderboard/ui/leaderboard-page';
 import ProfilePage from './features/profile/ui/profile-page';
 import SettingsPage from './features/settings/ui/settings-page';
@@ -68,9 +66,7 @@ function App() {
         <Route path="/dashboard" element={user ? <DashboardPage /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/targets" element={user ? <TargetsPage /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/rooms" element={user ? <RoomsPage /> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/rooms/:id" element={user ? <RoomDesigner /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/games" element={user ? <GamesPage /> : <Navigate to="/login" replace />} />
-        {/* <Route path="/dashboard/scenarios" element={user ? <Scenarios /> : <Navigate to="/login" replace />} /> */}
         <Route path="/dashboard/leaderboard" element={user ? <LeaderboardPage /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/profile" element={user ? <ProfilePage /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/settings" element={user ? <SettingsPage /> : <Navigate to="/login" replace />} />
@@ -80,8 +76,7 @@ function App() {
         <Route path="/settings" element={<Navigate to="/dashboard/settings" replace />} />
         <Route path="/targets" element={<Navigate to="/dashboard/targets" replace />} />
         <Route path="/rooms" element={<Navigate to="/dashboard/rooms" replace />} />
-        {/* <Route path="/scenarios" element={<Navigate to="/dashboard/scenarios" replace />} /> */}
-        <Route path="/sessions" element={<Navigate to="/dashboard/scenarios" replace />} />
+        <Route path="/sessions" element={<Navigate to="/dashboard/games" replace />} />
         <Route path="/leaderboard" element={<Navigate to="/dashboard/leaderboard" replace />} />
         
         {/* 404 route */}

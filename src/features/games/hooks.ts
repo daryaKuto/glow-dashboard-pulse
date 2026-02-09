@@ -1,5 +1,13 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from '@/components/ui/sonner';
 import { useAuth } from '@/shared/hooks';
+import {
+  fetchGamePresets,
+  saveGamePreset,
+  deleteGamePreset,
+  type GamePreset,
+  type SaveGamePresetInput,
+} from '@/lib/edge';
 import {
   getGameTemplatesService,
   checkCanStartGameSession,
@@ -28,6 +36,7 @@ import type { TargetReadiness } from '@/domain/games/rules';
 export const gamesKeys = {
   all: ['games'] as const,
   templates: () => [...gamesKeys.all, 'templates'] as const,
+  presets: () => [...gamesKeys.all, 'presets'] as const,
 };
 
 /**
@@ -240,7 +249,84 @@ export function useGameValidation() {
   };
 }
 
+// ============================================================================
+// Game Presets Hooks
+// These hooks replace the Zustand useGamePresets store with React Query.
+// ============================================================================
+
+/**
+ * Get all game presets
+ * Replaces Zustand useGamePresets.presets and fetchPresets
+ */
+export function useGamePresets() {
+  return useQuery({
+    queryKey: gamesKeys.presets(),
+    queryFn: async () => {
+      const presets = await fetchGamePresets();
+      return presets;
+    },
+    staleTime: 60 * 1000, // 1 minute
+  });
+}
+
+/**
+ * Save a game preset (create or update)
+ * Replaces Zustand useGamePresets.savePreset
+ */
+export function useSaveGamePreset() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (preset: SaveGamePresetInput) => {
+      const saved = await saveGamePreset(preset);
+      return saved;
+    },
+    onSuccess: (savedPreset) => {
+      // Update the presets cache optimistically
+      queryClient.setQueryData<GamePreset[]>(gamesKeys.presets(), (oldPresets = []) => {
+        const existingIndex = oldPresets.findIndex((p) => p.id === savedPreset.id);
+        if (existingIndex >= 0) {
+          const updated = [...oldPresets];
+          updated[existingIndex] = savedPreset;
+          return updated;
+        }
+        return [savedPreset, ...oldPresets];
+      });
+      toast.success('Preset saved successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to save preset: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Delete a game preset
+ * Replaces Zustand useGamePresets.deletePreset
+ */
+export function useDeleteGamePreset() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await deleteGamePreset(id);
+      return id;
+    },
+    onSuccess: (deletedId) => {
+      // Remove from cache
+      queryClient.setQueryData<GamePreset[]>(gamesKeys.presets(), (oldPresets = []) => {
+        return oldPresets.filter((preset) => preset.id !== deletedId);
+      });
+      toast.success('Preset deleted');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to delete preset: ${error.message}`);
+    },
+  });
+}
+
 // Re-export types for consumers
 export type { UserContext, GameSessionContext, TargetContext } from './service';
 export type { TargetReadiness } from '@/domain/games/rules';
+export type { GamePreset, SaveGamePresetInput } from '@/lib/edge';
 

@@ -1,6 +1,4 @@
 import dualAuthService, { type DualAuthResult } from '@/features/auth/lib/dual-auth';
-import { supabase } from '@/data/supabase-client';
-import type { GameTemplate } from '@/features/games/schema';
 import type { Target } from '@/features/targets/schema';
 import {
   fetchDashboardMetrics,
@@ -189,86 +187,6 @@ export const API = {
     latestDashboardMetrics = metrics;
     latestDashboardMetricsCached = cached;
     return { metrics, cached, source };
-  },
-
-  async getRoomLayout(_roomId: number) {
-    throw new Error('Room layout not implemented yet');
-  },
-
-  async saveRoomLayout(_roomId: number, _targets: any[], _groups: any[]) {
-    throw new Error('Room layout saving not implemented yet');
-  },
-
-  async createGroup(_roomId: number, _groupData: any) {
-    throw new Error('Group creation not implemented yet');
-  },
-
-  async updateGroup(_roomId: number, _groupData: any) {
-    throw new Error('Group updates not implemented yet');
-  },
-
-  async deleteGroup(_roomId: number, _groupData: any) {
-    throw new Error('Group deletion not implemented yet');
-  },
-
-  async listScenarios(): Promise<GameTemplate[]> {
-    const { data, error } = await supabase
-      .from('games')
-      .select(
-        `
-          id,
-          slug,
-          name,
-          description,
-          category,
-          difficulty,
-          target_count,
-          shots_per_target,
-          time_limit_ms,
-          is_active,
-          is_public,
-          thingsboard_config,
-          rules,
-          created_at,
-          updated_at
-        `
-      )
-      .eq('is_active', true)
-      .eq('is_public', true)
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      throw new Error(error.message ?? 'Failed to load game templates');
-    }
-
-    return (data ?? []).map((game) => {
-      const thingsboardConfig =
-        game.thingsboard_config && typeof game.thingsboard_config === 'object' && !Array.isArray(game.thingsboard_config)
-          ? (game.thingsboard_config as Record<string, unknown>)
-          : null;
-      const rules =
-        game.rules && typeof game.rules === 'object' && !Array.isArray(game.rules)
-          ? (game.rules as Record<string, unknown>)
-          : null;
-
-      return {
-        id: game.id,
-        slug: game.slug,
-        name: game.name,
-        description: game.description,
-        category: game.category,
-        difficulty: game.difficulty,
-        targetCount: game.target_count ?? 0,
-        shotsPerTarget: game.shots_per_target ?? 0,
-        timeLimitMs: game.time_limit_ms ?? 0,
-        isActive: game.is_active ?? false,
-        isPublic: game.is_public ?? false,
-        thingsboardConfig,
-        rules,
-        createdAt: game.created_at ?? null,
-        updatedAt: game.updated_at ?? null,
-      } satisfies GameTemplate;
-    });
   },
 };
 

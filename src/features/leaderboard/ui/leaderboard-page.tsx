@@ -1,6 +1,5 @@
 
 import React, { useState } from 'react';
-import { useStats } from '@/state/useStats';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
@@ -15,7 +14,6 @@ import type { LeaderboardEntry, LeaderboardQuery } from '../schema';
 const Leaderboard: React.FC = () => {
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-  const { wsConnected } = useStats();
   const [timeframe, setTimeframe] = useState<LeaderboardQuery['timeframe']>('week');
   const [activeTab, setActiveTab] = useState<LeaderboardQuery['sortBy']>('score');
 
@@ -110,11 +108,6 @@ const Leaderboard: React.FC = () => {
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-h1 font-heading text-brand-dark">Leaderboard</h2>
               <div className="flex items-center gap-4">
-                <div className={`px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 
-                  ${wsConnected ? 'bg-green-500/20 text-green-700 border border-green-500/30' : 'bg-red-500/20 text-red-700 border border-red-500/30'}`}>
-                  <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                  <span>{wsConnected ? 'Live' : 'Offline'}</span>
-                </div>
                 <Select value={timeframe} onValueChange={handleTimeframeChange}>
                   <SelectTrigger className="w-32 bg-white border-gray-200 text-brand-dark">
                     <SelectValue />

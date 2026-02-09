@@ -10,6 +10,10 @@ export {
   useUpdateProfile,
   useWifiCredentials,
   useUpdateWifiCredentials,
+  // User preferences hooks (replaces Zustand useUserPrefs store)
+  useUserPreferences,
+  useSaveUserPreferences,
+  useUpdateTargetPreference,
   profileKeys,
 } from './hooks';
 
@@ -21,4 +25,7 @@ export type {
   WifiCredentials,
   UpdateWifiCredentials,
 } from './schema';
+
+// User preferences types
+export type { TargetPreferences, UserPreferences } from './hooks';
 

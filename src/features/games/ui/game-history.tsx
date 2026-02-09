@@ -1,24 +1,31 @@
+/**
+ * Game History Component
+ *
+ * Displays history of completed game sessions with statistics,
+ * filtering, and sorting capabilities.
+ */
+
 import React, { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { 
-  History, 
-  Clock, 
-  Target, 
-  Trophy, 
+import {
+  History,
+  Clock,
+  Target,
+  Trophy,
   TrendingUp,
   Calendar,
 } from 'lucide-react';
 import { useGameHistory } from '@/features/games/hooks/use-game-history';
-import { GameHistory as GameHistoryType } from '@/features/games/lib/device-game-flow';
+import type { GameHistory as GameHistoryType } from '@/features/games/lib/device-game-flow';
 
 interface GameHistoryProps {
   onGameSelect?: (game: GameHistoryType) => void;
 }
 
-const GameHistoryComponent: React.FC<GameHistoryProps> = ({ onGameSelect }) => {
+export const GameHistoryComponent: React.FC<GameHistoryProps> = ({ onGameSelect }) => {
   const { data: gameHistory = [], isLoading, error } = useGameHistory();
   const [selectedGame, setSelectedGame] = useState<GameHistoryType | null>(null);
   const [sortBy, setSortBy] = useState<'date' | 'hits' | 'duration'>('date');
@@ -52,7 +59,7 @@ const GameHistoryComponent: React.FC<GameHistoryProps> = ({ onGameSelect }) => {
 
   // Calculate statistics
   const totalGames = gameHistory.length;
-  const totalHits = gameHistory.reduce((sum, game) => 
+  const totalHits = gameHistory.reduce((sum, game) =>
     sum + game.deviceResults.reduce((gameSum, result) => gameSum + result.hitCount, 0), 0
   );
   const averageHits = totalGames > 0 ? Math.round(totalHits / totalGames) : 0;
@@ -84,7 +91,7 @@ const GameHistoryComponent: React.FC<GameHistoryProps> = ({ onGameSelect }) => {
   };
 
   const getBestDevice = (game: GameHistoryType) => {
-    return game.deviceResults.reduce((best, result) => 
+    return game.deviceResults.reduce((best, result) =>
       result.hitCount > best.hitCount ? result : best
     );
   };

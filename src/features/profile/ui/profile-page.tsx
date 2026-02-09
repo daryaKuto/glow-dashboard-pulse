@@ -3,8 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 import { useAuth } from '@/shared/hooks/use-auth';
 import { useRooms } from '@/features/rooms';
-import { useUserPrefs } from '@/state/useUserPrefs';
-import { useProfile, useRecentSessions, useStatsTrend, useUpdateProfile, useWifiCredentials, useUpdateWifiCredentials, profileKeys } from '@/features/profile';
+import { useProfile, useRecentSessions, useStatsTrend, useUpdateProfile, useWifiCredentials, useUpdateWifiCredentials, profileKeys, useUserPreferences, useSaveUserPreferences, type UserPreferences, type TargetPreferences } from '@/features/profile';
 import { useSetDeviceAttributes } from '@/features/targets';
 import { fetchTargetsWithTelemetry } from '@/lib/edge';
 import { useQueryClient } from '@tanstack/react-query';
@@ -51,7 +50,6 @@ import {
   EyeOff,
   Settings
 } from 'lucide-react';
-import type { UserPreferences, TargetPreferences } from '@/state/useUserPrefs';
 
 const Profile: React.FC = () => {
   const isMobile = useIsMobile();
@@ -76,8 +74,10 @@ const Profile: React.FC = () => {
     });
   }, []);
   
-  const { prefs, loading: prefsLoading, load: loadPrefs, save: savePrefs, updatePref } = useUserPrefs();
-  
+  // User preferences via React Query (replaces Zustand useUserPrefs)
+  const { data: prefs = {}, isLoading: prefsLoading } = useUserPreferences();
+  const savePreferencesMutation = useSaveUserPreferences();
+
   // Profile hooks (React Query)
   const queryClient = useQueryClient();
   const { data: liveProfileData, isLoading: profileLoading, refetch: refetchProfile } = useProfile(authUser?.id);
@@ -156,15 +156,7 @@ const Profile: React.FC = () => {
   // Device attributes mutation for syncing preferences to ThingsBoard
   const setDeviceAttributesMutation = useSetDeviceAttributes();
 
-  // Load user preferences when component mounts
-  // Note: Profile and session data are automatically fetched by React Query hooks
-  useEffect(() => {
-    if (authUser?.id) {
-      loadPrefs();
-    }
-  }, [authUser?.id, loadPrefs]);
-
-  // Initialize form preferences when prefs are loaded
+  // Initialize form preferences when prefs are loaded (React Query auto-fetches)
   useEffect(() => {
     setFormPrefs(prefs);
   }, [prefs]);
@@ -236,8 +228,8 @@ const Profile: React.FC = () => {
 
   const handleSave = async () => {
     try {
-      // Save target preferences to Supabase (IP addresses only)
-      await savePrefs(formPrefs);
+      // Save target preferences to Supabase via React Query mutation
+      await savePreferencesMutation.mutateAsync(formPrefs);
       
       
       // Push to ThingsBoard for each target (IP addresses, sounds, and colors)

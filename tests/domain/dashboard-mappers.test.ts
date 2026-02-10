@@ -7,6 +7,7 @@ describe('dashboard mappers', () => {
       summary: {
         totalTargets: 2,
         onlineTargets: 1,
+        standbyTargets: 0,
         offlineTargets: 1,
         assignedTargets: 1,
         unassignedTargets: 1,

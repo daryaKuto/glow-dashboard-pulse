@@ -8,6 +8,7 @@
 export type DashboardMetricsSummary = {
   totalTargets: number;
   onlineTargets: number;
+  standbyTargets: number;
   offlineTargets: number;
   assignedTargets: number;
   unassignedTargets: number;
@@ -77,6 +78,7 @@ export function mapDashboardMetricsPayload(
   const summary: DashboardMetricsSummary = {
     totalTargets: toNumber(summaryInput.totalTargets),
     onlineTargets: toNumber(summaryInput.onlineTargets),
+    standbyTargets: toNumber(summaryInput.standbyTargets),
     offlineTargets: toNumber(summaryInput.offlineTargets),
     assignedTargets: toNumber(summaryInput.assignedTargets),
     unassignedTargets: toNumber(summaryInput.unassignedTargets),

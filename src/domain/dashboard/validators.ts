@@ -48,6 +48,7 @@ export const sessionMetricsSchema = z.object({
 export const targetSummarySchema = z.object({
   totalTargets: z.number().min(0),
   onlineTargets: z.number().min(0),
+  standbyTargets: z.number().min(0),
   offlineTargets: z.number().min(0),
   assignedTargets: z.number().min(0),
   unassignedTargets: z.number().min(0),

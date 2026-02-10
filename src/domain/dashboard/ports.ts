@@ -13,6 +13,7 @@ import type { ApiResponse } from '@/shared/lib/api-response';
 export type DashboardSummary = {
   totalTargets: number;
   onlineTargets: number;
+  standbyTargets: number;
   offlineTargets: number;
   assignedTargets: number;
   unassignedTargets: number;

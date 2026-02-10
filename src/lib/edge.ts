@@ -46,6 +46,7 @@ interface TargetsFunctionResponse {
 interface TargetsSummaryPayload {
   totalTargets?: number;
   onlineTargets?: number;
+  standbyTargets?: number;
   offlineTargets?: number;
   assignedTargets?: number;
   unassignedTargets?: number;
@@ -56,6 +57,7 @@ interface TargetsSummaryPayload {
 export interface TargetsSummary {
   totalTargets: number;
   onlineTargets: number;
+  standbyTargets: number;
   offlineTargets: number;
   assignedTargets: number;
   unassignedTargets: number;
@@ -134,6 +136,7 @@ const mapSummary = (summary?: TargetsSummaryPayload | null): TargetsSummary | nu
   return {
     totalTargets: Number(summary.totalTargets ?? 0),
     onlineTargets: Number(summary.onlineTargets ?? 0),
+    standbyTargets: Number(summary.standbyTargets ?? 0),
     offlineTargets: Number(summary.offlineTargets ?? 0),
     assignedTargets: Number(summary.assignedTargets ?? 0),
     unassignedTargets: Number(summary.unassignedTargets ?? 0),
@@ -323,7 +326,7 @@ export async function fetchTargetsWithTelemetry(force = false): Promise<{ target
 
   const targets = data.data.map(mapEdgeTarget);
   const summary = mapSummary(data.summary);
-  
+
   // Group targets by status with ThingsBoard connection info
   const onlineTargets = targets.filter(t => t.status === 'online' || t.status === 'standby');
   const offlineTargets = targets.filter(t => t.status === 'offline');
@@ -800,7 +803,7 @@ export interface TargetDetail {
   active?: boolean | null;
   tbLastActivityTime?: number | null;
   lastShotTime: number | null;
-  totalShots: number;
+  totalShots: number | null;
   recentShotsCount: number;
   telemetry: Record<string, any>;
   history?: Record<string, any>;

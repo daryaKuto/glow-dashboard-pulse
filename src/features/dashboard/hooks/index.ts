@@ -2,4 +2,4 @@
  * Dashboard internal hooks
  */
 
-export { useInitialSync, type InitialSyncStatus } from './use-initial-sync';
+// useInitialSync removed - isReady is now derived inline in dashboard-page.tsx

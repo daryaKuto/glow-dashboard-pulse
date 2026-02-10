@@ -5,46 +5,7 @@ import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { getCache, setCache } from "../_shared/cache.ts";
 import { errorResponse, jsonResponse, preflightResponse } from "../_shared/response.ts";
 import { getTenantDevices, getDeviceTelemetry, getBatchServerAttributes } from "../_shared/thingsboard.ts";
-
-// 12 hours – must match scripts/check-online-targets-thingsboard.sh RECENT_MS and Games thingsboard-targets RECENT_THRESHOLD_MS
-const RECENT_THRESHOLD_MS = 43200_000;
-
-function determineStatus(
-  rawStatus: string | null,
-  gameStatus: string | null,
-  lastShotTime: number | null,
-  isActiveFromTb: boolean | null,
-  lastActivityTimeFromTb: number | null
-): "online" | "standby" | "offline" {
-  const now = Date.now();
-  const hasRecentActivity =
-    lastActivityTimeFromTb != null && now - lastActivityTimeFromTb <= RECENT_THRESHOLD_MS;
-
-  if (gameStatus && ["start", "busy", "active"].includes(String(gameStatus).toLowerCase())) {
-    return "online";
-  }
-  if (isActiveFromTb === false) {
-    // Script: offline unless server lastActivityTime is recent -> standby.
-    if (hasRecentActivity) return "standby";
-    return "offline";
-  }
-  if (isActiveFromTb === true) {
-    const normalized = (rawStatus ?? "").toLowerCase();
-    if (["online", "active", "active_online", "busy"].includes(normalized)) {
-      return "online";
-    }
-    // Connected but idle: only standby if we have recent server activity (avoids all-standby when TB wrongly reports active).
-    if (hasRecentActivity) return "standby";
-    return "offline";
-  }
-  // When active is null: only standby if server lastActivityTime is recent (matches script).
-  const normalized = (rawStatus ?? "").toLowerCase();
-  if (["online", "active", "active_online", "busy"].includes(normalized)) {
-    return "online";
-  }
-  if (hasRecentActivity) return "standby";
-  return "offline";
-}
+import { determineStatus, parseActiveAttribute, parseLastActivityTime } from "../_shared/deviceStatus.ts";
 
 type TargetWithTelemetry = {
   id: string;
@@ -211,13 +172,15 @@ Deno.serve(async (req) => {
         (acc, device) => {
           const deviceId = device.id?.id ?? String(device.id);
           const attrs = serverAttributesById.get(deviceId) ?? {};
-          const isActive = attrs.active === true;
-          const lastActivityTimeFromTb = attrs.lastActivityTime ?? null;
+          const isActive = parseActiveAttribute(attrs.active);
+          const lastActivityTimeFromTb = parseLastActivityTime(attrs.lastActivityTime);
           const rawStatus = device.status ? String(device.status) : null;
           const status = determineStatus(rawStatus, null, null, isActive, lastActivityTimeFromTb);
           acc.totalTargets += 1;
-          if (status === "online" || status === "standby") {
+          if (status === "online") {
             acc.onlineTargets += 1;
+          } else if (status === "standby") {
+            acc.standbyTargets += 1;
           } else {
             acc.offlineTargets += 1;
           }
@@ -231,6 +194,7 @@ Deno.serve(async (req) => {
         {
           totalTargets: 0,
           onlineTargets: 0,
+          standbyTargets: 0,
           offlineTargets: 0,
           assignedTargets: 0,
           unassignedTargets: 0,
@@ -259,6 +223,7 @@ Deno.serve(async (req) => {
     let summary = {
       totalTargets: 0,
       onlineTargets: 0,
+      standbyTargets: 0,
       offlineTargets: 0,
       assignedTargets: 0,
       unassignedTargets: 0,
@@ -275,24 +240,8 @@ Deno.serve(async (req) => {
       const lastActivityTime = telemetry?.hit_ts?.[0]?.ts ?? telemetry?.hits?.[0]?.ts ?? null;
       const gameStatus = telemetry?.gameStatus?.[0]?.value ?? null;
       const rawStatus = device.status ? String(device.status) : null;
-      let isActiveFromTb: boolean | null = null;
-      if (attrs.active !== undefined && attrs.active !== null) {
-        const v = attrs.active;
-        isActiveFromTb = v === true || String(v).toLowerCase() === "true";
-      }
-      const rawLastActivity = attrs.lastActivityTime ?? null;
-      const numLastActivity =
-        rawLastActivity == null
-          ? null
-          : typeof rawLastActivity === "number"
-            ? rawLastActivity
-            : Number(rawLastActivity);
-      const lastActivityTimeFromTb =
-        numLastActivity != null && Number.isFinite(numLastActivity)
-          ? numLastActivity < 1e11
-            ? numLastActivity * 1000
-            : numLastActivity
-          : null;
+      const isActiveFromTb = parseActiveAttribute(attrs.active);
+      const lastActivityTimeFromTb = parseLastActivityTime(attrs.lastActivityTime);
       const lastShotTime = typeof lastActivityTime === "number" ? lastActivityTime : null;
       const gameIdRaw = telemetry?.gameId?.[0]?.value ?? null;
       const lastGameId = gameIdRaw != null ? String(gameIdRaw) : null;
@@ -307,8 +256,10 @@ Deno.serve(async (req) => {
       );
 
       summary.totalTargets += 1;
-      if (status === "online" || status === "standby") {
+      if (status === "online") {
         summary.onlineTargets += 1;
+      } else if (status === "standby") {
+        summary.standbyTargets += 1;
       } else {
         summary.offlineTargets += 1;
       }

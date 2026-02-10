@@ -67,6 +67,7 @@ describe('targets adapter conformance', () => {
         summary: {
           totalTargets: 1,
           onlineTargets: 1,
+          standbyTargets: 0,
           offlineTargets: 0,
           assignedTargets: 1,
           unassignedTargets: 0,
@@ -87,6 +88,7 @@ describe('targets adapter conformance', () => {
       getTargetsSummary: async () => apiOk({
         totalTargets: 1,
         onlineTargets: 1,
+        standbyTargets: 0,
         offlineTargets: 0,
         assignedTargets: 1,
         unassignedTargets: 0,

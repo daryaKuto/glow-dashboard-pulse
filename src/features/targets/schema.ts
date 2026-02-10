@@ -56,7 +56,7 @@ export const targetDetailSchema = z.object({
   active: z.boolean().nullable().optional(),
   tbLastActivityTime: z.number().nullable().optional(),
   lastShotTime: z.number().nullable(),
-  totalShots: z.number(),
+  totalShots: z.number().nullable(),
   recentShotsCount: z.number(),
   telemetry: z.record(z.unknown()),
   history: z.record(z.unknown()).optional(),
@@ -80,6 +80,7 @@ export const targetDetailsOptionsSchema = z.object({
 export const targetsSummarySchema = z.object({
   totalTargets: z.number(),
   onlineTargets: z.number(),
+  standbyTargets: z.number(),
   offlineTargets: z.number(),
   assignedTargets: z.number(),
   unassignedTargets: z.number(),

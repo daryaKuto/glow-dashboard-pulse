@@ -123,6 +123,18 @@ export async function getTargetsSummaryService(force = false): Promise<ApiRespon
 }
 
 /**
+ * Pick the higher of two shot counts.
+ * Treats null/undefined as "no data" (0 for comparison purposes).
+ * Returns null only when both inputs are null/undefined.
+ */
+function pickHigherShots(a: number | null | undefined, b: number | null | undefined): number | null {
+  const aVal = typeof a === 'number' ? a : null;
+  const bVal = typeof b === 'number' ? b : null;
+  if (aVal == null && bVal == null) return null;
+  return Math.max(aVal ?? 0, bVal ?? 0);
+}
+
+/**
  * Merge target details into targets
  * This is a helper function for combining base target data with detailed telemetry
  */
@@ -147,7 +159,7 @@ export function mergeTargetDetails(
       tbLastActivityTime: detail.tbLastActivityTime ?? target.tbLastActivityTime ?? null,
       lastShotTime: detail.lastShotTime ?? target.lastShotTime ?? null,
       lastActivityTime: target.lastActivityTime ?? null,
-      totalShots: detail.totalShots ?? target.totalShots ?? null,
+      totalShots: pickHigherShots(detail.totalShots, target.totalShots),
       recentShotsCount: detail.recentShotsCount ?? target.recentShotsCount ?? 0,
       telemetry: detail.telemetry && Object.keys(detail.telemetry).length > 0
         ? detail.telemetry

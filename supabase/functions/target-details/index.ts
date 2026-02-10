@@ -48,7 +48,7 @@ interface TargetDetailPayload {
   active?: boolean | null;
   tbLastActivityTime?: number | null;
   lastShotTime: number | null;
-  totalShots: number;
+  totalShots: number | null;
   recentShotsCount: number;
   telemetry: Record<string, unknown>;
   history?: Record<string, unknown>;
@@ -263,13 +263,13 @@ Deno.serve(async (req) => {
     const hitsEntries = Array.isArray((telemetry as Record<string, unknown>).hits)
       ? (telemetry as { hits: Array<{ ts?: number; value?: unknown }> }).hits
       : [];
-    const latestHits = hitsEntries.length > 0 ? hitsEntries[hitsEntries.length - 1] : undefined;
-    const totalShots = toNumber(latestHits?.value) ?? 0;
+    const latestHits = hitsEntries.length > 0 ? hitsEntries[0] : undefined;
+    const totalShots = toNumber(latestHits?.value) ?? null;
 
     const hitTsEntries = Array.isArray((telemetry as Record<string, unknown>).hit_ts)
       ? (telemetry as { hit_ts: Array<{ ts?: number }> }).hit_ts
       : [];
-    const latestHitTs = hitTsEntries.length > 0 ? hitTsEntries[hitTsEntries.length - 1] : undefined;
+    const latestHitTs = hitTsEntries.length > 0 ? hitTsEntries[0] : undefined;
     const lastShotTime = typeof latestHitTs?.ts === "number"
       ? latestHitTs.ts
       : (typeof latestHits?.ts === "number" ? latestHits.ts : null);

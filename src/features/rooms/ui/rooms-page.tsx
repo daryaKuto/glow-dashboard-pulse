@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useMemo, startTransition } from 'react';
+import React, { useState, useMemo, startTransition } from 'react';
 import { useLocation } from 'react-router-dom';
-import { useTargets } from '@/features/targets';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -51,10 +51,7 @@ const RoomsPage: React.FC = () => {
   const updateRoomOrderMutation = useUpdateRoomOrder();
   const assignTargetMutation = useAssignTargetToRoom();
   const assignTargetsMutation = useAssignTargetsToRoom();
-  
-  // React Query targets hook
-  const { data: targetsData, refetch: refetchTargets } = useTargets(true);
-  const targets = targetsData?.targets || [];
+  const queryClient = useQueryClient();
   
   // Local state
   const [createRoomModalOpen, setCreateRoomModalOpen] = useState(false);
@@ -129,7 +126,10 @@ const RoomsPage: React.FC = () => {
     setIsDeletingRoom(true);
     try {
       await deleteRoomMutation.mutateAsync(roomPendingDelete.id);
-      await Promise.all([refetchRooms(), refetchTargets()]);
+      await Promise.all([
+        refetchRooms(),
+        queryClient.invalidateQueries({ queryKey: ['targets'] }),
+      ]);
       setRoomPendingDelete(null);
     } catch (error) {
       console.error('Error deleting room:', error);
@@ -249,14 +249,6 @@ const RoomsPage: React.FC = () => {
       console.error('Error saving assignments:', error);
     }
   };
-
-  const targetLookupById = useMemo(() => {
-    const map = new Map<string, any>();
-    targets.forEach((target) => {
-      map.set(target.id, target);
-    });
-    return map;
-  }, [targets]);
 
   // Convert EdgeRoom to Room format for RoomCard
   const roomsForDisplay: Room[] = useMemo(() => {

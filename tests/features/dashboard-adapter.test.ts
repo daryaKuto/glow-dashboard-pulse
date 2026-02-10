@@ -36,6 +36,7 @@ describe('dashboard adapter conformance', () => {
       summary: {
         totalTargets: 10,
         onlineTargets: 8,
+        standbyTargets: 0,
         offlineTargets: 2,
         assignedTargets: 7,
         unassignedTargets: 3,

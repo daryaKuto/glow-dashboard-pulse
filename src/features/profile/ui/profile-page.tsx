@@ -4,8 +4,7 @@ import { format } from 'date-fns';
 import { useAuth } from '@/shared/hooks/use-auth';
 import { useRooms } from '@/features/rooms';
 import { useProfile, useRecentSessions, useStatsTrend, useUpdateProfile, useWifiCredentials, useUpdateWifiCredentials, profileKeys, useUserPreferences, useSaveUserPreferences, type UserPreferences, type TargetPreferences } from '@/features/profile';
-import { useSetDeviceAttributes } from '@/features/targets';
-import { fetchTargetsWithTelemetry } from '@/lib/edge';
+import { useSetDeviceAttributes, useTargets } from '@/features/targets';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsMobile } from '@/shared/hooks/use-mobile';
 import Header from '@/components/shared/Header';
@@ -51,6 +50,9 @@ import {
   Settings
 } from 'lucide-react';
 
+// Stable empty object to prevent useEffect infinite loop from new {} on each render
+const EMPTY_PREFS: UserPreferences = {};
+
 const Profile: React.FC = () => {
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
@@ -58,24 +60,19 @@ const Profile: React.FC = () => {
   // Use new React Query hooks
   const { data: roomsData, refetch: refetchRooms } = useRooms();
   const liveRooms = roomsData?.rooms || [];
-  
-  // Fetch targets with status via edge (same source as Targets page, Dashboard)
-  const [targetStatusMap, setTargetStatusMap] = React.useState<Map<string, string>>(new Map());
-  
-  React.useEffect(() => {
-    fetchTargetsWithTelemetry(false).then(({ targets }) => {
-      const map = new Map<string, string>();
-      targets.forEach(target => {
-        map.set(target.id, target.status);
-      });
-      setTargetStatusMap(map);
-    }).catch(err => {
-      console.error('Failed to fetch targets:', err);
+
+  // Fetch targets with status via React Query (shares cache with Targets/Games pages)
+  const { data: targetsData } = useTargets(false);
+  const targetStatusMap = React.useMemo(() => {
+    const map = new Map<string, string>();
+    (targetsData?.targets ?? []).forEach(target => {
+      map.set(target.id, target.status);
     });
-  }, []);
+    return map;
+  }, [targetsData]);
   
   // User preferences via React Query (replaces Zustand useUserPrefs)
-  const { data: prefs = {}, isLoading: prefsLoading } = useUserPreferences();
+  const { data: prefs = EMPTY_PREFS, isLoading: prefsLoading } = useUserPreferences();
   const savePreferencesMutation = useSaveUserPreferences();
 
   // Profile hooks (React Query)

@@ -57,6 +57,7 @@ describe('dashboard validators', () => {
       summary: {
         totalTargets: 5,
         onlineTargets: 3,
+        standbyTargets: 0,
         offlineTargets: 2,
         assignedTargets: 4,
         unassignedTargets: 1,

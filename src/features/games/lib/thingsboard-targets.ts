@@ -26,6 +26,7 @@ interface ThingsboardSessionResponse {
 export interface TargetsSummary {
   totalTargets: number;
   onlineTargets: number;
+  standbyTargets: number;
   offlineTargets: number;
   assignedTargets: number;
   unassignedTargets: number;
@@ -501,13 +502,15 @@ export const fetchTargetsWithTelemetry = async (
 
       const totalTargets = targets.length;
       const onlineTargets = targets.filter((target) => target.status === 'online').length;
+      const standbyTargets = targets.filter((target) => target.status === 'standby').length;
       const assignedTargets = targets.filter((target) => target.roomId).length;
-      const offlineTargets = totalTargets - onlineTargets;
+      const offlineTargets = totalTargets - onlineTargets - standbyTargets;
       const unassignedTargets = totalTargets - assignedTargets;
 
       const summary: TargetsSummary = {
         totalTargets,
         onlineTargets,
+        standbyTargets,
         offlineTargets,
         assignedTargets,
         unassignedTargets,

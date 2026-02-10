@@ -1,12 +1,52 @@
 /**
  * Targets Domain Business Rules
- * 
+ *
  * Business rules and invariants for target operations.
  * Pure functions - no React or Supabase imports.
  */
 
 import type { TargetStatus, ActivityStatus } from './validators';
-import type { TargetDomainModel, TargetDetailDomainModel } from './mappers';
+
+/**
+ * Target domain model (internal representation)
+ * Used by rules functions for type-safe business logic
+ */
+export type TargetDomainModel = {
+  id: string;
+  name: string;
+  customName: string | null;
+  status: TargetStatus;
+  activityStatus: ActivityStatus;
+  battery: number | null;
+  wifiStrength: number | null;
+  roomId: string | null;
+  lastShotTime: number | null;
+  lastActivityTime: number | null;
+  totalShots: number | null;
+  recentShotsCount: number;
+  lastEvent: string | null;
+  gameStatus: string | null;
+  errors: string[];
+};
+
+/**
+ * Target detail domain model
+ */
+export type TargetDetailDomainModel = {
+  deviceId: string;
+  status: TargetStatus;
+  activityStatus: ActivityStatus;
+  lastShotTime: number | null;
+  totalShots: number;
+  recentShotsCount: number;
+  telemetry: Record<string, unknown>;
+  history: Record<string, unknown>;
+  battery: number | null;
+  wifiStrength: number | null;
+  lastEvent: string | null;
+  gameStatus: string | null;
+  errors: string[];
+};
 
 /**
  * Target business rule result

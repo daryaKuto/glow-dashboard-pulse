@@ -54,7 +54,6 @@ import { fetchAllGameHistory } from '@/features/games/lib/game-history';
 import { TargetCustomizationDialog } from '@/components/targets/TargetCustomizationDialog';
 import CreateGroupModal from '@/components/targets/CreateGroupModal';
 import AddTargetsToGroupModal from '@/components/targets/AddTargetsToGroupModal';
-import TargetGroupCard from '@/components/targets/TargetGroupCard';
 import RenameTargetDialog from '@/components/targets/RenameTargetDialog';
 import { useSubscription } from '@/shared/hooks/use-subscription';
 import { PremiumLockIcon } from '@/components/shared/SubscriptionGate';
@@ -78,11 +77,12 @@ const TargetCard: React.FC<{
 
   const displayName = target.displayName || target.name;
 
-  const mergedTotalShots = Math.max(
-    typeof totalHitCount === 'number' ? totalHitCount : 0,
-    typeof target.totalShots === 'number' ? target.totalShots : 0,
-  );
-  const totalShots = mergedTotalShots;
+  const hasGameHistory = typeof totalHitCount === 'number';
+  const hasTelemetryShots = typeof target.totalShots === 'number';
+  const hasAnyShots = hasGameHistory || hasTelemetryShots;
+  const totalShots = hasAnyShots
+    ? Math.max(totalHitCount ?? 0, target.totalShots ?? 0)
+    : null;
   const lastShotTime = target.lastShotTime ?? target.lastActivityTime ?? null;
 
   // Use backend status only: online / standby / offline. No re-derivation in UI.
@@ -194,9 +194,9 @@ const TargetCard: React.FC<{
           <div className="space-y-1 md:space-y-2 pt-1 md:pt-2 border-t border-gray-100">
             <div className="text-center">
               <div className="text-sm md:text-2xl font-bold text-brand-primary font-heading">
-                {isHitTotalsLoading && typeof totalHitCount !== 'number'
+                {isHitTotalsLoading && !hasGameHistory
                   ? '…'
-                  : (typeof totalShots === 'number' ? totalShots : 0)}
+                  : totalShots !== null ? totalShots : '—'}
               </div>
               <div className="text-xs md:text-sm text-brand-dark/70 font-body">Total Shots{!isMobile && ' Recorded'}</div>
             </div>
@@ -490,6 +490,10 @@ const Targets: React.FC = () => {
         });
 
         if (!isCancelled) {
+          console.log('[Targets] Game history hit totals aggregated', {
+            totalDevices: Object.keys(totals).length,
+            totals,
+          });
           setTargetHitTotals(totals);
           hitTotalsSignatureRef.current = signature;
         }
@@ -875,16 +879,6 @@ const Targets: React.FC = () => {
     return rooms.find(room => String(room.id) === String(roomId));
   };
 
-  // Get groups for a specific room
-  const getGroupsForRoom = (roomId: string) => {
-    return groupsWithCustomNames.filter(group => group.roomId === roomId);
-  };
-
-  // Get unassigned groups (not assigned to any room)
-  const unassignedGroups = useMemo(() => {
-    return groupsWithCustomNames.filter(group => !group.roomId);
-  }, [groupsWithCustomNames]);
-
   // Handle group creation
   const handleCreateGroup = async (groupData: {
     name: string;
@@ -1210,18 +1204,7 @@ const Targets: React.FC = () => {
                 {/* Display rooms with their groups and targets */}
                 {Object.entries(sortedGroupedTargets).map(([roomId, roomTargets]: [string, Target[]]) => {
                   const room = roomId !== 'unassigned' ? getRoom(roomId) : null;
-                  const roomGroups = roomId !== 'unassigned' ? getGroupsForRoom(roomId) : [];
-                  
-                  // Filter out targets that are in groups
-                  const targetsInRoomGroups = new Set<string>();
-                  roomGroups.forEach(group => {
-                    group.targets?.forEach(target => {
-                      targetsInRoomGroups.add(target.id);
-                    });
-                  });
-                  
-                  const ungroupedRoomTargets = roomTargets.filter(target => !targetsInRoomGroups.has(target.id));
-                  
+
                   return (
                     <div key={roomId}>
                       {/* Room Section Header */}
@@ -1234,7 +1217,7 @@ const Targets: React.FC = () => {
                             {roomTargets.length} target{roomTargets.length !== 1 ? 's' : ''}
                           </Badge>
                         </div>
-                        
+
                         {/* Status Summary */}
                         <div className="flex items-center gap-2 text-xs text-brand-dark/70">
                           <div className="flex items-center gap-1">
@@ -1248,91 +1231,38 @@ const Targets: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Groups in this room */}
-                      {roomGroups.length > 0 && (
-                        <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                          {roomGroups.map(group => (
-                            <TargetGroupCard
-                              key={group.id}
-                              group={group}
+                      {/* All targets in this room as full cards */}
+                      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
+                        {roomTargets.map((target, index) => {
+                          const targetKey = target.id || `target-${index}`;
+                          const aggregatedHits = targetHitTotals[target.id];
+
+                          return (
+                            <TargetCard
+                              key={targetKey}
+                              target={target}
                               room={room}
-                              onEdit={(groupId, newName) => {
-                                handleUpdateGroup(groupId, { name: newName });
+                              onEdit={() => {
+                                toast.info('Edit functionality coming soon');
                               }}
-                              onDelete={() => handleDeleteGroup(group.id)}
-                              onRemoveTarget={handleRemoveTargetFromGroup}
-                              onAddTarget={handleOpenAddTargetsModal}
+                              onRename={() => {
+                                setRenamingTargetId(target.id);
+                              }}
+                              onDelete={() => {
+                                toast.info('Delete functionality coming soon');
+                              }}
+                              onCustomize={() => {
+                                setCustomizingTargetId(target.id);
+                              }}
+                              totalHitCount={aggregatedHits}
+                              isHitTotalsLoading={hitTotalsLoading}
                             />
-                          ))}
-                        </div>
-                      )}
-                      
-                      {/* Ungrouped Targets in this room */}
-                      {ungroupedRoomTargets.length > 0 && (
-                        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
-                          {ungroupedRoomTargets.map((target, index) => {
-                            const targetKey = target.id || `target-${index}`;
-                            const aggregatedHits = targetHitTotals[target.id];
-                            
-                            return (
-                              <TargetCard
-                                key={targetKey}
-                                target={target}
-                                room={room}
-                                onEdit={() => {
-                                  toast.info('Edit functionality coming soon');
-                                }}
-                                onRename={() => {
-                                  setRenamingTargetId(target.id);
-                                }}
-                                onDelete={() => {
-                                  toast.info('Delete functionality coming soon');
-                                }}
-                                onCustomize={() => {
-                                  setCustomizingTargetId(target.id);
-                                }}
-                                totalHitCount={aggregatedHits}
-                                isHitTotalsLoading={hitTotalsLoading}
-                              />
-                            );
-                          })}
-                        </div>
-                      )}
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })}
-
-                {/* Standalone Groups (not assigned to any room) */}
-                {unassignedGroups.length > 0 && (
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between mb-2 md:mb-4">
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-sm md:text-xl font-heading font-semibold text-brand-dark">
-                          Groups
-                        </h2>
-                        <Badge className="bg-blue-50 border-blue-500 text-blue-700 text-xs rounded-lg md:rounded-xl">
-                          {unassignedGroups.length} group{unassignedGroups.length !== 1 ? 's' : ''}
-                        </Badge>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {unassignedGroups.map(group => (
-                        <TargetGroupCard
-                          key={group.id}
-                          group={group}
-                          room={null}
-                          onEdit={(groupId, newName) => {
-                            handleUpdateGroup(groupId, { name: newName });
-                          }}
-                          onDelete={() => handleDeleteGroup(group.id)}
-                          onRemoveTarget={handleRemoveTargetFromGroup}
-                          onAddTarget={handleOpenAddTargetsModal}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 

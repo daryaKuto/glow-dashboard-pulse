@@ -79,7 +79,8 @@ describe('dashboard aggregators', () => {
 
       expect(result.totalTargets).toBe(4);
       expect(result.onlineTargets).toBe(2);
-      expect(result.offlineTargets).toBe(2); // offline + standby
+      expect(result.standbyTargets).toBe(1);
+      expect(result.offlineTargets).toBe(1);
       expect(result.assignedTargets).toBe(2);
       expect(result.unassignedTargets).toBe(2);
       expect(result.totalRooms).toBe(2);
@@ -91,6 +92,7 @@ describe('dashboard aggregators', () => {
 
       expect(result.totalTargets).toBe(0);
       expect(result.onlineTargets).toBe(0);
+      expect(result.standbyTargets).toBe(0);
       expect(result.offlineTargets).toBe(0);
     });
   });

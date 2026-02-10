@@ -13,8 +13,8 @@ import {
   sortTargetsByPriority,
   filterTargetsByStatus,
   getTargetsNeedingAttention,
+  type TargetDomainModel,
 } from '../../src/domain/targets/rules';
-import type { TargetDomainModel } from '../../src/domain/targets/mappers';
 
 // Helper to create a mock target
 function createTarget(overrides: Partial<TargetDomainModel> = {}): TargetDomainModel {

@@ -23,6 +23,7 @@ export const dashboardMetricsDataSchema = z.object({
   summary: z.object({
     totalTargets: z.number(),
     onlineTargets: z.number(),
+    standbyTargets: z.number(),
     offlineTargets: z.number(),
     assignedTargets: z.number(),
     unassignedTargets: z.number(),

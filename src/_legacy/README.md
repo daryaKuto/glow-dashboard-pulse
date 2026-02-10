@@ -47,19 +47,17 @@ Deprecated service implementations:
 | `scenario-api_old_code.ts` | `src/pages/Scenarios.tsx` (legacy scenario flow) |
 | `scenario-mock_old_code.ts` | `src/pages/Scenarios.tsx` (legacy scenario flow) |
 
-### domain/
-Unused domain layer code that was scaffolded but never wired into the application:
+### domain/ (deleted)
+All legacy domain snapshots have been deleted. The live domain files in `src/domain/rooms/` and `src/domain/targets/` are actively used.
 
-| Legacy File | Original Location | Why Unused |
-|-------------|-------------------|------------|
-| `rooms_mappers_old_code.ts` | `src/domain/rooms/mappers.ts` | Never imported - repo handles transformation inline |
-| `rooms_permissions_old_code.ts` | `src/domain/rooms/permissions.ts` | Never imported - Supabase RLS handles authorization |
-| `rooms_rules_old_code.ts` | `src/domain/rooms/rules.ts` | Never imported - validators.ts handles validation |
-| `targets_mappers_old_code.ts` | `src/domain/targets/mappers.ts` | Never imported - edge functions handle transformation |
-| `targets_permissions_old_code.ts` | `src/domain/targets/permissions.ts` | Never imported - Supabase RLS handles authorization |
-| `targets_rules_old_code.ts` | `src/domain/targets/rules.ts` | Never imported - validators.ts handles validation |
-
-**Note on domain files**: These were part of a planned domain-driven design architecture that was partially implemented. The validators are actively used, but mappers/permissions/rules were scaffolded speculatively. They could be wired in if stricter separation of concerns is needed in the future.
+| Legacy File | Original Location | Status |
+|-------------|-------------------|--------|
+| `rooms_mappers_old_code.ts` | `src/domain/rooms/mappers.ts` | DELETED - mappers.ts removed, types moved to rules.ts |
+| `rooms_permissions_old_code.ts` | `src/domain/rooms/permissions.ts` | DELETED - live file is actively imported by `features/rooms/service.ts` |
+| `rooms_rules_old_code.ts` | `src/domain/rooms/rules.ts` | DELETED - live file has extensive tests in `tests/domain/rooms-rules.test.ts` |
+| `targets_mappers_old_code.ts` | `src/domain/targets/mappers.ts` | DELETED - mappers.ts removed, types moved to rules.ts |
+| `targets_permissions_old_code.ts` | `src/domain/targets/permissions.ts` | DELETED - live file is actively imported by `features/targets/service.ts` |
+| `targets_rules_old_code.ts` | `src/domain/targets/rules.ts` | DELETED - live file has extensive tests in `tests/domain/targets-rules.test.ts` |
 
 ### pages/
 Deprecated pages:

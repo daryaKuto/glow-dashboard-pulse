@@ -77,6 +77,7 @@ export type TargetDetailRecord = {
 export type TargetsSummaryRecord = {
   totalTargets: number;
   onlineTargets: number;
+  standbyTargets: number;
   offlineTargets: number;
   assignedTargets: number;
   unassignedTargets: number;

@@ -1,20 +1,16 @@
-import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
-import { Target as TargetIcon, Users, Calendar, Bell, TrendingUp, Activity, Play, User, X, BarChart, Award, CheckCircle, Gamepad2, Trophy, Info } from 'lucide-react';
-import { useTargetsWithDetails } from '@/features/targets';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Target as TargetIcon, Users, TrendingUp, Activity, Play, X, BarChart, Award, CheckCircle, Gamepad2, Trophy, Info } from 'lucide-react';
 import { useRooms } from '@/features/rooms';
-import { useDashboardMetrics, useDashboardSessions, type DashboardSession } from '@/features/dashboard';
+import { useDashboardMetrics, useDashboardSessions } from '@/features/dashboard';
 import { useAuth } from '@/shared/hooks/use-auth';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/shared/hooks/use-mobile';
-import { useInitialSync } from '@/features/dashboard/hooks/use-initial-sync';
 import type { TargetsSummary } from '@/lib/edge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import dayjs from 'dayjs';
@@ -25,9 +21,12 @@ import TargetActivityCard, {
   type TimeRange,
 } from '@/components/dashboard/TargetActivityCard';
 import RecentSessionsCard from '@/components/dashboard/RecentSessionsCard';
-import TimelineCard from '@/components/dashboard/TimelineCard';
-import HitDistributionCardWrapper from '@/components/dashboard/HitDistributionCardWrapper';
+import { HitTimelineSkeleton, HitDistributionSkeleton } from '@/components/games';
 import { formatScoreValue } from '@/utils/dashboard';
+
+// Lazy-load chart components to defer ~200KB recharts
+const TimelineCard = React.lazy(() => import('@/components/dashboard/TimelineCard'));
+const HitDistributionCardWrapper = React.lazy(() => import('@/components/dashboard/HitDistributionCardWrapper'));
 import { throttledLogOnChange } from '@/utils/log-throttle';
 
 // Modern Stat Card Component
@@ -222,101 +221,41 @@ const ComingSoonCard: React.FC<{
   );
 };
 
-const SESSION_HISTORY_LIMIT = 100; // Maximum allowed by API constraint
+const SESSION_HISTORY_LIMIT = 30; // Sufficient for day/week/month ranges
 
 const Dashboard: React.FC = () => {
-  const location = useLocation();
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [dismissedCards, setDismissedCards] = useState<string[]>([]);
-  const hasInitializedRef = useRef(false);
-  const targetsRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
-  
+
   // Get user authentication first (needed for useDashboardMetrics)
-  const { user, session, loading: authLoading } = useAuth();
-  
+  const { user } = useAuth();
+
   // Use new React Query hooks
   // Don't force fetch on mount - let React Query use cached data if available
-  const { data: roomsData, isLoading: roomsLoading, refetch: refetchRooms } = useRooms(false);
+  const { data: roomsData, isLoading: roomsLoading } = useRooms(false);
   
   const { data: dashboardMetricsData, isLoading: metricsLoading } = useDashboardMetrics(false, user?.id);
-  
-  // Use React Query for targets with details
-  // Don't force fetch on mount - let React Query use cached data if available
-  const targetsWithDetails = useTargetsWithDetails(false, {
-    includeHistory: false,
-    telemetryKeys: ['hit_ts', 'hits', 'event'],
-    recentWindowMs: 5 * 60 * 1000,
-  });
-  
-  // Store refetch function in ref to keep it stable
-  targetsRefetchRef.current = targetsWithDetails.refetch;
-  
-  const rawTargets = targetsWithDetails.targets ?? [];
+
   const rooms = roomsData?.rooms || [];
-  
-  // Use new React Query data if available, fallback to legacy
-  const currentTargets = targetsWithDetails.targets || rawTargets;
 
   // Use React Query for sessions (replaces Zustand useSessions store)
-  const { data: sessions = [], isLoading: sessionsLoading } = useDashboardSessions(user?.id, 100);
+  const { data: sessions = [], isLoading: sessionsLoading } = useDashboardSessions(user?.id, SESSION_HISTORY_LIMIT);
 
-  // Initial sync with ThingsBoard (only on dashboard)
-  const { syncStatus, isReady } = useInitialSync();
+  // Derive isReady from React Query loading states
+  const isReady = !metricsLoading && !sessionsLoading && !roomsLoading;
 
-  // Fetch merged targets - use refetch directly from React Query hook
-  // No need for wrapper function since React Query handles this automatically
-
-  // Use React Query data instead of Zustand store to avoid duplicate fetches
-  // dashboardMetricsData comes from useDashboardMetrics React Query hook
-  // Use React Query data instead of Zustand store to avoid duplicate fetches
-  // dashboardMetricsData comes from useDashboardMetrics React Query hook
+  // Use React Query data for summary
   const summary: TargetsSummary | null = dashboardMetricsData?.metrics?.summary ?? null;
-  // Use React Query loading state instead of Zustand loading state
-  // statsLoading from Zustand may be stuck if fetchStats is never called
   const summaryLoading = metricsLoading;
-  const summaryReady = useMemo(() => {
-    if (summaryLoading) {
-      return false;
-    }
-    if (summary) {
-      return true;
-    }
-    return rawTargets.length > 0;
-  }, [summary, summaryLoading, rawTargets.length]);
-  // Don't use statsLoading here since we're not calling fetchStats anymore
+  const summaryReady = !summaryLoading && !!summary;
   const summaryPending = summaryLoading || !summaryReady;
-  const shouldShowSkeleton =
-    summaryPending || sessionsLoading || targetsWithDetails.isLoading || roomsLoading;
-
-  useEffect(() => {
-    if (authLoading || !user?.id || hasInitializedRef.current) {
-      return;
-    }
-
-    // Mark as initialized to prevent infinite loop
-    hasInitializedRef.current = true;
-
-    // Note: All data fetching is now handled by React Query hooks:
-    // - useDashboardMetrics handles dashboard metrics
-    // - useDashboardSessions handles session history
-    // - useTargetsWithDetails handles targets
-    // - useRooms handles rooms
-    // - useInitialSync handles one-time ThingsBoard sync
-    // No manual Zustand store refreshes needed.
-  }, [authLoading, user?.id]);
+  const shouldShowSkeleton = summaryPending || sessionsLoading || roomsLoading;
 
   const stats = useMemo(() => {
-    const usingDetailedTargets = currentTargets.length > 0;
-    const totalTargetsValue = usingDetailedTargets
-      ? currentTargets.length
-      : summary?.totalTargets ?? 0;
-    const onlineTargetsValue = usingDetailedTargets
-      ? currentTargets.filter((target) => target.status === 'online').length
-      : summary?.onlineTargets ?? 0;
-    const standbyTargetsValue = usingDetailedTargets
-      ? currentTargets.filter((target) => target.status === 'standby').length
-      : 0;
+    const totalTargetsValue = summary?.totalTargets ?? 0;
+    const onlineTargetsValue = summary?.onlineTargets ?? 0;
+    const standbyTargetsValue = summary?.standbyTargets ?? 0;
     const totalRoomsValue = rooms.length > 0 ? rooms.length : summary?.totalRooms ?? 0;
 
     const recentSessions = sessions.slice(0, 3);
@@ -339,14 +278,25 @@ const Dashboard: React.FC = () => {
       avgScore: avgScoreValue,
       totalRooms: totalRoomsValue,
     };
-  }, [currentTargets, rooms.length, sessions, summary]);
+  }, [rooms.length, sessions, summary]);
 
   const { onlineTargets, standbyTargets, totalTargets, avgScore, totalRooms } = stats;
-  
-  const completedSessionsCount = useMemo(
-    () => sessions.filter((session) => (session.score ?? 0) > 0).length,
-    [sessions],
-  );
+
+  // Consolidated session analytics - single pass over sessions array
+  const sessionAnalytics = useMemo(() => {
+    let completedCount = 0;
+    let earliest: number | null = null;
+    const scores: number[] = [];
+    for (const session of sessions) {
+      if ((session.score ?? 0) > 0) completedCount++;
+      const ts = Date.parse(session.startedAt);
+      if (!Number.isNaN(ts) && (earliest === null || ts < earliest)) earliest = ts;
+      if (typeof session.score === 'number' && Number.isFinite(session.score))
+        scores.push(session.score);
+    }
+    return { completedCount, earliest, scores };
+  }, [sessions]);
+
   const totalSessionsCount = sessions.length;
 
   useEffect(() => {
@@ -354,7 +304,7 @@ const Dashboard: React.FC = () => {
     throttledLogOnChange('dashboard-sessions', 10000, '[Dashboard] Supabase sessions snapshot', {
       fetchedAt: new Date().toISOString(),
       totalSessions: sessions.length,
-      completedSessions: completedSessionsCount,
+      completedSessions: sessionAnalytics.completedCount,
       sample: sessions.slice(0, 5).map((session) => ({
         id: session.id,
         gameName: session.gameName,
@@ -362,20 +312,7 @@ const Dashboard: React.FC = () => {
         startedAt: session.startedAt,
       })),
     });
-  }, [sessions, completedSessionsCount]);
-
-  const earliestSessionTimestamp = useMemo(() => {
-    return sessions.reduce<number | null>((min, session) => {
-      const ts = Date.parse(session.startedAt);
-      if (Number.isNaN(ts)) {
-        return min;
-      }
-      if (min === null || ts < min) {
-        return ts;
-      }
-      return min;
-    }, null);
-  }, [sessions]);
+  }, [sessions, sessionAnalytics.completedCount]);
 
   const rangeSummaries = useMemo(() => buildRangeSummaries(sessions), [sessions]);
 
@@ -422,8 +359,8 @@ const Dashboard: React.FC = () => {
   }, [sessions]);
 
   const availableRanges = useMemo(() => {
-    const coverage = earliestSessionTimestamp
-      ? Date.now() - earliestSessionTimestamp
+    const coverage = sessionAnalytics.earliest
+      ? Date.now() - sessionAnalytics.earliest
       : 0;
     const ranges = RANGE_ORDER.filter((range) => {
       const summary = rangeSummaries[range];
@@ -440,7 +377,7 @@ const Dashboard: React.FC = () => {
       return coverage >= windowMs;
     });
     return ranges.length > 0 ? ranges : ['day'];
-  }, [rangeSummaries, earliestSessionTimestamp]);
+  }, [rangeSummaries, sessionAnalytics.earliest]);
 
   const [activeRange, setActiveRange] = useState<TimeRange>(availableRanges[0] ?? 'day');
 
@@ -564,23 +501,15 @@ const Dashboard: React.FC = () => {
 
   const hitTimelineLoading = shouldShowSkeleton;
 
-  const sessionScores = useMemo(
-    () =>
-      sessions
-        .map((session) => session.score)
-        .filter((score): score is number => typeof score === 'number' && Number.isFinite(score)),
-    [sessions],
-  );
-
-  const averageScoreMetric = sessionScores.length > 0
+  const averageScoreMetric = sessionAnalytics.scores.length > 0
     ? Number(
-        (sessionScores.reduce((sum, score) => sum + score, 0) / sessionScores.length).toFixed(2),
+        (sessionAnalytics.scores.reduce((sum, score) => sum + score, 0) / sessionAnalytics.scores.length).toFixed(2),
       )
     : null;
 
   // For time-based scoring, "best" means the lowest/fastest time
-  const bestScoreMetric = sessionScores.length > 0
-    ? Math.min(...sessionScores)
+  const bestScoreMetric = sessionAnalytics.scores.length > 0
+    ? Math.min(...sessionAnalytics.scores)
     : null;
 
   // Note: Authentication is handled at the route level in App.tsx
@@ -664,9 +593,9 @@ const Dashboard: React.FC = () => {
                   <StatCard
                     title="Completed Sessions"
                     value={
-                      sessionsLoading && completedSessionsCount === 0
+                      sessionsLoading && sessionAnalytics.completedCount === 0
                         ? '—'
-                        : completedSessionsCount
+                        : sessionAnalytics.completedCount
                     }
                     subtitle={
                       totalSessionsCount > 0
@@ -701,19 +630,26 @@ const Dashboard: React.FC = () => {
                   }}
                 />
               </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-4 lg:gap-5">
-                <TimelineCard
-                  isLoading={hitTimelineLoading}
-                  trackedDevices={hitTimelineTrackedDevices}
-                  data={hitTimelineData}
-                />
-                <HitDistributionCardWrapper
-                  isLoading={hitDistributionLoading}
-                  totalHits={distributionTotalHits}
-                  deviceHitSummary={distributionSummary}
-                  pieChartData={distributionPieData}
-                />
-              </div>
+              <React.Suspense fallback={
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-4 lg:gap-5">
+                  <HitTimelineSkeleton />
+                  <HitDistributionSkeleton />
+                </div>
+              }>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-4 lg:gap-5">
+                  <TimelineCard
+                    isLoading={hitTimelineLoading}
+                    trackedDevices={hitTimelineTrackedDevices}
+                    data={hitTimelineData}
+                  />
+                  <HitDistributionCardWrapper
+                    isLoading={hitDistributionLoading}
+                    totalHits={distributionTotalHits}
+                    deviceHitSummary={distributionSummary}
+                    pieChartData={distributionPieData}
+                  />
+                </div>
+              </React.Suspense>
             </div>
 
             {/* Coming Soon Features - Dismissible Stack */}

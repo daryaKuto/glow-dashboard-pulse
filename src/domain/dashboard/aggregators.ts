@@ -72,13 +72,15 @@ export function calculateTargetSummary(
   totalRooms: number
 ): TargetSummary {
   const onlineTargets = targets.filter((t) => t.status === 'online').length;
+  const standbyTargets = targets.filter((t) => t.status === 'standby').length;
   const offlineTargets = targets.filter((t) => t.status === 'offline').length;
   const assignedTargets = targets.filter((t) => t.roomId !== null).length;
-  
+
   return {
     totalTargets: targets.length,
     onlineTargets,
-    offlineTargets: offlineTargets + targets.filter((t) => t.status === 'standby').length,
+    standbyTargets,
+    offlineTargets,
     assignedTargets,
     unassignedTargets: targets.length - assignedTargets,
     totalRooms,

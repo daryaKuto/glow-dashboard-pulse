@@ -5,7 +5,7 @@ import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devic
 import { tbSendOneway } from '@/features/games/lib/thingsboard-client';
 import { toast } from '@/components/ui/sonner';
 
-/** Shared shape returned by both useGameTelemetry and useDirectTbTelemetry */
+/** Shape of the telemetry snapshot provided by useDirectTbTelemetry */
 interface TelemetrySnapshot {
   hitCounts: Record<string, number>;
   hitHistory: Array<{
@@ -25,9 +25,7 @@ interface UseSessionTelemetrySyncOptions {
   sessionLifecycle: SessionLifecycle;
 
   // Game identity
-  currentGameId: string | null;
   directSessionGameId: string | null;
-  isDirectFlow: boolean;
 
   // Telemetry source
   telemetryState: TelemetrySnapshot;
@@ -75,9 +73,7 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
     isLaunchingLifecycle,
     isRunningLifecycle,
     sessionLifecycle,
-    currentGameId,
     directSessionGameId,
-    isDirectFlow,
     telemetryState,
     goalShotsPerTarget,
     sessionConfirmed,
@@ -117,7 +113,7 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
         return; // Already stopped
       }
 
-      const gameId = directSessionGameId || currentGameId;
+      const gameId = directSessionGameId;
       if (!gameId) {
         console.warn('[Games] Cannot stop target: no game ID', { deviceId });
         return;
@@ -154,13 +150,13 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
         toast.error(`Failed to stop ${deviceName}. Please stop manually.`);
       }
     },
-    [stoppedTargets, directSessionGameId, currentGameId],
+    [stoppedTargets, directSessionGameId],
   );
 
   // --- Main telemetry processing effect ---
 
   useEffect(() => {
-    if ((isLaunchingLifecycle || isRunningLifecycle) && (currentGameId || isDirectFlow)) {
+    if ((isLaunchingLifecycle || isRunningLifecycle) && directSessionGameId) {
       const currentTelemetry = telemetryState;
 
       // Only update hitCounts if content actually changed (prevent infinite loop)
@@ -276,13 +272,12 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
     }
   }, [
     activeDeviceIds,
-    currentGameId,
+    directSessionGameId,
     isRunningLifecycle,
     isLaunchingLifecycle,
     sessionLifecycle,
     sessionConfirmed,
     markTelemetryConfirmed,
-    isDirectFlow,
     stopTargetWhenGoalReached,
     telemetryState,
     availableDevicesRef,

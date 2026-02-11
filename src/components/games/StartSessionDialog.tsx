@@ -29,8 +29,6 @@ export interface StartSessionDialogProps {
   sessionSeconds: number;
   targets: NormalizedGameDevice[];
   sessionHits: SessionHitEntry[];
-  currentGameId: string | null;
-  directControlEnabled: boolean;
   directToken: string | null;
   directAuthError: string | null;
   isDirectAuthLoading: boolean;
@@ -302,8 +300,6 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   sessionSeconds,
   targets,
   sessionHits,
-  currentGameId,
-  directControlEnabled,
   directToken,
   directAuthError: _directAuthError,
   isDirectAuthLoading,
@@ -389,7 +385,7 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   const dialogStreamingLifecycle =
     lifecycle === 'launching' || lifecycle === 'running' || lifecycle === 'stopping' || lifecycle === 'finalizing';
   const shouldStreamDialogTelemetry = Boolean(
-    open && dialogStreamingLifecycle && directControlEnabled && directFlowActive && directToken && directGameId && dialogDeviceIds.length > 0,
+    open && dialogStreamingLifecycle && directFlowActive && directToken && directGameId && dialogDeviceIds.length > 0,
   );
 
   const resetDialogTelemetry = useCallback(() => {
@@ -534,7 +530,7 @@ export const StartSessionDialog: React.FC<StartSessionDialogProps> = ({
   const isStoppingPhase = lifecycle === 'stopping';
   const isFinalizingPhase = lifecycle === 'finalizing';
   const usesLivePalette = isLaunchingPhase || isRunningPhase || isStoppingPhase || isFinalizingPhase;
-  const resolvedGameId = currentGameId ?? directGameId;
+  const resolvedGameId = directGameId;
   const loggedGameIdRef = useRef<string | null>(null);
   const loggedTargetsRef = useRef<string | null>(null);
   const loggedDirectTargetsRef = useRef<string | null>(null);

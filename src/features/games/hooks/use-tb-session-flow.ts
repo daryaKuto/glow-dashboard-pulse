@@ -1,12 +1,12 @@
 import { useCallback } from 'react';
 import type { SessionLifecycle } from '@/components/game-session/sessionState';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
+import { deriveIsOnline } from '@/features/games/lib/device-status-utils';
 import type { LiveSessionSummary } from '@/components/games/types';
 import { invokeGameControl } from '@/lib/edge';
 import { toast } from '@/components/ui/sonner';
 import type { SessionRegistry, SessionCallbacks } from './use-session-registry';
 
-const DIRECT_TB_CONTROL_ENABLED = true;
 
 export interface UseTbSessionFlowOptions {
   // From C.1
@@ -87,7 +87,6 @@ export interface UseTbSessionFlowOptions {
 
   // Lookup helpers
   availableDeviceMap: Map<string, NormalizedGameDevice>;
-  deriveIsOnline: (device: NormalizedGameDevice) => boolean;
 
   // External async callbacks
   loadGameHistory: () => Promise<void>;
@@ -185,7 +184,6 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
     availableDevicesRef,
     currentGameDevicesRef,
     availableDeviceMap,
-    deriveIsOnline,
     loadGameHistory,
     loadLiveDevices,
     resetSetupFlow,
@@ -207,7 +205,7 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
   // ── 1. Derived values ──────────────────────────────────────────────────
 
   const isDirectTelemetryLifecycle =
-    DIRECT_TB_CONTROL_ENABLED && Boolean(directSessionGameId) &&
+    Boolean(directSessionGameId) &&
     (isLaunchingLifecycle || isRunningLifecycle || isStoppingLifecycle || isFinalizingLifecycle);
 
   const isDirectFlow = isDirectTelemetryLifecycle && directTelemetryEnabled;
@@ -339,7 +337,6 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
     },
     [
       availableDeviceMap,
-      deriveIsOnline,
       refreshDirectAuthToken,
       resetSessionActivation,
       resetSessionTimer,
@@ -444,7 +441,6 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
       directSessionGameId,
       directSessionTargets,
       executeDirectStart,
-      deriveIsOnline,
       markSessionTriggered,
       pendingSessionTargets,
       setActiveDeviceIds,

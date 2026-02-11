@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 import type { NormalizedGameDevice } from './use-game-devices';
 import type { EdgeRoom } from '@/features/rooms';
 import type { TargetGroup } from '@/features/targets';
+import { deriveConnectionStatus, deriveIsOnline } from '@/features/games/lib/device-status-utils';
 
 export interface RoomSelection {
   id: string;
@@ -23,7 +24,6 @@ interface UseDeviceSelectionOptions {
   availableDevices: NormalizedGameDevice[];
   rooms: EdgeRoom[];
   groups: TargetGroup[];
-  deriveConnectionStatus: (device: NormalizedGameDevice) => 'online' | 'standby' | 'offline';
   onSelectionChange?: () => void;
 }
 
@@ -34,6 +34,7 @@ interface UseDeviceSelectionReturn {
   sessionGroupId: string | null;
 
   // Computed
+  availableDeviceMap: Map<string, NormalizedGameDevice>;
   roomSelections: RoomSelection[];
   groupSelections: GroupSelection[];
   orderedAvailableDevices: NormalizedGameDevice[];
@@ -61,7 +62,7 @@ interface UseDeviceSelectionReturn {
 }
 
 export function useDeviceSelection(options: UseDeviceSelectionOptions): UseDeviceSelectionReturn {
-  const { availableDevices, rooms, groups, deriveConnectionStatus, onSelectionChange } = options;
+  const { availableDevices, rooms, groups, onSelectionChange } = options;
 
   // State
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
@@ -72,11 +73,6 @@ export function useDeviceSelection(options: UseDeviceSelectionOptions): UseDevic
   const selectionManuallyModifiedRef = useRef(false);
   const availableDevicesRef = useRef<NormalizedGameDevice[]>([]);
   availableDevicesRef.current = availableDevices;
-
-  const deriveIsOnline = useCallback(
-    (device: NormalizedGameDevice) => deriveConnectionStatus(device) !== 'offline',
-    [deriveConnectionStatus],
-  );
 
   // ---------- Computed ----------
 
@@ -115,7 +111,7 @@ export function useDeviceSelection(options: UseDeviceSelectionOptions): UseDevic
       })
       .filter((room): room is RoomSelection => room !== null)
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [rooms, availableDeviceMap, deriveConnectionStatus]);
+  }, [rooms, availableDeviceMap]);
 
   const groupSelections = useMemo(() => {
     return groups
@@ -144,7 +140,7 @@ export function useDeviceSelection(options: UseDeviceSelectionOptions): UseDevic
       })
       .filter((group): group is GroupSelection => group !== null)
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [groups, availableDeviceMap, deriveConnectionStatus]);
+  }, [groups, availableDeviceMap]);
 
   const selectedOnlineDevices = useMemo(() => {
     if (selectedDeviceIds.length === 0) {
@@ -155,11 +151,11 @@ export function useDeviceSelection(options: UseDeviceSelectionOptions): UseDevic
       const device = availableDevices.find((item) => item.deviceId === id);
       return device ? deriveIsOnline(device) : false;
     }).length;
-  }, [availableDevices, deriveIsOnline, selectedDeviceIds]);
+  }, [availableDevices, selectedDeviceIds]);
 
   const totalOnlineSelectableTargets = useMemo(() => {
     return availableDevices.filter((device) => deriveIsOnline(device)).length;
-  }, [availableDevices, deriveIsOnline]);
+  }, [availableDevices]);
 
   const orderedAvailableDevices = useMemo(() => {
     const selectedIdSet = new Set(selectedDeviceIds);
@@ -238,7 +234,7 @@ export function useDeviceSelection(options: UseDeviceSelectionOptions): UseDevic
       .filter((device) => deriveIsOnline(device))
       .map((device) => device.deviceId);
     setSelectedDeviceIds(next);
-  }, [deriveIsOnline, onSelectionChange]);
+  }, [onSelectionChange]);
 
   const handleClearDeviceSelection = useCallback(() => {
     selectionManuallyModifiedRef.current = true;
@@ -363,6 +359,7 @@ export function useDeviceSelection(options: UseDeviceSelectionOptions): UseDevic
     selectedDeviceIds,
     sessionRoomId,
     sessionGroupId,
+    availableDeviceMap,
     roomSelections,
     groupSelections,
     orderedAvailableDevices,

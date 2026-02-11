@@ -1,7 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { AlertCircle } from 'lucide-react';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
@@ -11,8 +8,6 @@ import { useTargets } from '@/features/targets';
 import type { Target } from '@/features/targets/schema';
 import { useRooms } from '@/features/rooms';
 import { useTargetGroups } from '@/features/targets';
-import { useGameTelemetry } from '@/features/games/hooks/use-game-telemetry';
-import { useThingsboardToken } from '@/features/games/hooks/use-thingsboard-token';
 import { useDirectTbTelemetry } from '@/features/games/hooks/use-direct-tb-telemetry';
 import { useSessionActivation } from '@/features/games/hooks/use-session-activation';
 import { useAuth } from '@/shared/hooks/use-auth';
@@ -36,20 +31,20 @@ import { useTbAuth } from '@/features/games/hooks/use-tb-auth';
 import { useTbDeviceRpc } from '@/features/games/hooks/use-tb-device-rpc';
 import { useTbSessionFlow } from '@/features/games/hooks/use-tb-session-flow';
 import { useSessionFinalizer } from '@/features/games/hooks/use-session-finalizer';
+import { deriveIsOnline } from '@/features/games/lib/device-status-utils';
 import {
   StepOneSkeleton,
   StepTwoSkeleton,
   StepThreeSkeleton,
-  GamePresetsCard,
   SavePresetDialog,
   SetupStepOne,
   SetupStepTwo,
   SetupStepThree,
+  ErrorBanner,
+  PresetBanner,
 } from './components';
 
 const REVIEW_TARGET_DISPLAY_LIMIT = 6;
-
-const DIRECT_TB_CONTROL_ENABLED = true;
 
 // Main Live Game Control page: orchestrates device state, telemetry streams, and session history for operator control.
 const Games: React.FC = () => {
@@ -155,10 +150,6 @@ const Games: React.FC = () => {
 
   // currentGameDevicesRef keeps a stable list of armed targets so stop/finalize logic can reference them after state resets.
   const currentGameDevicesRef = useRef<string[]>([]);
-  // Centralised token manager so the Games page always has a fresh ThingsBoard JWT for sockets/RPCs.
-  const { session: tbSession, refresh: refreshThingsboardSession } = useThingsboardToken();
-
-  const currentGameId: string | null = null;
   const isStarting = isLaunchingLifecycle;
   const isStopping = isStoppingLifecycle;
 
@@ -175,38 +166,12 @@ const Games: React.FC = () => {
     return map;
   }, [targetsSnapshot, customNames]);
 
-  const deviceNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    availableDevices.forEach((device) => {
-      map.set(device.deviceId, device.name);
-    });
-    return map;
-  }, [availableDevices]);
-
-  const availableDeviceMap = useMemo(() => {
-    const map = new Map<string, NormalizedGameDevice>();
-    availableDevices.forEach((device) => {
-      map.set(device.deviceId, device);
-    });
-    return map;
-  }, [availableDevices]);
-
-  // Status from edge device list (device.raw.status from useGameDevices / edge fetchTargetsWithTelemetry).
-  const deriveConnectionStatus = useCallback(
-    (device: NormalizedGameDevice): 'online' | 'standby' | 'offline' => {
-      const status = device.raw?.status;
-      if (status === 'online' || status === 'standby' || status === 'offline') {
-        return status;
-      }
-      return 'offline';
-    },
-    [],
-  );
 
   const {
     selectedDeviceIds,
     sessionRoomId,
     sessionGroupId,
+    availableDeviceMap,
     roomSelections,
     groupSelections,
     orderedAvailableDevices,
@@ -229,18 +194,8 @@ const Games: React.FC = () => {
     availableDevices,
     rooms,
     groups,
-    deriveConnectionStatus,
     onSelectionChange: () => call('setStagedPresetId', null),
   });
-
-  const deriveIsOnline = useCallback(
-    (device: NormalizedGameDevice) => deriveConnectionStatus(device) !== 'offline',
-    [deriveConnectionStatus],
-  );
-
-  const getOnlineDevices = useCallback(() => {
-    return availableDevicesRef.current.filter((device) => deriveIsOnline(device));
-  }, [deriveIsOnline]);
 
   useEffect(() => {
     if (isSessionLocked) {
@@ -262,16 +217,16 @@ const Games: React.FC = () => {
       }
       return filtered;
     });
-  }, [availableDevices, deriveIsOnline, isSessionLocked]);
+  }, [availableDevices, isSessionLocked]);
 
   const selectedDevices = useMemo<NormalizedGameDevice[]>(() => {
     if (selectedDeviceIds.length === 0) {
       return [];
     }
     return selectedDeviceIds
-      .map((deviceId) => availableDevices.find((device) => device.deviceId === deviceId) ?? null)
+      .map((deviceId) => availableDeviceMap.get(deviceId) ?? null)
       .filter((device): device is NormalizedGameDevice => device !== null);
-  }, [availableDevices, selectedDeviceIds]);
+  }, [availableDeviceMap, selectedDeviceIds]);
 
   // --- Consolidated session state (timestamps, devices, duration, setup step wizard) ---
   const {
@@ -433,7 +388,6 @@ const Games: React.FC = () => {
   // C.3: Session flow (dialog handlers, start/stop orchestration)
   const {
     isDirectTelemetryLifecycle,
-    isDirectFlow,
     openStartDialogForTargets,
     beginSessionLaunch,
     handleStopDirectGame,
@@ -492,7 +446,6 @@ const Games: React.FC = () => {
     availableDevicesRef,
     currentGameDevicesRef,
     availableDeviceMap,
-    deriveIsOnline,
     loadGameHistory,
     loadLiveDevices,
     resetSetupFlow,
@@ -526,27 +479,7 @@ const Games: React.FC = () => {
     devices: directTelemetryDeviceDescriptors,
   });
 
-  const standardTelemetryState = useGameTelemetry({
-    token: tbSession?.token ?? null,
-    gameId: currentGameId,
-    deviceIds: directTelemetryDeviceDescriptors,
-    enabled: (isLaunchingLifecycle || isRunningLifecycle) && Boolean(currentGameId),
-    onAuthError: () => {
-      void refreshThingsboardSession({ force: true });
-    },
-    onError: (reason) => {
-      // Telemetry error handled silently (console log removed to prevent notifications)
-    },
-  });
-
-  const telemetryState = isDirectFlow ? directTelemetryState : standardTelemetryState;
-
-
-  // Refs to track latest telemetry state (avoid dependency array issues)
-  const telemetryStateRef = useRef(telemetryState);
-  useEffect(() => {
-    telemetryStateRef.current = telemetryState;
-  }, [telemetryState]);
+  const telemetryState = directTelemetryState;
 
   // Telemetry sync: owns hitCounts, hitHistory, stoppedTargets state + processing effect.
   const {
@@ -563,9 +496,7 @@ const Games: React.FC = () => {
     isLaunchingLifecycle,
     isRunningLifecycle,
     sessionLifecycle,
-    currentGameId,
     directSessionGameId,
-    isDirectFlow,
     telemetryState,
     goalShotsPerTarget,
     sessionConfirmed,
@@ -632,10 +563,10 @@ const Games: React.FC = () => {
       .map((transition, index) => {
         const fromDevice =
           transition.fromDeviceName ??
-          deviceNameById.get(transition.fromDevice) ??
+          availableDeviceMap.get(transition.fromDevice)?.name ??
           transition.fromDevice;
         const toDevice =
-          transition.toDeviceName ?? deviceNameById.get(transition.toDevice) ?? transition.toDevice;
+          transition.toDeviceName ?? availableDeviceMap.get(transition.toDevice)?.name ?? transition.toDevice;
 
         return {
           id: `${transition.fromDevice}-${transition.toDevice}-${index}`,
@@ -647,24 +578,9 @@ const Games: React.FC = () => {
         };
       })
       .reverse();
-  }, [deviceNameById, transitionRecords]);
+  }, [availableDeviceMap, transitionRecords]);
 
-  const elapsedSeconds = useMemo(() => {
-    if (isRunningLifecycle) {
-      return sessionTimerSeconds;
-    }
-    if (gameStartTime && gameStopTime) {
-      return Math.max(0, Math.floor((gameStopTime - gameStartTime) / 1000));
-    }
-    return sessionTimerSeconds;
-  }, [gameStartTime, gameStopTime, isRunningLifecycle, sessionTimerSeconds]);
-
-  const reviewTargets = useMemo(() => {
-    if (selectedDevices.length === 0) {
-      return [];
-    }
-    return selectedDevices.slice(0, REVIEW_TARGET_DISPLAY_LIMIT);
-  }, [selectedDevices]);
+  const reviewTargets = selectedDevices.slice(0, REVIEW_TARGET_DISPLAY_LIMIT);
 
   const remainingReviewTargetCount = Math.max(selectedDevices.length - reviewTargets.length, 0);
 
@@ -718,22 +634,10 @@ const Games: React.FC = () => {
         <main className="flex-1 overflow-y-auto">
           <div className="p-2 md:p-4 lg:p-6 xl:p-8 max-w-[1600px] mx-auto">
             {errorMessage && (
-              <Card className="border-red-200 bg-red-50 mb-6">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4 text-red-600" />
-                    <span className="text-red-800 font-medium">{errorMessage}</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setErrorMessage(null)}
-                      className="ml-auto text-red-600 hover:text-red-800"
-                    >
-                      ×
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+              <ErrorBanner
+                message={errorMessage}
+                onDismiss={() => setErrorMessage(null)}
+              />
             )}
             <div className="space-y-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between text-left">
@@ -748,48 +652,19 @@ const Games: React.FC = () => {
                 <div className="flex flex-col items-stretch gap-3 text-sm text-brand-dark/60 sm:flex-row sm:items-center sm:gap-4" />
               </div>
 
-              {presetsLoading ? (
-                <GamePresetsCard
-                  presets={gamePresets}
-                  isLoading={presetsLoading}
-                  isSessionLocked={isSessionLocked}
-                  applyingId={applyingPresetId}
-                  deletingId={deletingPresetId}
-                  onApply={handleApplyPreset}
-                  onDelete={handleDeletePreset}
-                />
-              ) : presetsError ? (
-                <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <span>We couldn&apos;t load your presets. Try again in a moment.</span>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={handleRefreshPresets}>
-                      Retry
-                    </Button>
-                  </div>
-                </div>
-              ) : gamePresets.length === 0 ? (
-                <div className="rounded-md border border-dashed border-brand-primary/40 bg-brand-primary/10 px-4 py-3 text-sm text-brand-dark/80 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <span>No presets yet</span>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={handleRefreshPresets}>
-                      Refresh
-                    </Button>
-                    <Button size="sm" onClick={handleRequestSavePreset} disabled={isSessionLocked || selectedDevices.length === 0}>
-                      Save current setup
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <GamePresetsCard
-                  presets={gamePresets}
-                  isLoading={false}
-                  isSessionLocked={isSessionLocked}
-                  applyingId={applyingPresetId}
-                  deletingId={deletingPresetId}
-                  onApply={handleApplyPreset}
-                  onDelete={handleDeletePreset}
-                />
-              )}
+              <PresetBanner
+                presets={gamePresets}
+                presetsLoading={presetsLoading}
+                presetsError={presetsError}
+                isSessionLocked={isSessionLocked}
+                applyingId={applyingPresetId}
+                deletingId={deletingPresetId}
+                selectedDeviceCount={selectedDevices.length}
+                onApply={handleApplyPreset}
+                onDelete={handleDeletePreset}
+                onRefresh={handleRefreshPresets}
+                onRequestSavePreset={handleRequestSavePreset}
+              />
 
               <div className="space-y-4">
                 {isPageLoading ? (
@@ -814,8 +689,6 @@ const Games: React.FC = () => {
                     targetById={targetById}
                     selectedDeviceIds={selectedDeviceIds}
                     hitCounts={hitCounts}
-                    deriveConnectionStatus={deriveConnectionStatus}
-                    deriveIsOnline={deriveIsOnline}
                     formatLastSeen={formatLastSeen}
                     onToggleDeviceSelection={handleToggleDeviceSelection}
                     onSelectAllDevices={handleSelectAllDevices}
@@ -856,7 +729,6 @@ const Games: React.FC = () => {
                     goalShotsPerTarget={goalShotsPerTarget}
                     setGoalShotsPerTarget={setGoalShotsPerTarget}
                     targetById={targetById}
-                    deriveIsOnline={deriveIsOnline}
                     onOpenStartDialog={handleOpenStartDialog}
                     onRequestSavePreset={handleRequestSavePreset}
                   />
@@ -896,8 +768,6 @@ const Games: React.FC = () => {
           sessionSeconds={sessionTimerSeconds}
           targets={sessionDialogTargets}
           sessionHits={sessionHitEntries}
-          currentGameId={currentGameId}
-          directControlEnabled={DIRECT_TB_CONTROL_ENABLED}
           directToken={directControlToken}
           directAuthError={directControlError}
           isDirectAuthLoading={isDirectAuthLoading}

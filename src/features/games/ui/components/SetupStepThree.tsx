@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Building2, Clock3, Crosshair, Gamepad2, Play, Loader2 } from 'lucide-react';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import type { Target } from '@/features/targets/schema';
+import { deriveIsOnline } from '@/features/games/lib/device-status-utils';
 
 export type SetupStepThreeProps = {
   // Review data
@@ -24,9 +25,6 @@ export type SetupStepThreeProps = {
   goalShotsPerTarget: Record<string, number>;
   setGoalShotsPerTarget: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   targetById: Map<string, Target>;
-
-  // Status helpers
-  deriveIsOnline: (device: NormalizedGameDevice) => boolean;
 
   // Actions
   onOpenStartDialog: () => void;
@@ -49,7 +47,6 @@ const _SetupStepThree: React.FC<SetupStepThreeProps> = ({
   goalShotsPerTarget,
   setGoalShotsPerTarget,
   targetById,
-  deriveIsOnline,
   onOpenStartDialog,
   onRequestSavePreset,
 }) => {

@@ -44,8 +44,6 @@ export type SetupStepOneProps = {
   targetById: Map<string, Target>;
   selectedDeviceIds: string[];
   hitCounts: Record<string, number>;
-  deriveConnectionStatus: (device: NormalizedGameDevice) => 'online' | 'standby' | 'offline';
-  deriveIsOnline: (device: NormalizedGameDevice) => boolean;
   formatLastSeen: (timestamp: number) => string;
   onToggleDeviceSelection: (deviceId: string, checked: boolean) => void;
   onSelectAllDevices: () => void;
@@ -74,8 +72,6 @@ const _SetupStepOne: React.FC<SetupStepOneProps> = ({
   targetById,
   selectedDeviceIds,
   hitCounts,
-  deriveConnectionStatus,
-  deriveIsOnline,
   formatLastSeen,
   onToggleDeviceSelection,
   onSelectAllDevices,
@@ -134,8 +130,6 @@ const _SetupStepOne: React.FC<SetupStepOneProps> = ({
                 targetDetails={targetById}
                 selectedDeviceIds={selectedDeviceIds}
                 hitCounts={hitCounts}
-                deriveConnectionStatus={deriveConnectionStatus}
-                deriveIsOnline={deriveIsOnline}
                 formatLastSeen={formatLastSeen}
                 onToggleDevice={onToggleDeviceSelection}
                 onSelectAll={onSelectAllDevices}

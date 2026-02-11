@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import type { DeviceStatus } from '@/features/games/lib/device-game-flow';
 import type { Target } from '@/features/targets/schema';
+import { deriveConnectionStatus, deriveIsOnline } from '@/features/games/lib/device-status-utils';
 
 interface TargetSelectionCardProps {
   loadingDevices: boolean;
@@ -16,8 +17,6 @@ interface TargetSelectionCardProps {
   targetDetails: Map<string, Target>;
   selectedDeviceIds: string[];
   hitCounts: Record<string, number>;
-  deriveConnectionStatus: (device: NormalizedGameDevice) => 'online' | 'standby' | 'offline';
-  deriveIsOnline: (device: NormalizedGameDevice) => boolean;
   formatLastSeen: (timestamp: number) => string;
   onToggleDevice: (deviceId: string, checked: boolean) => void;
   onSelectAll: () => void;
@@ -54,8 +53,6 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
   targetDetails,
   selectedDeviceIds,
   hitCounts,
-  deriveConnectionStatus,
-  deriveIsOnline,
   formatLastSeen,
   onToggleDevice,
   onSelectAll,
@@ -76,7 +73,7 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
       if (!aOnline && bOnline) return 1;
       return 0;
     });
-  }, [devices, deriveConnectionStatus]);
+  }, [devices]);
 
   React.useEffect(() => {
     // Snap to the top when room-driven ordering pulls a selected target into the lead slot.

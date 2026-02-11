@@ -8,7 +8,6 @@ import {
   mapSummaryToGameHistory,
   type GameHistorySummaryPayload,
 } from '@/features/games/lib/game-history';
-import { throttledLogOnChange } from '@/utils/log-throttle';
 import type { RecentSession } from '@/features/profile';
 
 function ensureNumber(value: unknown): number | null {
@@ -43,9 +42,6 @@ function ensureStringArray(value: unknown): string[] {
  * suitable for the session history table and the post-game summary card.
  */
 export function convertSessionToHistory(session: RecentSession): GameHistory {
-  // Throttle log to prevent flooding when converting many sessions
-  throttledLogOnChange(`games-convert-session-${session.id}`, 2000, '[Games] Converting Supabase session to history entry', session);
-
   const rawSummary = (session.thingsboardData ?? null) as Record<string, unknown> | null;
   const getSummaryValue = (key: string): unknown =>
     rawSummary && Object.prototype.hasOwnProperty.call(rawSummary, key)

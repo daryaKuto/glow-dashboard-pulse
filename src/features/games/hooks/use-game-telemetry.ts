@@ -232,14 +232,6 @@ export const useGameTelemetry = ({
       const deviceName = deviceNameMap.get(deviceId) ?? deviceId;
       const currentTimestamp = eventTimestamp || Date.now();
 
-      console.info('[useGameTelemetry] Hit received', {
-        deviceId,
-        deviceName,
-        timestamp: currentTimestamp,
-        gameId,
-        raw: telemetryData,
-      });
-
       setHitCounts((prev) => ({
         ...prev,
         [deviceId]: (prev[deviceId] ?? 0) + 1,
@@ -269,12 +261,6 @@ export const useGameTelemetry = ({
         if (typeof previousTimestamp === 'number') {
           const splitTime = (currentTimestamp - previousTimestamp) / 1000;
           if (splitTime > 0) {
-            console.info('[useGameTelemetry] Split computed', {
-              deviceId,
-              deviceName,
-              splitTimeSeconds: splitTime,
-              timestamp: currentTimestamp,
-            });
             setSplits((prevSplits) => ([
               ...prevSplits,
               {

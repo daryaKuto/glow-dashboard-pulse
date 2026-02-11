@@ -128,9 +128,6 @@ export const useDirectTbTelemetry = ({
 
   useEffect(() => {
     if (!enabled) {
-      if (unsubscribeRef.current) {
-        console.info('[DirectTelemetry] Disabled – tearing down subscription');
-      }
       resetState();
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
@@ -152,12 +149,6 @@ export const useDirectTbTelemetry = ({
     // telemetry that ThingsBoard sends as an initial snapshot when the
     // WebSocket opens.  Only events newer than this threshold are real.
     const subscriptionStartedAt = Date.now();
-
-    console.info('[DirectTelemetry] Subscribing to ThingsBoard telemetry', {
-      gameId,
-      trackedDevices,
-      subscriptionStartedAt,
-    });
 
     const unsubscribe = tbSubscribeTelemetry(
       trackedDevices,
@@ -190,27 +181,10 @@ export const useDirectTbTelemetry = ({
         // ThingsBoard sends the latest cached values as an initial snapshot
         // when the WebSocket connects — these are historical, not live events.
         if (eventTimestamp < subscriptionStartedAt) {
-          console.info('[DirectTelemetry] Dropping stale cached telemetry', {
-            deviceId,
-            eventTimestamp,
-            subscriptionStartedAt,
-            ageMs: subscriptionStartedAt - eventTimestamp,
-            eventValue,
-            gameIdValue,
-          });
           return;
         }
 
-        console.info('[DirectTelemetry] Raw telemetry received', {
-          entityId: payload.entityId,
-          deviceId,
-          gameIdValue,
-          eventTimestamp,
-          telemetry,
-        });
-
         if (eventValue === 'start' || eventValue === 'busy') {
-          console.info('[DirectTelemetry] Ready event received', { deviceId, eventValue, eventTimestamp });
           setSessionEventTimestamp((prev) => (prev === null ? eventTimestamp : Math.min(prev, eventTimestamp)));
           setReadyDevices((prev) => {
             if (prev[deviceId]) {
@@ -227,14 +201,6 @@ export const useDirectTbTelemetry = ({
         if (eventValue !== 'hit') {
           return;
         }
-
-        console.info('[DirectTelemetry] Hit event received', {
-          deviceId,
-          deviceName,
-          eventTimestamp,
-          gameId,
-          raw: telemetry,
-        });
 
         setHitCounts((prev) => ({
           ...prev,
@@ -263,12 +229,6 @@ export const useDirectTbTelemetry = ({
         if (typeof previousTimestamp === 'number') {
           const splitTime = (eventTimestamp - previousTimestamp) / 1000;
           if (splitTime > 0) {
-            console.info('[DirectTelemetry] Split computed', {
-              deviceId,
-              deviceName,
-              splitTimeSeconds: splitTime,
-              timestamp: eventTimestamp,
-            });
             setSplits((prevSplits) => ([
               ...prevSplits,
               {
@@ -319,7 +279,6 @@ export const useDirectTbTelemetry = ({
     unsubscribeRef.current = () => {
       unsubscribe();
       unsubscribeRef.current = null;
-      console.info('[DirectTelemetry] Subscription closed');
     };
 
     return () => {

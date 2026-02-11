@@ -6,15 +6,12 @@ import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/shared/hooks/use-mobile';
-import type {
-  SessionHitRecord,
-} from '@/features/games/lib/device-game-flow';
 import { useGameDevices, type NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import { useTargets } from '@/features/targets';
 import type { Target } from '@/features/targets/schema';
 import { useRooms } from '@/features/rooms';
 import { useTargetGroups } from '@/features/targets';
-import { useGameTelemetry, type SplitRecord, type TransitionRecord } from '@/features/games/hooks/use-game-telemetry';
+import { useGameTelemetry } from '@/features/games/hooks/use-game-telemetry';
 import { useThingsboardToken } from '@/features/games/hooks/use-thingsboard-token';
 import { useDirectTbTelemetry } from '@/features/games/hooks/use-direct-tb-telemetry';
 import { useSessionActivation } from '@/features/games/hooks/use-session-activation';
@@ -26,16 +23,19 @@ import {
   LiveSessionCardSkeleton,
   StartSessionDialog,
 } from '@/components/games';
-import { useSessionTimer, formatSessionDuration, type SessionHitEntry } from '@/components/game-session/sessionState';
+import { useSessionTimer, type SessionHitEntry } from '@/components/game-session/sessionState';
 import { useGamePresets, useSaveGamePreset, useDeleteGamePreset } from '@/features/games';
 import { useDeviceSelection } from '@/features/games/hooks/use-device-selection';
 import { useSessionLifecycle } from '@/features/games/hooks/use-session-lifecycle';
 import { useSessionTelemetrySync } from '@/features/games/hooks/use-session-telemetry-sync';
-import { useThingsboardControl, type FinalizeSessionArgs } from '@/features/games/hooks/use-thingsboard-control';
-import { useGamesDebugLogging } from '@/features/games/hooks/use-games-debug-logging';
 import { useGameDataLoader } from '@/features/games/hooks/use-game-data-loader';
 import { usePresetManagement } from '@/features/games/hooks/use-preset-management';
-import { useSessionOrchestration } from '@/features/games/hooks/use-session-orchestration';
+import { useSessionState } from '@/features/games/hooks/use-session-state';
+import { useSessionRegistry } from '@/features/games/hooks/use-session-registry';
+import { useTbAuth } from '@/features/games/hooks/use-tb-auth';
+import { useTbDeviceRpc } from '@/features/games/hooks/use-tb-device-rpc';
+import { useTbSessionFlow } from '@/features/games/hooks/use-tb-session-flow';
+import { useSessionFinalizer } from '@/features/games/hooks/use-session-finalizer';
 import {
   StepOneSkeleton,
   StepTwoSkeleton,
@@ -50,8 +50,6 @@ import {
 const REVIEW_TARGET_DISPLAY_LIMIT = 6;
 
 const DIRECT_TB_CONTROL_ENABLED = true;
-
-type GameSetupStep = 'select-targets' | 'select-duration' | 'review';
 
 // Main Live Game Control page: orchestrates device state, telemetry streams, and session history for operator control.
 const Games: React.FC = () => {
@@ -101,48 +99,13 @@ const Games: React.FC = () => {
     setIsSessionDialogDismissed,
     lifecycleRef: sessionLifecycleRef,
   } = useSessionLifecycle();
-  // Start/stop timestamps anchor timer displays and summary persistence payloads.
-  const [gameStartTime, setGameStartTime] = useState<number | null>(null);
-  const [gameStopTime, setGameStopTime] = useState<number | null>(null);
-  // Active devices represent the targets we actually armed for the in-progress session.
-  const [activeDeviceIds, setActiveDeviceIds] = useState<string[]>([]);
-  // Pending targets are staged in the dialog before the operator confirms Begin Session.
-  const [pendingSessionTargets, setPendingSessionTargets] = useState<NormalizedGameDevice[]>([]);
-  // Current session targets are locked once the session is running, informing UI badges and telemetry subscriptions.
-  const [currentSessionTargets, setCurrentSessionTargets] = useState<NormalizedGameDevice[]>([]);
-  // Desired session duration seeded by presets or operator overrides.
-  const [sessionDurationSeconds, setSessionDurationSeconds] = useState<number | null>(null);
-  // Goal shots per target - maps deviceId to goal shot count (optional)
-  const [goalShotsPerTarget, setGoalShotsPerTarget] = useState<Record<string, number>>({});
   const currentSessionTargetsRef = useRef<NormalizedGameDevice[]>([]);
-  useEffect(() => {
-    currentSessionTargetsRef.current = currentSessionTargets;
-  }, [currentSessionTargets]);
   // Custom names for targets
   const { data: customNames = new Map() } = useTargetCustomNames();
 
-  // Bridge refs: break the circular dependency between useThingsboardControl and hooks
-  // declared later (useSessionTelemetrySync, useDirectTbTelemetry, finalizeSession, etc.).
-  // The hook reads these at call time (in callbacks), not at definition time.
-  const hitHistoryRef = useRef<SessionHitRecord[]>([]);
-  const splitRecordsRef = useRef<SplitRecord[]>([]);
-  const transitionRecordsRef = useRef<TransitionRecord[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const finalizeSessionRef = useRef<(args: FinalizeSessionArgs) => Promise<unknown>>(null as any);
-  // Setter refs: stable React state setters from useSessionTelemetrySync, declared after the hook.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const setHitCountsRef = useRef<React.Dispatch<React.SetStateAction<Record<string, number>>>>(null as any);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const setHitHistoryRef = useRef<React.Dispatch<React.SetStateAction<SessionHitRecord[]>>>(null as any);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const setStoppedTargetsRef = useRef<React.Dispatch<React.SetStateAction<Set<string>>>>(null as any);
-  // Bridge refs for preset management ↔ ThingsBoard control circular dependency.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const openStartDialogRef = useRef<any>(null as any);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const beginSessionLaunchRef = useRef<any>(null as any);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const setStagedPresetIdRef = useRef<React.Dispatch<React.SetStateAction<string | null>>>(null as any);
+  // Callback registry: single ref replaces all 10 bridge refs.
+  // Hooks register their callbacks here; other hooks read them at call time.
+  const { register, call, registry } = useSessionRegistry();
 
   // --- Game data loader (history, devices, localStorage persistence) ---
   const {
@@ -160,7 +123,7 @@ const Games: React.FC = () => {
     availableDevices,
     setAvailableDevices,
     setErrorMessage,
-    setHitCountsRef,
+    registry,
     refreshGameDevices,
     refreshTargets,
     targetsSnapshot,
@@ -168,23 +131,6 @@ const Games: React.FC = () => {
     loadingDevices,
   });
 
-  const [setupStep, setSetupStep] = useState<GameSetupStep>('select-targets');
-  const [durationInputValue, setDurationInputValue] = useState('');
-  const [isDurationUnlimited, setIsDurationUnlimited] = useState(true);
-  const isStepSelectTargets = setupStep === 'select-targets';
-  const isStepReview = setupStep === 'review';
-  const advanceToDurationStep = useCallback(() => {
-    setSetupStep('select-duration');
-  }, []);
-  const advanceToReviewStep = useCallback(() => {
-    setSetupStep('review');
-  }, []);
-  const resetSetupFlow = useCallback(() => {
-    setSetupStep('select-targets');
-    setStagedPresetId(null);
-    setGoalShotsPerTarget({});
-    setStoppedTargets(new Set());
-  }, []);
   // Session timer powers the stopwatch in the popup and elapsed time block in the dashboard cards.
   const {
     seconds: sessionTimerSeconds,
@@ -209,53 +155,8 @@ const Games: React.FC = () => {
 
   // currentGameDevicesRef keeps a stable list of armed targets so stop/finalize logic can reference them after state resets.
   const currentGameDevicesRef = useRef<string[]>([]);
-  const seededDurationSummaryIdRef = useRef<string | null>(null);
   // Centralised token manager so the Games page always has a fresh ThingsBoard JWT for sockets/RPCs.
   const { session: tbSession, refresh: refreshThingsboardSession } = useThingsboardToken();
-  useEffect(() => {
-    if (setupStep !== 'select-duration') {
-      return;
-    }
-    const hasDuration = typeof sessionDurationSeconds === 'number' && sessionDurationSeconds > 0;
-    if (!hasDuration) {
-      setSessionDurationSeconds(null);
-    }
-  }, [sessionDurationSeconds, setSessionDurationSeconds, setupStep]);
-
-  useEffect(() => {
-    if (typeof sessionDurationSeconds === 'number' && sessionDurationSeconds > 0) {
-      setDurationInputValue(String(sessionDurationSeconds));
-      setIsDurationUnlimited(false);
-    } else {
-      setDurationInputValue('');
-      setIsDurationUnlimited(true);
-    }
-  }, [sessionDurationSeconds]);
-
-  useEffect(() => {
-    if (!recentSessionSummary) {
-      seededDurationSummaryIdRef.current = null;
-      return;
-    }
-    if (seededDurationSummaryIdRef.current === recentSessionSummary.gameId) {
-      return;
-    }
-    const summaryDuration =
-      typeof recentSessionSummary.desiredDurationSeconds === 'number' && recentSessionSummary.desiredDurationSeconds > 0
-        ? Math.round(recentSessionSummary.desiredDurationSeconds)
-        : null;
-    if (
-      summaryDuration === null ||
-      sessionLifecycle !== 'idle' ||
-      setupStep !== 'select-targets' ||
-      sessionDurationSeconds !== null
-    ) {
-      return;
-    }
-    setSessionDurationSeconds(summaryDuration);
-    seededDurationSummaryIdRef.current = recentSessionSummary.gameId;
-  }, [recentSessionSummary, sessionLifecycle, sessionDurationSeconds, setSessionDurationSeconds, setupStep]);
-
 
   const currentGameId: string | null = null;
   const isStarting = isLaunchingLifecycle;
@@ -329,7 +230,7 @@ const Games: React.FC = () => {
     rooms,
     groups,
     deriveConnectionStatus,
-    onSelectionChange: () => setStagedPresetIdRef.current?.(null),
+    onSelectionChange: () => call('setStagedPresetId', null),
   });
 
   const deriveIsOnline = useCallback(
@@ -363,11 +264,52 @@ const Games: React.FC = () => {
     });
   }, [availableDevices, deriveIsOnline, isSessionLocked]);
 
-  useEffect(() => {
-    if (selectedDeviceIds.length === 0 && !isStepSelectTargets) {
-      resetSetupFlow();
+  const selectedDevices = useMemo<NormalizedGameDevice[]>(() => {
+    if (selectedDeviceIds.length === 0) {
+      return [];
     }
-  }, [isStepSelectTargets, resetSetupFlow, selectedDeviceIds.length]);
+    return selectedDeviceIds
+      .map((deviceId) => availableDevices.find((device) => device.deviceId === deviceId) ?? null)
+      .filter((device): device is NormalizedGameDevice => device !== null);
+  }, [availableDevices, selectedDeviceIds]);
+
+  // --- Consolidated session state (timestamps, devices, duration, setup step wizard) ---
+  const {
+    gameStartTime,
+    setGameStartTime,
+    gameStopTime,
+    setGameStopTime,
+    activeDeviceIds,
+    setActiveDeviceIds,
+    pendingSessionTargets,
+    setPendingSessionTargets,
+    currentSessionTargets,
+    setCurrentSessionTargets,
+    sessionDurationSeconds,
+    setSessionDurationSeconds,
+    durationInputValue,
+    isDurationUnlimited,
+    goalShotsPerTarget,
+    setGoalShotsPerTarget,
+    isStepSelectTargets,
+    isStepReview,
+    canAdvanceToDuration,
+    canAdvanceToReview,
+    canLaunchGame,
+    formattedDurationLabel,
+    resetSetupStep,
+    advanceToReviewStep,
+    handleDesiredDurationChange,
+    handleDurationInputValueChange,
+    handleToggleDurationUnlimited,
+  } = useSessionState({
+    recentSessionSummary,
+    sessionLifecycle,
+    selectedOnlineDevices,
+    selectedDeviceCount: selectedDevices.length,
+    isSessionLocked,
+    registry,
+  });
 
   // --- Preset management (state, save/delete/apply callbacks, logging effects) ---
   const {
@@ -413,11 +355,10 @@ const Games: React.FC = () => {
     setSessionRoomId,
     setSessionDurationSeconds,
     setGoalShotsPerTarget,
-    openStartDialogRef,
-    beginSessionLaunchRef,
+    registry,
   });
-  // Wire the setStagedPresetId bridge ref for useDeviceSelection's onSelectionChange.
-  setStagedPresetIdRef.current = setStagedPresetId;
+  // Register setStagedPresetId so useDeviceSelection + useSessionState can reach it via registry.
+  register('setStagedPresetId', setStagedPresetId);
 
   const sessionRoomName = useMemo(() => {
     if (!sessionRoomId) {
@@ -427,109 +368,105 @@ const Games: React.FC = () => {
     return roomRecord?.name ?? null;
   }, [rooms, sessionRoomId]);
 
-  const selectedDevices = useMemo<NormalizedGameDevice[]>(() => {
-    if (selectedDeviceIds.length === 0) {
-      return [];
+  // Sync currentSessionTargetsRef with latest value from useSessionState
+  useEffect(() => {
+    currentSessionTargetsRef.current = currentSessionTargets;
+  }, [currentSessionTargets]);
+
+  // Composite reset: resets setup step + clears external state from other hooks
+  const resetSetupFlow = useCallback(() => {
+    resetSetupStep();
+    call('setStagedPresetId', null);
+    call('setStoppedTargets', new Set<string>());
+  }, [resetSetupStep, call]);
+
+  useEffect(() => {
+    if (selectedDeviceIds.length === 0 && !isStepSelectTargets) {
+      resetSetupFlow();
     }
-    return selectedDeviceIds
-      .map((deviceId) => availableDevices.find((device) => device.deviceId === deviceId) ?? null)
-      .filter((device): device is NormalizedGameDevice => device !== null);
-  }, [availableDevices, selectedDeviceIds]);
+  }, [isStepSelectTargets, resetSetupFlow, selectedDeviceIds.length]);
 
-
-  const handleDesiredDurationChange = useCallback((value: number | null) => {
-    if (value === null) {
-      setSessionDurationSeconds(null);
-      return;
-    }
-    const normalized = Number.isFinite(value) && value > 0 ? Math.round(value) : null;
-    setSessionDurationSeconds(normalized);
-  }, []);
-
-  const handleDurationInputValueChange = useCallback(
-    (value: string) => {
-      setDurationInputValue(value);
-      setStagedPresetId(null);
-      const trimmed = value.trim();
-      if (trimmed.length === 0) {
-        setSessionDurationSeconds(null);
-        setIsDurationUnlimited(true);
-        return;
-      }
-      const numeric = Number(trimmed);
-      if (!Number.isFinite(numeric) || numeric <= 0) {
-        return;
-      }
-      setSessionDurationSeconds(Math.round(numeric));
-      setIsDurationUnlimited(false);
-    },
-    [],
-  );
-
-  const handleToggleDurationUnlimited = useCallback(
-    (value: boolean) => {
-      setIsDurationUnlimited(value);
-      setStagedPresetId(null);
-      if (value) {
-        setSessionDurationSeconds(null);
-        setDurationInputValue('');
-      } else {
-        const fallbackSeconds =
-          typeof sessionDurationSeconds === 'number' && sessionDurationSeconds > 0
-            ? sessionDurationSeconds
-            : 120;
-        setSessionDurationSeconds(fallbackSeconds);
-        setDurationInputValue(String(fallbackSeconds));
-      }
-    },
-    [sessionDurationSeconds],
-  );
-
-  // ThingsBoard direct-control hook: owns directSession* state, start/stop/retry callbacks.
+  // C.1: ThingsBoard auth (token, error, loading state)
   const {
-    directSessionGameId,
-    directSessionTargets,
-    directFlowActive,
-    directStartStates,
-    directTelemetryEnabled,
     directControlToken,
     directControlError,
     isDirectAuthLoading,
+    setDirectControlError,
+    refreshDirectAuthToken,
+  } = useTbAuth();
+
+  // Shared direct-session state — lifted to page level so C.2 and C.3 can both access it
+  // without a circular dependency (C.2 needs these values, C.3 needs executeDirectStart from C.2).
+  const [directSessionGameId, setDirectSessionGameId] = useState<string | null>(null);
+  const [directSessionTargets, setDirectSessionTargets] = useState<Array<{ deviceId: string; name: string }>>([]);
+  const [directFlowActive, setDirectFlowActive] = useState(false);
+  const [directTelemetryEnabled, setDirectTelemetryEnabled] = useState(false);
+
+  // C.2: Device RPC (per-device start states, executeDirectStart, retry)
+  const {
+    directStartStates,
     isRetryingFailedDevices,
-    isDirectTelemetryLifecycle,
-    isDirectFlow,
-    setDirectSessionGameId,
-    setDirectSessionTargets,
+    directStartStatesRef,
+    updateDirectStartStates,
+    executeDirectStart,
+    handleRetryFailedDevices,
+  } = useTbDeviceRpc({
+    refreshDirectAuthToken,
+    setDirectControlError,
+    setSessionLifecycle,
+    startSessionTimer,
+    resetSessionTimer,
+    markTelemetryConfirmed,
+    setGameStartTime,
+    setGameStopTime,
+    setErrorMessage,
+    setActivePresetId,
+    directSessionGameId,
+    directSessionTargets,
     setDirectFlowActive,
     setDirectTelemetryEnabled,
-    setDirectControlError,
-    updateDirectStartStates,
-    refreshDirectAuthToken,
+    sessionDurationSeconds,
+    sessionRoomId,
+    registry,
+  });
+
+  // C.3: Session flow (dialog handlers, start/stop orchestration)
+  const {
+    isDirectTelemetryLifecycle,
+    isDirectFlow,
     openStartDialogForTargets,
-    handleStopDirectGame,
-    executeDirectStart,
     beginSessionLaunch,
-    handleRetryFailedDevices,
-    directStartStatesRef,
-  } = useThingsboardControl({
+    handleStopDirectGame,
+    handleStopGame,
+    handleCloseStartDialog,
+    handleUsePreviousSettings,
+    handleCreateNewSetup,
+    handleOpenStartDialog,
+    handleConfirmStartDialog,
+    handleStopFromDialog,
+  } = useTbSessionFlow({
+    refreshDirectAuthToken,
+    setDirectControlError,
+    executeDirectStart,
+    updateDirectStartStates,
     isLaunchingLifecycle,
     isRunningLifecycle,
     isStoppingLifecycle,
     isFinalizingLifecycle,
+    isSessionLocked,
+    sessionLifecycle,
     setSessionLifecycle,
     setIsSessionDialogDismissed,
     resetSessionTimer,
-    startSessionTimer,
     freezeSessionTimer,
     resetSessionActivation,
     markSessionTriggered,
-    markTelemetryConfirmed,
+    selectedDeviceIds,
     setSelectedDeviceIds,
     selectionManuallyModifiedRef,
     setSessionRoomId,
-    setHitCountsRef,
-    setHitHistoryRef,
-    setStoppedTargetsRef,
+    registry,
+    register,
     activeDeviceIds,
     setActiveDeviceIds,
     pendingSessionTargets,
@@ -551,21 +488,26 @@ const Games: React.FC = () => {
     activePresetId,
     setActivePresetId,
     setStagedPresetId,
-    hitHistoryRef,
-    splitRecordsRef,
-    transitionRecordsRef,
+    setGoalShotsPerTarget,
     availableDevicesRef,
     currentGameDevicesRef,
     availableDeviceMap,
     deriveIsOnline,
-    finalizeSessionRef,
     loadGameHistory,
     loadLiveDevices,
     resetSetupFlow,
+    recentSessionSummary,
+    canLaunchGame,
+    advanceToReviewStep,
+    directSessionGameId,
+    setDirectSessionGameId,
+    directSessionTargets,
+    setDirectSessionTargets,
+    directFlowActive,
+    setDirectFlowActive,
+    directTelemetryEnabled,
+    setDirectTelemetryEnabled,
   });
-  // Wire bridge refs so usePresetManagement callbacks can reach TB control functions.
-  openStartDialogRef.current = openStartDialogForTargets;
-  beginSessionLaunchRef.current = beginSessionLaunch;
 
   // Shared telemetry hook feeds real-time hit data for active devices so the page can merge hit counts, splits, and transitions.
   const directTelemetryDeviceDescriptors = useMemo(
@@ -599,19 +541,6 @@ const Games: React.FC = () => {
 
   const telemetryState = isDirectFlow ? directTelemetryState : standardTelemetryState;
 
-  useGamesDebugLogging({
-    recentSessionSummary,
-    gameHistory,
-    availableDevices,
-    sessionLifecycle,
-    activeDeviceIds,
-    selectedDeviceIds,
-    directTelemetryEnabled,
-    currentSessionTargets,
-    sessionDurationSeconds,
-    sessionRoomId,
-    sessionRoomName,
-  });
 
   // Refs to track latest telemetry state (avoid dependency array issues)
   const telemetryStateRef = useRef(telemetryState);
@@ -648,83 +577,37 @@ const Games: React.FC = () => {
     activeDeviceIds,
   });
 
-  // Sync setter refs so the thingsboard-control hook reads the latest setters at call time.
-  setHitCountsRef.current = setHitCounts;
-  setHitHistoryRef.current = setHitHistory;
-  setStoppedTargetsRef.current = setStoppedTargets;
+  // Register telemetry setters so other hooks can reach them via registry.
+  register('setHitCounts', setHitCounts);
+  register('setHitHistory', setHitHistory);
+  register('setStoppedTargets', setStoppedTargets);
 
-  const canAdvanceToReview =
-    isDurationUnlimited || (typeof sessionDurationSeconds === 'number' && sessionDurationSeconds > 0);
-  const canLaunchGame =
-    isStepReview && canAdvanceToReview && selectedOnlineDevices > 0 && !isSessionLocked;
-
-  // --- Session orchestration (finalizeSession, stop/start handlers, auto-stop, goal termination) ---
+  // C.4: Session finalizer (auto-stop, goal termination, session persistence)
   const {
-    handleStopGame,
-    handleCloseStartDialog,
-    handleUsePreviousSettings,
-    handleCreateNewSetup,
-    handleOpenStartDialog,
-    handleConfirmStartDialog,
-    handleStopFromDialog,
     splitRecords,
     transitionRecords,
-  } = useSessionOrchestration({
+  } = useSessionFinalizer({
     sessionLifecycle,
     isRunningLifecycle,
     isLaunchingLifecycle,
-    isStoppingLifecycle,
-    isFinalizingLifecycle,
-    isSessionLocked,
     setSessionLifecycle,
-    setIsSessionDialogDismissed,
     sessionConfirmed,
     telemetryConfirmedAt,
     startTriggeredAt,
     sessionTimerSeconds,
-    resetSessionTimer,
     startSessionTimer,
     activeDeviceIds,
-    selectedDeviceIds,
-    setSelectedDeviceIds,
-    pendingSessionTargets,
-    setPendingSessionTargets,
-    currentSessionTargets,
-    setCurrentSessionTargets,
-    setAvailableDevices,
-    sessionDurationSeconds,
-    setSessionDurationSeconds,
-    sessionRoomId,
-    sessionRoomName,
-    setSessionRoomId,
     goalShotsPerTarget,
-    setGoalShotsPerTarget,
-    stagedPresetId,
-    activePresetId,
-    setStagedPresetId,
-    setActivePresetId,
-    recentSessionSummary,
-    setRecentSessionSummary,
-    setGameHistory,
-    openStartDialogForTargets,
-    beginSessionLaunch,
-    handleStopDirectGame,
-    setDirectSessionTargets,
-    setDirectSessionGameId,
-    updateDirectStartStates,
+    sessionDurationSeconds,
     hitHistory,
     stoppedTargets,
     telemetryState,
-    hitHistoryRef,
-    splitRecordsRef,
-    transitionRecordsRef,
-    finalizeSessionRef,
+    setRecentSessionSummary,
+    setGameHistory,
+    register,
     sessionConfirmedRef,
     hasMarkedTelemetryConfirmedRef,
-    selectionManuallyModifiedRef,
-    canLaunchGame,
-    advanceToReviewStep,
-    resetSetupFlow,
+    handleStopGame,
   });
 
   const formatLastSeen = (timestamp: number) => {
@@ -776,14 +659,6 @@ const Games: React.FC = () => {
     return sessionTimerSeconds;
   }, [gameStartTime, gameStopTime, isRunningLifecycle, sessionTimerSeconds]);
 
-  const canAdvanceToDuration = selectedDevices.length > 0;
-  const canContinueToDuration = canAdvanceToDuration && selectedOnlineDevices > 0;
-  const formattedDurationLabel = isDurationUnlimited
-    ? 'No time limit'
-    : sessionDurationSeconds && sessionDurationSeconds > 0
-      ? formatSessionDuration(sessionDurationSeconds)
-      : 'No time limit';
-
   const reviewTargets = useMemo(() => {
     if (selectedDevices.length === 0) {
       return [];
@@ -792,39 +667,6 @@ const Games: React.FC = () => {
   }, [selectedDevices]);
 
   const remainingReviewTargetCount = Math.max(selectedDevices.length - reviewTargets.length, 0);
-
-  useEffect(() => {
-    if (!isStepSelectTargets) {
-      return;
-    }
-    if (!canContinueToDuration) {
-      return;
-    }
-    advanceToDurationStep();
-  }, [advanceToDurationStep, canContinueToDuration, isStepSelectTargets]);
-
-  useEffect(() => {
-    if (isSessionLocked) {
-      return;
-    }
-    if (setupStep === 'review') {
-      return;
-    }
-    if (!canAdvanceToReview) {
-      return;
-    }
-    if (selectedDevices.length === 0 || selectedOnlineDevices === 0) {
-      return;
-    }
-    advanceToReviewStep();
-  }, [
-    advanceToReviewStep,
-    canAdvanceToReview,
-    isSessionLocked,
-    selectedDevices.length,
-    selectedOnlineDevices,
-    setupStep,
-  ]);
 
   const sessionHitEntries = useMemo<SessionHitEntry[]>(() => {
     if (hitHistory.length === 0) {
@@ -864,14 +706,6 @@ const Games: React.FC = () => {
   const sessionDialogTargets =
     isLiveDialogPhase && currentSessionTargets.length > 0 ? currentSessionTargets : pendingSessionTargets;
   const canDismissSessionDialog = sessionLifecycle === 'selecting' && !isStarting && !isLaunchingLifecycle;
-  useEffect(() => {
-    console.debug('[Games] Preset banner state updated', {
-      at: new Date().toISOString(),
-      presetCount: gamePresets.length,
-      presetsLoading,
-      presetsError,
-    });
-  }, [gamePresets.length, presetsError, presetsLoading]);
 
   return (
     <div className="min-h-screen bg-brand-background">

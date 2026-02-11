@@ -1,22 +1,9 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { toast } from '@/components/ui/sonner';
-import { throttledLogOnChange } from '@/utils/log-throttle';
 import { resolvePresetDurationSeconds } from '@/features/games/lib/telemetry-utils';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import type { GamePreset } from '@/features/games';
-
-// Signatures for ThingsBoard control callbacks accessed via bridge refs.
-type OpenStartDialogFn = (args: {
-  targetIds: string[];
-  source: 'manual' | 'preset';
-  requireOnline: boolean;
-  syncCurrentTargets?: boolean;
-}) => Promise<{ targets: NormalizedGameDevice[]; gameId: string } | null>;
-
-type BeginSessionLaunchFn = (args?: {
-  targets?: NormalizedGameDevice[];
-  gameId?: string;
-}) => void;
+import type { SessionRegistry } from './use-session-registry';
 
 export interface UsePresetManagementOptions {
   // React Query preset state
@@ -56,9 +43,8 @@ export interface UsePresetManagementOptions {
   setSessionDurationSeconds: React.Dispatch<React.SetStateAction<number | null>>;
   setGoalShotsPerTarget: React.Dispatch<React.SetStateAction<Record<string, number>>>;
 
-  // Bridge refs for TB control callbacks (wired after useThingsboardControl)
-  openStartDialogRef: React.MutableRefObject<OpenStartDialogFn>;
-  beginSessionLaunchRef: React.MutableRefObject<BeginSessionLaunchFn>;
+  // Callback registry (replaces bridge refs)
+  registry: SessionRegistry;
 }
 
 export interface UsePresetManagementReturn {
@@ -114,8 +100,7 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
     setSessionRoomId,
     setSessionDurationSeconds,
     setGoalShotsPerTarget,
-    openStartDialogRef,
-    beginSessionLaunchRef,
+    registry,
   } = options;
 
   // --- State ---
@@ -152,18 +137,10 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
 
   const handleRefreshPresets = useCallback(async () => {
     if (presetsLoading) {
-      console.debug('[Games] Manual preset refresh ignored because a fetch is already in progress', {
-        at: new Date().toISOString(),
-      });
       return;
     }
-    console.info('[Games] Manual game preset refresh triggered');
     try {
       const result = await refetchPresets();
-      console.info('[Games] Manual preset refresh completed', {
-        at: new Date().toISOString(),
-        presetCount: result.data?.length ?? 0,
-      });
       toast.success('Game presets refreshed.');
     } catch (err) {
       console.error('[Games] Manual preset refresh failed', {
@@ -179,7 +156,6 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
         return;
       }
       setDeletingPresetId(preset.id);
-      console.info('[Games] Deleting game preset', { presetId: preset.id, name: preset.name });
       try {
         await deletePresetMutation.mutateAsync(preset.id);
       } catch (error) {
@@ -221,12 +197,6 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
 
     setSavePresetIncludeRoom(Boolean(sessionRoomId));
     setSavePresetDurationInput(defaultDuration ? String(defaultDuration) : '');
-
-    console.info('[Games] Save preset dialog opened', {
-      targetCount: stagedPresetTargets.length,
-      sessionRoomId,
-      defaultDuration,
-    });
 
     setIsSavePresetDialogOpen(true);
   }, [resetSavePresetForm, sessionDurationSeconds, sessionRoomId, stagedPresetTargets, toast]);
@@ -296,19 +266,7 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
       settings.goalShotsPerTarget = goalShotsPerTarget;
     }
 
-    console.info('[Games] Saving preset request', {
-      name: trimmedName,
-      targetCount: targetIds.length,
-      durationSeconds,
-      resolvedRoomId,
-      includeRoom: Boolean(resolvedRoomId),
-      stagedPresetTargets: stagedPresetTargets.map((device) => device.deviceId),
-    });
-
     try {
-      console.debug('[Games] Calling savePresetMutation.mutateAsync()', {
-        at: new Date().toISOString(),
-      });
       await savePresetMutation.mutateAsync({
         name: trimmedName,
         description,
@@ -317,9 +275,6 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
         durationSeconds,
         targetIds,
         settings,
-      });
-      console.debug('[Games] savePresetMutation resolved', {
-        at: new Date().toISOString(),
       });
       setIsSavePresetDialogOpen(false);
       resetSavePresetForm();
@@ -346,16 +301,11 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
         return;
       }
       setApplyingPresetId(preset.id);
-      console.info('[Games] Applying game preset', {
-        presetId: preset.id,
-        name: preset.name,
-        roomId: preset.roomId,
-        durationSeconds: preset.durationSeconds,
-        targetCount: preset.targetIds.length,
-      });
 
       try {
-        const prepResult = await openStartDialogRef.current({
+        const openFn = registry.current.openStartDialogForTargets;
+        if (!openFn) return;
+        const prepResult = await openFn({
           targetIds: preset.targetIds,
           source: 'preset',
           requireOnline: false,
@@ -392,7 +342,7 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
         setStagedPresetId(preset.id);
         setActivePresetId(preset.id);
         toast.success(`Preset "${preset.name}" applied. Launching session...`);
-        beginSessionLaunchRef.current({ targets: prepResult.targets, gameId: prepResult.gameId });
+        registry.current.beginSessionLaunch?.({ targets: prepResult.targets, gameId: prepResult.gameId });
       } catch (error) {
         console.error('[Games] Failed to apply preset', { presetId: preset.id, error });
         toast.error('Failed to apply preset. Try again after refreshing devices.');
@@ -400,50 +350,10 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
         setApplyingPresetId(null);
       }
     },
-    [beginSessionLaunchRef, isSessionLocked, openStartDialogRef, rooms, setGoalShotsPerTarget, setSessionDurationSeconds, setSessionRoomId],
+    [isSessionLocked, rooms, setGoalShotsPerTarget, setSessionDurationSeconds, setSessionRoomId],
   );
 
   // --- Effects ---
-
-  useEffect(() => {
-    if (gamePresets.length === 0) {
-      throttledLogOnChange('games-presets-empty', 5000, '[Games] Game presets list empty', {
-        at: new Date().toISOString(),
-        presetsLoading,
-        presetsError,
-      });
-      return;
-    }
-    throttledLogOnChange('games-presets-updated', 5000, '[Games] Game presets updated', {
-      fetchedAt: new Date().toISOString(),
-      totalPresets: gamePresets.length,
-      sample: gamePresets.slice(0, 3).map((preset) => ({
-        id: preset.id,
-        name: preset.name,
-        targetCount: preset.targetIds.length,
-        durationSeconds: preset.durationSeconds,
-      })),
-    });
-  }, [gamePresets]);
-
-  useEffect(() => {
-    console.debug('[Games] Presets loading state change', {
-      at: new Date().toISOString(),
-      presetsLoading,
-      currentPresetCount: gamePresets.length,
-    });
-  }, [presetsLoading, gamePresets.length]);
-
-  useEffect(() => {
-    if (!presetsSaving) {
-      return;
-    }
-    console.debug('[Games] Preset save in progress', {
-      at: new Date().toISOString(),
-      stagedName: savePresetName,
-      targetCount: stagedPresetTargets.length,
-    });
-  }, [presetsSaving, savePresetName, stagedPresetTargets.length]);
 
   useEffect(() => {
     if (!presetsError) {
@@ -454,10 +364,6 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
       return;
     }
     presetsErrorRef.current = presetsError;
-    console.warn('[Games] Presets error surfaced to UI', {
-      at: new Date().toISOString(),
-      message: presetsError,
-    });
     toast.error(presetsError);
   }, [presetsError]);
 

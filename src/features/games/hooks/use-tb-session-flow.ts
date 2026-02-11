@@ -1,61 +1,63 @@
-import { useState, useRef, useCallback } from 'react';
+import { useCallback } from 'react';
 import type { SessionLifecycle } from '@/components/game-session/sessionState';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
-import type { SessionHitRecord } from '@/features/games/lib/device-game-flow';
-import type { SplitRecord, TransitionRecord } from '@/features/games/hooks/use-game-telemetry';
 import type { LiveSessionSummary } from '@/components/games/types';
-import { ensureTbAuthToken } from '@/features/games/lib/thingsboard-client';
 import { invokeGameControl } from '@/lib/edge';
 import { toast } from '@/components/ui/sonner';
+import type { SessionRegistry, SessionCallbacks } from './use-session-registry';
 
 const DIRECT_TB_CONTROL_ENABLED = true;
 
-export interface FinalizeSessionArgs {
-  resolvedGameId: string;
-  sessionLabel: string;
-  startTimestamp: number;
-  stopTimestamp: number;
-  targetDevices: NormalizedGameDevice[];
-  hitHistorySnapshot: SessionHitRecord[];
-  splitRecordsSnapshot: SplitRecord[];
-  transitionRecordsSnapshot: TransitionRecord[];
-  roomId: string | null;
-  roomName: string | null;
-  desiredDurationSeconds: number | null;
-  presetId: string | null;
-  goalShotsPerTarget?: Record<string, number>;
-}
+export interface UseTbSessionFlowOptions {
+  // From C.1
+  refreshDirectAuthToken: () => Promise<string>;
+  setDirectControlError: React.Dispatch<React.SetStateAction<string | null>>;
 
-export interface UseThingsboardControlOptions {
+  // From C.2
+  executeDirectStart: (args: {
+    deviceIds: string[];
+    timestamp: number;
+    isRetry?: boolean;
+    gameIdOverride?: string;
+    targetsOverride?: NormalizedGameDevice[];
+  }) => Promise<{ successIds: string[]; errorIds: string[] }>;
+  updateDirectStartStates: (
+    value:
+      | Record<string, 'idle' | 'pending' | 'success' | 'error'>
+      | ((
+        prev: Record<string, 'idle' | 'pending' | 'success' | 'error'>,
+      ) => Record<string, 'idle' | 'pending' | 'success' | 'error'>)
+  ) => void;
+
   // Lifecycle (from useSessionLifecycle)
   isLaunchingLifecycle: boolean;
   isRunningLifecycle: boolean;
   isStoppingLifecycle: boolean;
   isFinalizingLifecycle: boolean;
+  isSessionLocked: boolean;
+  sessionLifecycle: SessionLifecycle;
   setSessionLifecycle: React.Dispatch<React.SetStateAction<SessionLifecycle>>;
-  setIsSessionDialogDismissed: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsSessionDialogDismissed: (value: boolean) => void;
 
-  // Session timer (from useSessionTimer)
-  resetSessionTimer: (timestamp: number | null) => void;
-  startSessionTimer: (timestamp: number) => void;
+  // Timer
+  resetSessionTimer: (anchor: number | null) => void;
   freezeSessionTimer: (timestamp: number) => void;
 
-  // Session activation (from useSessionActivation)
+  // Activation
   resetSessionActivation: () => void;
   markSessionTriggered: (timestamp: number) => void;
-  markTelemetryConfirmed: (timestamp: number) => void;
 
-  // Device selection (from useDeviceSelection)
+  // Device selection
+  selectedDeviceIds: string[];
   setSelectedDeviceIds: React.Dispatch<React.SetStateAction<string[]>>;
   selectionManuallyModifiedRef: React.MutableRefObject<boolean>;
   setSessionRoomId: React.Dispatch<React.SetStateAction<string | null>>;
 
-  // Telemetry sync (from useSessionTelemetrySync) — setter refs break ordering dependency
-  setHitCountsRef: React.MutableRefObject<React.Dispatch<React.SetStateAction<Record<string, number>>>>;
-  setHitHistoryRef: React.MutableRefObject<React.Dispatch<React.SetStateAction<SessionHitRecord[]>>>;
-  setStoppedTargetsRef: React.MutableRefObject<React.Dispatch<React.SetStateAction<Set<string>>>>;
+  // Registry
+  registry: SessionRegistry;
+  register: <K extends keyof SessionCallbacks>(key: K, fn: SessionCallbacks[K]) => void;
 
-  // Session state (from games-page.tsx)
+  // Session state (from useSessionState)
   activeDeviceIds: string[];
   setActiveDeviceIds: React.Dispatch<React.SetStateAction<string[]>>;
   pendingSessionTargets: NormalizedGameDevice[];
@@ -77,11 +79,9 @@ export interface UseThingsboardControlOptions {
   activePresetId: string | null;
   setActivePresetId: React.Dispatch<React.SetStateAction<string | null>>;
   setStagedPresetId: React.Dispatch<React.SetStateAction<string | null>>;
-  // Refs (used by handleStopDirectGame at call time — refs break the circular
-  // dependency between useThingsboardControl and useSessionTelemetrySync)
-  hitHistoryRef: React.MutableRefObject<SessionHitRecord[]>;
-  splitRecordsRef: React.MutableRefObject<SplitRecord[]>;
-  transitionRecordsRef: React.MutableRefObject<TransitionRecord[]>;
+  setGoalShotsPerTarget: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+
+  // Refs
   availableDevicesRef: React.MutableRefObject<NormalizedGameDevice[]>;
   currentGameDevicesRef: React.MutableRefObject<string[]>;
 
@@ -89,89 +89,77 @@ export interface UseThingsboardControlOptions {
   availableDeviceMap: Map<string, NormalizedGameDevice>;
   deriveIsOnline: (device: NormalizedGameDevice) => boolean;
 
-  // External async callbacks (finalizeSession passed as ref to break circular hook ordering)
-  finalizeSessionRef: React.MutableRefObject<(args: FinalizeSessionArgs) => Promise<unknown>>;
+  // External async callbacks
   loadGameHistory: () => Promise<void>;
   loadLiveDevices: (opts: { silent?: boolean; showToast?: boolean; reason?: string }) => Promise<void>;
   resetSetupFlow: () => void;
+
+  // Orchestration-specific (from recentSessionSummary for handleUsePreviousSettings)
+  recentSessionSummary: LiveSessionSummary | null;
+  canLaunchGame: boolean;
+  advanceToReviewStep: () => void;
+
+  // Direct session state (lifted to page level to break C.2/C.3 circular dependency)
+  directSessionGameId: string | null;
+  setDirectSessionGameId: React.Dispatch<React.SetStateAction<string | null>>;
+  directSessionTargets: Array<{ deviceId: string; name: string }>;
+  setDirectSessionTargets: React.Dispatch<React.SetStateAction<Array<{ deviceId: string; name: string }>>>;
+  directFlowActive: boolean;
+  setDirectFlowActive: React.Dispatch<React.SetStateAction<boolean>>;
+  directTelemetryEnabled: boolean;
+  setDirectTelemetryEnabled: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-export interface UseThingsboardControlReturn {
-  // State (exposed for UI rendering)
-  directSessionGameId: string | null;
-  directSessionTargets: Array<{ deviceId: string; name: string }>;
-  directFlowActive: boolean;
-  directStartStates: Record<string, 'idle' | 'pending' | 'success' | 'error'>;
-  directTelemetryEnabled: boolean;
-  directControlToken: string | null;
-  directControlError: string | null;
-  isDirectAuthLoading: boolean;
-  isRetryingFailedDevices: boolean;
-
+export interface UseTbSessionFlowReturn {
   // Derived
   isDirectTelemetryLifecycle: boolean;
   isDirectFlow: boolean;
 
-  // Setters (used by other hooks/components)
-  setDirectSessionGameId: React.Dispatch<React.SetStateAction<string | null>>;
-  setDirectSessionTargets: React.Dispatch<React.SetStateAction<Array<{ deviceId: string; name: string }>>>;
-  setDirectFlowActive: React.Dispatch<React.SetStateAction<boolean>>;
-  setDirectTelemetryEnabled: React.Dispatch<React.SetStateAction<boolean>>;
-  setDirectControlError: React.Dispatch<React.SetStateAction<string | null>>;
-  updateDirectStartStates: (
-    value:
-      | Record<string, 'idle' | 'pending' | 'success' | 'error'>
-      | ((
-        prev: Record<string, 'idle' | 'pending' | 'success' | 'error'>,
-      ) => Record<string, 'idle' | 'pending' | 'success' | 'error'>)
-  ) => void;
-
-  // Callbacks (used by UI event handlers)
-  refreshDirectAuthToken: () => Promise<string>;
+  // Callbacks (UI event handlers)
   openStartDialogForTargets: (args: {
     targetIds: string[];
     source: 'manual' | 'preset';
     requireOnline: boolean;
     syncCurrentTargets?: boolean;
   }) => Promise<{ targets: NormalizedGameDevice[]; gameId: string } | null>;
-  handleStopDirectGame: () => Promise<void>;
-  executeDirectStart: (args: {
-    deviceIds: string[];
-    timestamp: number;
-    isRetry?: boolean;
-    gameIdOverride?: string;
-    targetsOverride?: NormalizedGameDevice[];
-  }) => Promise<{ successIds: string[]; errorIds: string[] }>;
   beginSessionLaunch: (args?: {
     targets?: NormalizedGameDevice[];
     gameId?: string;
   }) => void;
-  handleRetryFailedDevices: () => Promise<void>;
-
-  // Ref
-  directStartStatesRef: React.MutableRefObject<Record<string, 'idle' | 'pending' | 'success' | 'error'>>;
+  handleStopDirectGame: () => Promise<void>;
+  handleStopGame: () => Promise<void>;
+  handleCloseStartDialog: () => void;
+  handleUsePreviousSettings: () => Promise<void>;
+  handleCreateNewSetup: () => void;
+  handleOpenStartDialog: () => Promise<void>;
+  handleConfirmStartDialog: () => void;
+  handleStopFromDialog: () => void;
 }
 
-export function useThingsboardControl(options: UseThingsboardControlOptions): UseThingsboardControlReturn {
+export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSessionFlowReturn {
   const {
+    refreshDirectAuthToken,
+    setDirectControlError,
+    executeDirectStart,
+    updateDirectStartStates,
     isLaunchingLifecycle,
     isRunningLifecycle,
     isStoppingLifecycle,
     isFinalizingLifecycle,
+    isSessionLocked,
+    sessionLifecycle,
     setSessionLifecycle,
     setIsSessionDialogDismissed,
     resetSessionTimer,
-    startSessionTimer,
     freezeSessionTimer,
     resetSessionActivation,
     markSessionTriggered,
-    markTelemetryConfirmed,
+    selectedDeviceIds,
     setSelectedDeviceIds,
     selectionManuallyModifiedRef,
     setSessionRoomId,
-    setHitCountsRef,
-    setHitHistoryRef,
-    setStoppedTargetsRef,
+    registry,
+    register,
     activeDeviceIds,
     setActiveDeviceIds,
     pendingSessionTargets,
@@ -193,59 +181,30 @@ export function useThingsboardControl(options: UseThingsboardControlOptions): Us
     activePresetId,
     setActivePresetId,
     setStagedPresetId,
-    hitHistoryRef,
-    splitRecordsRef,
-    transitionRecordsRef,
+    setGoalShotsPerTarget,
     availableDevicesRef,
     currentGameDevicesRef,
     availableDeviceMap,
     deriveIsOnline,
-    finalizeSessionRef,
     loadGameHistory,
     loadLiveDevices,
     resetSetupFlow,
+    recentSessionSummary,
+    canLaunchGame,
+    advanceToReviewStep,
+    directSessionGameId,
+    setDirectSessionGameId,
+    directSessionTargets,
+    setDirectSessionTargets,
+    directFlowActive,
+    setDirectFlowActive,
+    directTelemetryEnabled,
+    setDirectTelemetryEnabled,
   } = options;
 
-  // ── 1. State declarations ──────────────────────────────────────────────
+  const isStarting = isLaunchingLifecycle;
 
-  // directSessionGameId mirrors the ThingsBoard `gameId` string used by the RPC start/stop commands.
-  const [directSessionGameId, setDirectSessionGameId] = useState<string | null>(null);
-  // directSessionTargets stores `{deviceId, name}` pairs used by the popup telemetry stream and status pills.
-  const [directSessionTargets, setDirectSessionTargets] = useState<Array<{ deviceId: string; name: string }>>([]);
-  // Indicates whether the direct TB control path is active (needed to gate realtime commands and UI copy).
-  const [directFlowActive, setDirectFlowActive] = useState(false);
-  // Tracks the per-device RPC start acknowledgement so the dialog can render success/pending/error badges.
-  const [directStartStates, setDirectStartStates] = useState<Record<string, 'idle' | 'pending' | 'success' | 'error'>>({});
-  // Flag toggled after commands are issued so the dialog knows it can subscribe directly to ThingsBoard.
-  const [directTelemetryEnabled, setDirectTelemetryEnabled] = useState(false);
-  // Stores the JWT returned by `ensureTbAuthToken` for RPCs and direct WebSocket subscriptions.
-  const [directControlToken, setDirectControlToken] = useState<string | null>(null);
-  // Populates the dialog error banner whenever the ThingsBoard auth handshake fails.
-  const [directControlError, setDirectControlError] = useState<string | null>(null);
-  // Spinner state for the authentication request shown while the dialog prepares direct control.
-  const [isDirectAuthLoading, setIsDirectAuthLoading] = useState(false);
-  // Toggles the retry button state while we resend start commands to failed devices.
-  const [isRetryingFailedDevices, setIsRetryingFailedDevices] = useState(false);
-
-  // ── 2. Ref + wrapper callback ──────────────────────────────────────────
-
-  const directStartStatesRef = useRef<Record<string, 'idle' | 'pending' | 'success' | 'error'>>({});
-  const updateDirectStartStates = useCallback((
-    value:
-      | Record<string, 'idle' | 'pending' | 'success' | 'error'>
-      | ((
-        prev: Record<string, 'idle' | 'pending' | 'success' | 'error'>,
-      ) => Record<string, 'idle' | 'pending' | 'success' | 'error'>),
-  ) => {
-    setDirectStartStates((prev) => {
-      const next = typeof value === 'function' ? value(prev) : value;
-      directStartStatesRef.current = next;
-      console.info('[Games] Direct start state update', next);
-      return next;
-    });
-  }, []);
-
-  // ── 3. Derived values ──────────────────────────────────────────────────
+  // ── 1. Derived values ──────────────────────────────────────────────────
 
   const isDirectTelemetryLifecycle =
     DIRECT_TB_CONTROL_ENABLED && Boolean(directSessionGameId) &&
@@ -253,26 +212,7 @@ export function useThingsboardControl(options: UseThingsboardControlOptions): Us
 
   const isDirectFlow = isDirectTelemetryLifecycle && directTelemetryEnabled;
 
-  // ── 4. refreshDirectAuthToken ──────────────────────────────────────────
-
-  const refreshDirectAuthToken = useCallback(async () => {
-    try {
-      setIsDirectAuthLoading(true);
-      const token = await ensureTbAuthToken();
-      setDirectControlToken(token);
-      setDirectControlError(null);
-      return token;
-    } catch (authError) {
-      const message =
-        authError instanceof Error ? authError.message : 'Failed to refresh ThingsBoard authentication.';
-      setDirectControlError(message);
-      throw authError;
-    } finally {
-      setIsDirectAuthLoading(false);
-    }
-  }, []);
-
-  // ── 5. openStartDialogForTargets ───────────────────────────────────────
+  // ── 3. openStartDialogForTargets (from TB control) ─────────────────────
 
   const openStartDialogForTargets = useCallback(
     async ({
@@ -352,7 +292,6 @@ export function useThingsboardControl(options: UseThingsboardControlOptions): Us
 
       let generatedGameId: string | null = null;
       try {
-        console.info('[Games] Authenticating with ThingsBoard before opening start dialog', { source });
         await refreshDirectAuthToken();
         generatedGameId = `GM-${Date.now()}`;
       } catch (error) {
@@ -396,14 +335,6 @@ export function useThingsboardControl(options: UseThingsboardControlOptions): Us
       setIsSessionDialogDismissed(false);
       setSessionLifecycle('selecting');
 
-      console.info('[Games] Session dialog prepared', {
-        source,
-        targetCount: effectiveTargets.length,
-        missingDeviceIds,
-        offlineTargetIds: offlineTargets.map((device) => device.deviceId),
-        gameId: resolvedGameId,
-      });
-
       return { targets: effectiveTargets, gameId: resolvedGameId };
     },
     [
@@ -420,168 +351,11 @@ export function useThingsboardControl(options: UseThingsboardControlOptions): Us
       setPendingSessionTargets,
       setSelectedDeviceIds,
       setSessionLifecycle,
-      toast,
       updateDirectStartStates,
     ],
   );
 
-  // ── 6. executeDirectStart ──────────────────────────────────────────────
-
-  const executeDirectStart = useCallback(
-    async ({
-      deviceIds,
-      timestamp,
-      isRetry = false,
-      gameIdOverride,
-      targetsOverride,
-    }: {
-      deviceIds: string[];
-      timestamp: number;
-      isRetry?: boolean;
-      gameIdOverride?: string;
-      targetsOverride?: NormalizedGameDevice[];
-    }) => {
-      const activeGameId = gameIdOverride ?? directSessionGameId;
-      const uniqueIds = Array.from(new Set(deviceIds));
-      if (uniqueIds.length === 0) {
-        toast.error('No devices selected to start.');
-        return { successIds: [], errorIds: [] };
-      }
-
-      if (!activeGameId) {
-        toast.error('Missing ThingsBoard game identifier. Close and reopen the dialog to retry.');
-        return { successIds: [], errorIds: uniqueIds };
-      }
-
-      const candidateTargets =
-        targetsOverride && targetsOverride.length > 0
-          ? targetsOverride.map((device) => ({
-              deviceId: device.deviceId,
-              name: device.name ?? device.deviceId,
-            }))
-          : directSessionTargets;
-
-      const targetsToCommand = candidateTargets.filter((target) => uniqueIds.includes(target.deviceId));
-      if (targetsToCommand.length === 0) {
-        toast.error('Unable to resolve ThingsBoard devices for the start command.');
-        setDirectFlowActive(false);
-        setDirectTelemetryEnabled(false);
-        setSessionLifecycle('selecting');
-        setGameStartTime(null);
-        setGameStopTime(null);
-        resetSessionTimer(null);
-        setHitCountsRef.current({});
-        setHitHistoryRef.current([]);
-        setDirectControlError('Unable to resolve ThingsBoard devices for the start command.');
-        setActivePresetId(null);
-        return { successIds: [], errorIds: uniqueIds };
-      }
-
-      updateDirectStartStates((prev) => {
-        const next = { ...prev };
-        uniqueIds.forEach((deviceId) => {
-          next[deviceId] = 'pending';
-        });
-        return next;
-      });
-
-      // Route start commands through the edge function (server-side) so the RPC
-      // reaches ThingsBoard without browser CORS / timeout constraints.
-      let edgeResponse: Awaited<ReturnType<typeof invokeGameControl>> | null = null;
-      try {
-        console.info('[Games] Sending start via edge game-control', {
-          deviceIds: uniqueIds,
-          gameId: activeGameId,
-          desiredDurationSeconds: sessionDurationSeconds,
-          roomId: sessionRoomId,
-        });
-        edgeResponse = await invokeGameControl('start', {
-          deviceIds: uniqueIds,
-          gameId: activeGameId,
-          desiredDurationSeconds: sessionDurationSeconds,
-          roomId: sessionRoomId,
-        });
-        console.info('[Games] Edge game-control start response', edgeResponse);
-      } catch (error) {
-        console.error('[Games] Edge game-control start failed', error);
-        edgeResponse = null;
-      }
-
-      // Map per-device results from the edge response
-      const deviceResultMap = new Map<string, boolean>();
-      if (edgeResponse?.results) {
-        for (const result of edgeResponse.results) {
-          deviceResultMap.set(result.deviceId, result.success);
-        }
-      }
-
-      // Update per-device states
-      uniqueIds.forEach((deviceId) => {
-        const success = deviceResultMap.get(deviceId) ?? false;
-        updateDirectStartStates((prev) => ({
-          ...prev,
-          [deviceId]: success ? 'success' : 'error',
-        }));
-      });
-
-      const successIds = uniqueIds.filter((deviceId) => deviceResultMap.get(deviceId) === true);
-      const errorIds = uniqueIds.filter((deviceId) => !deviceResultMap.get(deviceId));
-
-      if (successIds.length === 0) {
-        setDirectFlowActive(false);
-        setDirectTelemetryEnabled(false);
-        setSessionLifecycle('selecting');
-        setGameStartTime(null);
-        setGameStopTime(null);
-        resetSessionTimer(null);
-        setHitCountsRef.current({});
-        setHitHistoryRef.current([]);
-        setDirectControlError('Start commands failed. Adjust the devices or refresh your session and try again.');
-        setActivePresetId(null);
-        if (!isRetry) {
-          toast.error('Failed to start session. Update device status and retry.');
-        }
-        return { successIds: [], errorIds };
-      }
-
-      // All RPCs dispatched — transition to running.
-      // Oneway RPCs (504 timeout = expected) don't receive a device acknowledgment,
-      // so we anchor the timer to RPC-completion time and go straight to 'running'.
-      const rpcCompleteTimestamp = Date.now();
-      setDirectFlowActive(true);
-      setDirectTelemetryEnabled(true);
-      setSessionLifecycle('running');
-      startSessionTimer(rpcCompleteTimestamp);
-      setGameStartTime((prev) => prev ?? rpcCompleteTimestamp);
-      markTelemetryConfirmed(rpcCompleteTimestamp);
-      setDirectControlError(errorIds.length > 0 ? 'Some devices failed to start. Retry failed devices.' : null);
-
-      if (errorIds.length > 0) {
-        toast.warning(`${errorIds.length} device${errorIds.length === 1 ? '' : 's'} failed to start. Use retry to try again.`);
-      } else if (!isRetry) {
-        toast.success(`Start commands dispatched to ${successIds.length} device${successIds.length === 1 ? '' : 's'}.`);
-      }
-
-      return { successIds, errorIds };
-    },
-    [
-      directSessionTargets,
-      directSessionGameId,
-      updateDirectStartStates,
-      toast,
-      setActivePresetId,
-      setSessionLifecycle,
-      setGameStartTime,
-      setGameStopTime,
-      resetSessionTimer,
-      markTelemetryConfirmed,
-      startSessionTimer,
-      sessionDurationSeconds,
-      sessionRoomId,
-    ],
-  );
-
-  // ── 7. beginSessionLaunch ──────────────────────────────────────────────
+  // ── 4. beginSessionLaunch (from TB control) ────────────────────────────
 
   const beginSessionLaunch = useCallback(
     ({ targets: preparedTargets, gameId: gameIdOverride }: { targets?: NormalizedGameDevice[]; gameId?: string } = {}) => {
@@ -638,9 +412,9 @@ export function useThingsboardControl(options: UseThingsboardControlOptions): Us
       setRecentSessionSummary(null);
       setGameStartTime(null);
       setGameStopTime(null);
-      setHitCountsRef.current(Object.fromEntries(launchDeviceIds.map((id) => [id, 0])));
-      setHitHistoryRef.current([]);
-      setStoppedTargetsRef.current(new Set()); // Reset stopped targets when starting new session
+      registry.current.setHitCounts?.(Object.fromEntries(launchDeviceIds.map((id) => [id, 0])));
+      registry.current.setHitHistory?.([]);
+      registry.current.setStoppedTargets?.(new Set<string>());
       setErrorMessage(null);
       setDirectControlError(null);
 
@@ -649,9 +423,6 @@ export function useThingsboardControl(options: UseThingsboardControlOptions): Us
       setSessionLifecycle('launching');
       setDirectFlowActive(true);
       setDirectTelemetryEnabled(false);
-      // Don't start the timer here — it will be started by executeDirectStart
-      // when all RPC commands complete, so the timer is synchronized with when
-      // devices actually received the start command (not when the button was pressed).
 
       updateDirectStartStates(() => {
         const next: Record<string, 'idle' | 'pending' | 'success' | 'error'> = {};
@@ -659,13 +430,6 @@ export function useThingsboardControl(options: UseThingsboardControlOptions): Us
           next[deviceId] = 'pending';
         });
         return next;
-      });
-
-      console.info('[Games] Begin session pressed (direct ThingsBoard path)', {
-        deviceIds: launchDeviceIds,
-        gameId: activeGameId,
-        desiredDurationSeconds: sessionDurationSeconds,
-        sessionRoomId,
       });
 
       void executeDirectStart({
@@ -693,16 +457,14 @@ export function useThingsboardControl(options: UseThingsboardControlOptions): Us
       setRecentSessionSummary,
       setSelectedDeviceIds,
       setSessionLifecycle,
-      startSessionTimer,
       sessionDurationSeconds,
       sessionRoomId,
       stagedPresetId,
-      toast,
       updateDirectStartStates,
     ],
   );
 
-  // ── 8. handleStopDirectGame ────────────────────────────────────────────
+  // ── 5. handleStopDirectGame (from TB control) ──────────────────────────
 
   const handleStopDirectGame = useCallback(async () => {
     if (!directSessionGameId) {
@@ -737,11 +499,8 @@ export function useThingsboardControl(options: UseThingsboardControlOptions): Us
       stopTimeISO: new Date(stopTimestamp).toISOString(),
       reason: 'manual_or_timeout',
     });
-    console.info('[Games] Disabling direct telemetry stream (stop initiated)');
     setDirectTelemetryEnabled(false);
 
-    // Route stop commands through the edge function (server-side) so the RPC
-    // reaches ThingsBoard without browser CORS / timeout constraints.
     const stopDeviceIds = directSessionTargets.map(({ deviceId }) => deviceId);
     stopDeviceIds.forEach((deviceId) => {
       updateDirectStartStates((prev) => ({ ...prev, [deviceId]: 'pending' }));
@@ -763,7 +522,6 @@ export function useThingsboardControl(options: UseThingsboardControlOptions): Us
       stopResponse = null;
     }
 
-    // Map per-device results
     const stopResultMap = new Map<string, boolean>();
     if (stopResponse?.results) {
       for (const result of stopResponse.results) {
@@ -808,14 +566,14 @@ export function useThingsboardControl(options: UseThingsboardControlOptions): Us
             .map((deviceId) => availableDevicesRef.current.find((device) => device.deviceId === deviceId) ?? null)
             .filter((device): device is NormalizedGameDevice => device !== null);
 
-    const hitHistorySnapshot = [...hitHistoryRef.current];
-    const splitRecordsSnapshot = [...splitRecordsRef.current];
-    const transitionRecordsSnapshot = [...transitionRecordsRef.current];
+    const hitHistorySnapshot = [...(registry.current.getHitHistory?.() ?? [])];
+    const splitRecordsSnapshot = [...(registry.current.getSplitRecords?.() ?? [])];
+    const transitionRecordsSnapshot = [...(registry.current.getTransitionRecords?.() ?? [])];
     const startTimestampSnapshot = gameStartTime ?? stopTimestamp;
     const sessionLabel = `Game ${new Date(startTimestampSnapshot).toLocaleTimeString()}`;
 
     try {
-      await finalizeSessionRef.current({
+      await registry.current.finalizeSession?.({
         resolvedGameId: directSessionGameId,
         sessionLabel,
         startTimestamp: startTimestampSnapshot,
@@ -890,73 +648,180 @@ export function useThingsboardControl(options: UseThingsboardControlOptions): Us
     resetSetupFlow,
     loadLiveDevices,
     loadGameHistory,
-    toast,
   ]);
 
-  // ── 9. handleRetryFailedDevices ────────────────────────────────────────
+  // ── 6. Orchestration callbacks (from use-session-orchestration.ts) ─────
 
-  const handleRetryFailedDevices = useCallback(async () => {
-    const failedIds = Object.entries(directStartStatesRef.current)
-      .filter(([, state]) => state === 'error')
-      .map(([deviceId]) => deviceId);
-
-    if (failedIds.length === 0) {
-      toast.info('No failed devices to retry.');
+  const handleStopGame = useCallback(async () => {
+    if (!isRunningLifecycle || isStoppingLifecycle || isFinalizingLifecycle) {
       return;
     }
 
-    if (!directSessionGameId) {
-      toast.error('Session is missing a ThingsBoard identifier. Close and reopen the dialog to retry.');
+    await handleStopDirectGame();
+  }, [isRunningLifecycle, isStoppingLifecycle, isFinalizingLifecycle, handleStopDirectGame]);
+
+  const handleCloseStartDialog = useCallback(() => {
+    if (sessionLifecycle === 'selecting' && !isStarting && !isLaunchingLifecycle) {
+      setSessionLifecycle('idle');
+      setPendingSessionTargets([]);
+      resetSessionTimer(null);
+      setIsSessionDialogDismissed(false);
+      setSessionRoomId(null);
+      setSessionDurationSeconds(null);
+      setStagedPresetId(null);
+      resetSetupFlow();
       return;
     }
 
-    setIsRetryingFailedDevices(true);
-    try {
-      setDirectControlError(null);
-      await executeDirectStart({ deviceIds: failedIds, timestamp: Date.now(), isRetry: true });
-    } catch (error) {
-      console.error('[Games] Retry failed devices encountered an error', error);
-      toast.error('Retry failed devices encountered an error. Check connectivity and try again.');
-    } finally {
-      setIsRetryingFailedDevices(false);
+    if (sessionLifecycle !== 'idle') {
+      setIsSessionDialogDismissed(true);
     }
-  }, [directSessionGameId, executeDirectStart, toast]);
+  }, [isLaunchingLifecycle, isStarting, resetSessionTimer, sessionLifecycle, setIsSessionDialogDismissed, setPendingSessionTargets, resetSetupFlow]);
+
+  const handleUsePreviousSettings = useCallback(async () => {
+    if (!recentSessionSummary) {
+      toast.info('No previous session available yet.');
+      return;
+    }
+    if (isSessionLocked) {
+      toast.info('Finish or stop the active session before reusing settings.');
+      return;
+    }
+
+    const targetIds =
+      Array.isArray(recentSessionSummary.targetDeviceIds) && recentSessionSummary.targetDeviceIds.length > 0
+        ? recentSessionSummary.targetDeviceIds
+        : recentSessionSummary.targets.map((target) => target.deviceId);
+
+    if (targetIds.length === 0) {
+      toast.error('Previous session did not capture any targets to reuse.');
+      return;
+    }
+
+    setActivePresetId(null);
+    const prepResult = await openStartDialogForTargets({
+      targetIds,
+      source: 'manual',
+      requireOnline: false,
+      syncCurrentTargets: true,
+    });
+
+    if (!prepResult || prepResult.targets.length === 0) {
+      return;
+    }
+
+    const summaryDuration =
+      typeof recentSessionSummary.desiredDurationSeconds === 'number' && recentSessionSummary.desiredDurationSeconds > 0
+        ? Math.round(recentSessionSummary.desiredDurationSeconds)
+        : null;
+
+    setSessionRoomId(recentSessionSummary.roomId ?? null);
+    setSessionDurationSeconds(summaryDuration);
+
+    const summaryGoalShots = recentSessionSummary.historyEntry?.goalShotsPerTarget;
+    if (summaryGoalShots && typeof summaryGoalShots === 'object' && !Array.isArray(summaryGoalShots)) {
+      setGoalShotsPerTarget(summaryGoalShots as Record<string, number>);
+    } else {
+      setGoalShotsPerTarget({});
+    }
+
+    setStagedPresetId(recentSessionSummary.presetId ?? null);
+    advanceToReviewStep();
+    toast.success('Previous session settings staged. Review and launch when ready.');
+  }, [
+    advanceToReviewStep,
+    isSessionLocked,
+    openStartDialogForTargets,
+    recentSessionSummary,
+    setSessionDurationSeconds,
+    setSessionRoomId,
+    setStagedPresetId,
+    setActivePresetId,
+  ]);
+
+  const handleCreateNewSetup = useCallback(() => {
+    if (isSessionLocked) {
+      toast.info('Stop the active session before creating a new setup.');
+      return;
+    }
+
+    selectionManuallyModifiedRef.current = true;
+    setSelectedDeviceIds([]);
+    setPendingSessionTargets([]);
+    setCurrentSessionTargets([]);
+    setDirectSessionTargets([]);
+    setDirectSessionGameId(null);
+    updateDirectStartStates({});
+    setSessionRoomId(null);
+    setSessionDurationSeconds(null);
+    setStagedPresetId(null);
+    setActivePresetId(null);
+    setIsSessionDialogDismissed(true);
+    setSessionLifecycle('idle');
+    resetSetupFlow();
+    toast.success('Setup reset. Select targets to begin.');
+  }, [
+    isSessionLocked,
+    resetSetupFlow,
+    updateDirectStartStates,
+    setSelectedDeviceIds,
+    setPendingSessionTargets,
+    setCurrentSessionTargets,
+    setSessionRoomId,
+    setSessionDurationSeconds,
+    setStagedPresetId,
+    setActivePresetId,
+    setIsSessionDialogDismissed,
+    setSessionLifecycle,
+  ]);
+
+  const handleOpenStartDialog = useCallback(async () => {
+    if (!canLaunchGame) {
+      return;
+    }
+    setStagedPresetId(null);
+    advanceToReviewStep();
+    const prepResult = await openStartDialogForTargets({
+      targetIds: selectedDeviceIds,
+      source: 'manual',
+      requireOnline: true,
+      syncCurrentTargets: false,
+    });
+    if (!prepResult || prepResult.targets.length === 0) {
+      return;
+    }
+    beginSessionLaunch({ targets: prepResult.targets, gameId: prepResult.gameId });
+  }, [advanceToReviewStep, beginSessionLaunch, canLaunchGame, openStartDialogForTargets, selectedDeviceIds]);
+
+  const handleConfirmStartDialog = useCallback(() => {
+    beginSessionLaunch();
+  }, [beginSessionLaunch]);
+
+  const handleStopFromDialog = useCallback(() => {
+    void handleStopGame();
+  }, [handleStopGame]);
+
+  // ── Register callbacks in the session registry ─────────────────────────
+  register('openStartDialogForTargets', openStartDialogForTargets);
+  register('beginSessionLaunch', beginSessionLaunch);
 
   // ── Return ─────────────────────────────────────────────────────────────
 
   return {
-    // State
-    directSessionGameId,
-    directSessionTargets,
-    directFlowActive,
-    directStartStates,
-    directTelemetryEnabled,
-    directControlToken,
-    directControlError,
-    isDirectAuthLoading,
-    isRetryingFailedDevices,
-
     // Derived
     isDirectTelemetryLifecycle,
     isDirectFlow,
 
-    // Setters
-    setDirectSessionGameId,
-    setDirectSessionTargets,
-    setDirectFlowActive,
-    setDirectTelemetryEnabled,
-    setDirectControlError,
-    updateDirectStartStates,
-
     // Callbacks
-    refreshDirectAuthToken,
     openStartDialogForTargets,
-    handleStopDirectGame,
-    executeDirectStart,
     beginSessionLaunch,
-    handleRetryFailedDevices,
-
-    // Ref
-    directStartStatesRef,
+    handleStopDirectGame,
+    handleStopGame,
+    handleCloseStartDialog,
+    handleUsePreviousSettings,
+    handleCreateNewSetup,
+    handleOpenStartDialog,
+    handleConfirmStartDialog,
+    handleStopFromDialog,
   };
 }

@@ -180,22 +180,12 @@ export function useGameDevices(options: UseGameDevicesOptions = {}): UseGameDevi
       }
 
       try {
-        const startTime = performance.now();
         const { targets } = await fetchTargetsWithTelemetry(true);
-        const fetchDuration = performance.now() - startTime;
         const normalized = targets.map(normalizeGameDevice);
-        const normalizeDuration = performance.now() - startTime - fetchDuration;
         const fetchedAt = Date.now();
         setDevices(normalized);
         setLastFetched(fetchedAt);
         setError(null);
-
-        console.info('⚡ [Performance] useGameDevices.refresh', {
-          deviceCount: targets.length,
-          fetchDuration: `${fetchDuration.toFixed(2)}ms`,
-          normalizeDuration: `${normalizeDuration.toFixed(2)}ms`,
-          totalDuration: `${(fetchDuration + normalizeDuration).toFixed(2)}ms`,
-        });
 
         return { devices: normalized, fetchedAt };
       } catch (err) {

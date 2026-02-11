@@ -84,9 +84,6 @@ export function useAddGameToHistory() {
       await saveGameHistoryMutation.mutateAsync(historyEntry);
       return historyEntry;
     },
-    onSuccess: (historyEntry) => {
-      console.log('Game added to history:', historyEntry.gameId);
-    },
     onError: (error) => {
       console.error('[useGameHistory] Failed to add game to history:', error);
     },

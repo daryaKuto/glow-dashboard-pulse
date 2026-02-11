@@ -10,6 +10,7 @@ import {
   convertHistoryEntryToLiveSummary,
 } from '@/features/games/lib/session-summary-builder';
 import { getRecentSessionsService } from '@/features/profile/service';
+import type { SessionRegistry } from './use-session-registry';
 
 const RECENT_SESSION_STORAGE_KEY = 'glow-dashboard:last-session';
 
@@ -19,7 +20,7 @@ export interface UseGameDataLoaderOptions {
   availableDevices: NormalizedGameDevice[];
   setAvailableDevices: React.Dispatch<React.SetStateAction<NormalizedGameDevice[]>>;
   setErrorMessage: React.Dispatch<React.SetStateAction<string | null>>;
-  setHitCountsRef: React.MutableRefObject<React.Dispatch<React.SetStateAction<Record<string, number>>>>;
+  registry: SessionRegistry;
   refreshGameDevices: (opts?: { silent?: boolean }) =>
     Promise<{ devices: NormalizedGameDevice[]; fetchedAt: number } | null>;
   refreshTargets: () => Promise<void>;
@@ -47,7 +48,7 @@ export function useGameDataLoader(options: UseGameDataLoaderOptions): UseGameDat
     availableDevices,
     setAvailableDevices,
     setErrorMessage,
-    setHitCountsRef,
+    registry,
     refreshGameDevices,
     refreshTargets,
     targetsSnapshot,
@@ -152,39 +153,29 @@ export function useGameDataLoader(options: UseGameDataLoaderOptions): UseGameDat
         }
         const mapped = result.devices;
 
-        console.info('[Games] Edge devices refresh complete', {
-          refreshedAt: new Date().toISOString(),
-          totalDevices: mapped.length,
-          sample: mapped.slice(0, 5).map((device) => ({
-            deviceId: device.deviceId,
-            name: device.name,
-            status: device.gameStatus,
-            wifiStrength: device.wifiStrength,
-            hitCount: device.hitCount,
-          })),
-        });
-
         setAvailableDevices(mapped);
         availableDevicesRef.current = mapped;
         setErrorMessage(null);
 
-        const setHitCounts = setHitCountsRef.current;
-        if (!isRunningLifecycle) {
-          const baseline: Record<string, number> = {};
-          mapped.forEach((device) => {
-            baseline[device.deviceId] = device.hitCount ?? 0;
-          });
-          setHitCounts(baseline);
-        } else {
-          setHitCounts((prev) => {
-            const next = { ...prev };
+        const setHitCounts = registry.current.setHitCounts;
+        if (setHitCounts) {
+          if (!isRunningLifecycle) {
+            const baseline: Record<string, number> = {};
             mapped.forEach((device) => {
-              if (!(device.deviceId in next)) {
-                next[device.deviceId] = device.hitCount ?? 0;
-              }
+              baseline[device.deviceId] = device.hitCount ?? 0;
             });
-            return next;
-          });
+            setHitCounts(baseline);
+          } else {
+            setHitCounts((prev) => {
+              const next = { ...prev };
+              mapped.forEach((device) => {
+                if (!(device.deviceId in next)) {
+                  next[device.deviceId] = device.hitCount ?? 0;
+                }
+              });
+              return next;
+            });
+          }
         }
 
         hasLoadedDevicesRef.current = true;
@@ -197,7 +188,7 @@ export function useGameDataLoader(options: UseGameDataLoaderOptions): UseGameDat
         availableDevicesRef.current = [];
       }
     },
-    [isRunningLifecycle, refreshGameDevices, refreshTargets, setAvailableDevices, setErrorMessage, setHitCountsRef],
+    [isRunningLifecycle, refreshGameDevices, refreshTargets, setAvailableDevices, setErrorMessage, registry],
   );
 
   // --- Effects ---

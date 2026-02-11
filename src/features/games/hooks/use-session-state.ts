@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { NormalizedGameDevice } from './use-game-devices';
-import type { LiveSessionSummary } from '@/components/games/types';
-import type { SessionLifecycle } from '@/components/game-session/sessionState';
-import { formatSessionDuration } from '@/components/game-session/sessionState';
+import type { LiveSessionSummary } from '@/features/games/ui/components/types';
+import type { SessionLifecycle } from '@/features/games/lib/session-state';
+import { formatSessionDuration } from '@/features/games/lib/session-state';
 import type { SessionRegistry } from './use-session-registry';
 
 export type GameSetupStep = 'select-targets' | 'select-duration' | 'review';

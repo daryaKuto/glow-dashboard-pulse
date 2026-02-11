@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef } from 'react';
 import { toast } from '@/components/ui/sonner';
 import type { SessionHitRecord } from '@/features/games/lib/device-game-flow';
 import type { SplitRecord, TransitionRecord, FinalizeSessionArgs } from '@/features/games/lib/telemetry-types';
-import type { LiveSessionSummary } from '@/components/games/types';
+import type { LiveSessionSummary } from '@/features/games/ui/components/types';
 import type { GameHistory } from '@/features/games/lib/device-game-flow';
-import type { SessionLifecycle } from '@/components/game-session/sessionState';
+import type { SessionLifecycle } from '@/features/games/lib/session-state';
 import {
   buildLiveSessionSummary,
 } from '@/features/games/lib/session-summary-builder';

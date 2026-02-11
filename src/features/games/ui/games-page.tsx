@@ -17,8 +17,8 @@ import {
   LiveSessionCard,
   LiveSessionCardSkeleton,
   StartSessionDialog,
-} from '@/components/games';
-import { useSessionTimer, type SessionHitEntry } from '@/components/game-session/sessionState';
+} from '@/features/games/ui/components';
+import { useSessionTimer, type SessionHitEntry } from '@/features/games/lib/session-state';
 import { useGamePresets, useSaveGamePreset, useDeleteGamePreset } from '@/features/games';
 import { useDeviceSelection } from '@/features/games/hooks/use-device-selection';
 import { useSessionLifecycle } from '@/features/games/hooks/use-session-lifecycle';

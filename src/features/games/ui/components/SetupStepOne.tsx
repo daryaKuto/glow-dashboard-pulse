@@ -1,10 +1,8 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  RoomSelectionCard,
-  GroupSelectionCard,
-  TargetSelectionCard,
-} from '@/components/games';
+import { RoomSelectionCard } from './RoomSelectionCard';
+import { GroupSelectionCard } from './GroupSelectionCard';
+import { TargetSelectionCard } from './TargetSelectionCard';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import type { Target } from '@/features/targets/schema';
 

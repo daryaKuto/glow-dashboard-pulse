@@ -1,5 +1,5 @@
 import React from 'react';
-import { HitDistributionCard, HitDistributionSkeleton } from '@/components/games';
+import { HitDistributionCard, HitDistributionSkeleton } from '@/features/games/ui/components';
 
 type HitDistributionCardWrapperProps = {
   isLoading: boolean;

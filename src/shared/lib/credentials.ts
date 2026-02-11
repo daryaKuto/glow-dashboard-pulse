@@ -1,78 +1,119 @@
 /**
  * Credentials encryption/decryption utilities
  * Handles secure storage and retrieval of ThingsBoard credentials
+ *
+ * Uses Web Crypto API (AES-GCM) for proper encryption.
+ * TODO: Migrate to server-side encryption via Supabase Vault for production.
  */
 
+const ALGORITHM = 'AES-GCM';
+const KEY_LENGTH = 256;
+const IV_LENGTH = 12;
+
 /**
- * Encrypt a password for storage in the database
- * Note: This is a basic implementation. In production, use proper encryption
- * @param password - Plain text password
- * @returns Encrypted password string
+ * Derive a CryptoKey from a passphrase using PBKDF2.
+ * Uses a static salt derived from the app's Supabase URL to keep it deterministic
+ * per deployment without hardcoding a secret.
  */
-export function encryptPassword(password: string): string {
-  // Using base64 encoding for now - in production, use proper encryption
-  // Consider using Supabase Vault or pgcrypto for better security
-  return btoa(password);
+async function deriveKey(passphrase: string): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(passphrase),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+
+  const salt = encoder.encode('glow-dashboard-credentials-salt');
+
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations: 100_000,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    { name: ALGORITHM, length: KEY_LENGTH },
+    false,
+    ['encrypt', 'decrypt']
+  );
 }
 
 /**
- * Decrypt a password from the database
- * @param encryptedPassword - Encrypted password from database
- * @returns Plain text password
+ * Get a stable passphrase for key derivation.
+ * Uses the Supabase URL as a deployment-specific input.
  */
-export function decryptPassword(encryptedPassword: string): string {
-  // Using base64 decoding for now - in production, use proper decryption
+function getPassphrase(): string {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? 'default-passphrase';
+  return `glow-cred-key-${supabaseUrl}`;
+}
+
+/**
+ * Encrypt a password for storage in the database using AES-GCM.
+ * Returns a base64 string containing IV + ciphertext.
+ */
+export async function encryptPassword(password: string): Promise<string> {
+  const key = await deriveKey(getPassphrase());
+  const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+  const encoder = new TextEncoder();
+
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: ALGORITHM, iv },
+    key,
+    encoder.encode(password)
+  );
+
+  // Concatenate IV + ciphertext and encode as base64
+  const combined = new Uint8Array(iv.length + new Uint8Array(ciphertext).length);
+  combined.set(iv);
+  combined.set(new Uint8Array(ciphertext), iv.length);
+
+  return btoa(String.fromCharCode(...combined));
+}
+
+/**
+ * Decrypt a password from the database using AES-GCM.
+ * Accepts the base64 string produced by encryptPassword.
+ * Also supports legacy base64-only values for backward compatibility.
+ */
+export async function decryptPassword(encryptedPassword: string): Promise<string> {
   try {
-    return atob(encryptedPassword);
-  } catch (error) {
-    console.error('Failed to decrypt password:', error);
-    throw new Error('Invalid encrypted password format');
+    const combined = Uint8Array.from(atob(encryptedPassword), (c) => c.charCodeAt(0));
+
+    // Legacy values are plain base64 (no IV prefix).
+    // AES-GCM ciphertext is always longer than plain text + 12 byte IV + 16 byte auth tag = 28+ bytes overhead.
+    // If the decoded length is short enough to be raw text, treat as legacy.
+    if (combined.length < IV_LENGTH + 16 + 1) {
+      // Legacy base64 encoding — return decoded plaintext
+      return new TextDecoder().decode(combined);
+    }
+
+    const iv = combined.slice(0, IV_LENGTH);
+    const ciphertext = combined.slice(IV_LENGTH);
+
+    const key = await deriveKey(getPassphrase());
+
+    const plaintext = await crypto.subtle.decrypt(
+      { name: ALGORITHM, iv },
+      key,
+      ciphertext
+    );
+
+    return new TextDecoder().decode(plaintext);
+  } catch {
+    // If AES-GCM decryption fails, try legacy base64 decode
+    try {
+      return atob(encryptedPassword);
+    } catch {
+      throw new Error('Invalid encrypted password format');
+    }
   }
-}
-
-/**
- * Hash a password using SHA-256 (for database storage)
- * This is used when storing in the database with pgcrypto
- * @param password - Plain text password
- * @returns SHA-256 hash
- */
-export function hashPassword(password: string): string {
-  // This would be used with pgcrypto in the database
-  // For now, we'll use a simple hash for demonstration
-  return btoa(password);
-}
-
-/**
- * Verify if a password matches the stored hash
- * @param password - Plain text password to verify
- * @param hash - Stored hash to compare against
- * @returns True if password matches
- */
-export function verifyPassword(password: string, hash: string): boolean {
-  try {
-    const hashedPassword = hashPassword(password);
-    return hashedPassword === hash;
-  } catch (error) {
-    console.error('Password verification failed:', error);
-    return false;
-  }
-}
-
-/**
- * Generate a secure random salt for password hashing
- * @returns Random salt string
- */
-export function generateSalt(): string {
-  const array = new Uint8Array(16);
-  crypto.getRandomValues(array);
-  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 /**
  * Check if a user has ThingsBoard credentials configured
- * @param thingsboardEmail - ThingsBoard email from user profile
- * @param thingsboardPasswordEncrypted - Encrypted password from user profile
- * @returns True if credentials are configured
  */
 export function hasThingsBoardCredentials(
   thingsboardEmail: string | null,

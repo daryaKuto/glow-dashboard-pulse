@@ -281,7 +281,7 @@ export async function saveThingsBoardCredentials(
   password: string
 ): Promise<ApiResponse<boolean>> {
   try {
-    const encryptedPassword = encryptPassword(password);
+    const encryptedPassword = await encryptPassword(password);
 
     const { error } = await supabase
       .from('user_profiles')
@@ -317,7 +317,7 @@ export async function saveWifiCredentials(
   password: string
 ): Promise<ApiResponse<boolean>> {
   try {
-    const encryptedPassword = encryptPassword(password);
+    const encryptedPassword = await encryptPassword(password);
 
     const { error } = await supabase
       .from('user_profiles')

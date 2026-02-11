@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { GameHistory } from '@/features/games/lib/device-game-flow';
-import type { LiveSessionSummary } from '@/components/games/types';
+import type { LiveSessionSummary } from '@/features/games/ui/components/types';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import { convertSessionToHistory } from '@/features/games/lib/session-converter';
 import {

@@ -1,6 +1,6 @@
 import type { GamePreset } from '@/features/games';
 import type { Target } from '@/features/targets/schema';
-import { formatSessionDuration } from '@/components/game-session/sessionState';
+import { formatSessionDuration } from '@/features/games/lib/session-state';
 
 type AxiosErrorLike = {
   isAxiosError?: boolean;

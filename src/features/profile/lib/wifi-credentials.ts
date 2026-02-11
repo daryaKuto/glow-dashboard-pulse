@@ -78,7 +78,7 @@ export const syncWifiToSupabase = async (
     console.log('[WiFi Service] Syncing WiFi credentials to Supabase for user:', userId);
     
     // Encrypt the password
-    const encryptedPassword = encryptPassword(password);
+    const encryptedPassword = await encryptPassword(password);
     
     // Update user profile with encrypted WiFi credentials
     const { error } = await supabase
@@ -128,7 +128,7 @@ export const getWifiFromSupabase = async (userId: string): Promise<WifiCredentia
     }
     
     // Decrypt the password
-    const decryptedPassword = decryptPassword(data.wifi_password_encrypted);
+    const decryptedPassword = await decryptPassword(data.wifi_password_encrypted);
     
     console.log('[WiFi Service] WiFi credentials retrieved from Supabase:', {
       ssid: data.wifi_ssid_encrypted,

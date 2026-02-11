@@ -51,11 +51,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { fetchAllGameHistory } from '@/features/games/lib/game-history';
-import { TargetCustomizationDialog } from '@/components/targets/TargetCustomizationDialog';
-import CreateGroupModal from '@/components/targets/CreateGroupModal';
-import AddTargetsToGroupModal from '@/components/targets/AddTargetsToGroupModal';
-import RenameTargetDialog from '@/components/targets/RenameTargetDialog';
-import { useSubscription } from '@/shared/hooks/use-subscription';
+import { TargetCustomizationDialog } from '@/features/targets/ui/TargetCustomizationDialog';
+import CreateGroupModal from '@/features/targets/ui/CreateGroupModal';
+import AddTargetsToGroupModal from '@/features/targets/ui/AddTargetsToGroupModal';
+import RenameTargetDialog from '@/features/targets/ui/RenameTargetDialog';
+import { useSubscription } from '@/features/auth/hooks';
 import { PremiumLockIcon } from '@/components/shared/SubscriptionGate';
 import { useAuth } from '@/shared/hooks/use-auth';
 

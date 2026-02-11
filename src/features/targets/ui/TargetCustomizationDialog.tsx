@@ -15,7 +15,7 @@ import { uploadTargetSound, validateSoundFile } from '@/features/targets/lib/tar
 import { useSetDeviceAttributes } from '@/features/targets';
 import { toast } from '@/components/ui/sonner';
 import { Upload, X, Music, Palette, Loader2, Sparkles, Star, Zap, Crown, CheckCircle2 } from 'lucide-react';
-import { useSubscription } from '@/shared/hooks/use-subscription';
+import { useSubscription } from '@/features/auth/hooks';
 
 interface TargetCustomizationDialogProps {
   targetId: string;

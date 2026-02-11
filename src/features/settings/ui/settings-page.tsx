@@ -5,10 +5,10 @@ import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
 import { useIsMobile } from '@/shared/hooks/use-mobile';
-import NotificationSettings from '@/components/settings/NotificationSettings';
-import ThemeSettings from '@/components/settings/ThemeSettings';
-import PasswordSettings from '@/components/settings/PasswordSettings';
-import DangerZone from '@/components/settings/DangerZone';
+import NotificationSettings from '@/features/settings/ui/NotificationSettings';
+import ThemeSettings from '@/features/settings/ui/ThemeSettings';
+import PasswordSettings from '@/features/settings/ui/PasswordSettings';
+import DangerZone from '@/features/settings/ui/DangerZone';
 import { useAuth } from '@/shared/hooks/use-auth';
 import {
   useNotificationSettings,

@@ -7,7 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
-import { formatSessionDuration } from '@/components/game-session/sessionState';
+import { formatSessionDuration } from '@/features/games/lib/session-state';
 import type { LiveSessionSummary } from './types';
 import { Building2, Clock3, Bookmark, Crosshair, PlusCircle, RotateCcw, Info, ArrowRight } from 'lucide-react';
 import { useTargetCustomNames } from '@/features/targets';

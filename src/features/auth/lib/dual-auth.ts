@@ -133,10 +133,10 @@ class DualAuthService {
         };
         this.setAuthStatus({ supabase: 'success' });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       result.supabase = {
         success: false,
-        error: error.message || 'Supabase authentication failed'
+        error: error instanceof Error ? error.message : 'Supabase authentication failed'
       };
       this.setAuthStatus({ supabase: 'error' });
     }
@@ -221,10 +221,10 @@ class DualAuthService {
         };
         this.setAuthStatus({ supabase: 'success' });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       result.supabase = {
         success: false,
-        error: error.message || 'Supabase signup failed'
+        error: error instanceof Error ? error.message : 'Supabase signup failed'
       };
       this.setAuthStatus({ supabase: 'error' });
     }
@@ -263,10 +263,10 @@ class DualAuthService {
     // Sign out from Supabase
     try {
       await supabase.auth.signOut();
-      this.setAuthStatus(prev => ({ ...prev, supabase: 'success' }));
+      this.setAuthStatus({ supabase: 'success' });
     } catch (error) {
       console.error('Supabase signout failed:', error);
-      this.setAuthStatus(prev => ({ ...prev, supabase: 'error' }));
+      this.setAuthStatus({ supabase: 'error' });
     }
 
     this.setAuthStatus({ thingsboard: 'idle', message: 'Successfully signed out' });
@@ -290,10 +290,10 @@ class DualAuthService {
         success: true,
         message: 'Password reset email sent successfully'
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         success: false,
-        message: error.message || 'Failed to send password reset email'
+        message: error instanceof Error ? error.message : 'Failed to send password reset email'
       };
     }
   }
@@ -316,10 +316,10 @@ class DualAuthService {
         success: true,
         message: 'Password updated successfully'
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         success: false,
-        message: error.message || 'Failed to update password'
+        message: error instanceof Error ? error.message : 'Failed to update password'
       };
     }
   }

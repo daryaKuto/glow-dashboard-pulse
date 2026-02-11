@@ -14,7 +14,7 @@ import {
   formatSessionDuration,
   type SessionLifecycle,
   type SessionHitEntry,
-} from '@/components/game-session/sessionState';
+} from '@/features/games/lib/session-state';
 import { useTargetCustomNames } from '@/features/targets';
 
 export interface StartSessionDialogProps {

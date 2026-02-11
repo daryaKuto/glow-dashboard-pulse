@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import type { SessionLifecycle } from '@/components/game-session/sessionState';
+import type { SessionLifecycle } from '@/features/games/lib/session-state';
 
 interface UseSessionLifecycleReturn {
   // State

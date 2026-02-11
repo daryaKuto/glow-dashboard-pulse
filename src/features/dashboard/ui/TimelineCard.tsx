@@ -1,5 +1,5 @@
 import React from 'react';
-import { HitTimelineCard, HitTimelineSkeleton } from '@/components/games';
+import { HitTimelineCard, HitTimelineSkeleton } from '@/features/games/ui/components';
 
 type TimelineCardProps = {
   trackedDevices: Array<{ deviceId: string; deviceName: string }>;

@@ -1,8 +1,8 @@
 import { useCallback } from 'react';
-import type { SessionLifecycle } from '@/components/game-session/sessionState';
+import type { SessionLifecycle } from '@/features/games/lib/session-state';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import { deriveIsOnline } from '@/features/games/lib/device-status-utils';
-import type { LiveSessionSummary } from '@/components/games/types';
+import type { LiveSessionSummary } from '@/features/games/ui/components/types';
 import { invokeGameControl } from '@/lib/edge';
 import { toast } from '@/components/ui/sonner';
 import type { SessionRegistry, SessionCallbacks } from './use-session-registry';

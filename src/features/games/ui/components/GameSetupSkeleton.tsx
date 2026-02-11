@@ -1,11 +1,9 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  RoomSelectionSkeleton,
-  GroupSelectionSkeleton,
-  TargetSelectionSkeleton,
-} from '@/components/games';
+import { RoomSelectionSkeleton } from './RoomSelectionCard';
+import { GroupSelectionSkeleton } from './GroupSelectionCard';
+import { TargetSelectionSkeleton } from './TargetSelectionCard';
 
 export const StepOneSkeleton: React.FC = () => (
   <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">

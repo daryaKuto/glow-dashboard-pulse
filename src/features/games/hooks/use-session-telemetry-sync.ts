@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import type { SessionLifecycle } from '@/components/game-session/sessionState';
+import type { SessionLifecycle } from '@/features/games/lib/session-state';
 import type { SessionHitRecord } from '@/features/games/lib/device-game-flow';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import { tbSendOneway } from '@/features/games/lib/thingsboard-client';

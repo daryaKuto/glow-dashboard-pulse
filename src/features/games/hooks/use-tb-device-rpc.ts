@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import type { SessionLifecycle } from '@/components/game-session/sessionState';
+import type { SessionLifecycle } from '@/features/games/lib/session-state';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import { invokeGameControl } from '@/lib/edge';
 import { toast } from '@/components/ui/sonner';

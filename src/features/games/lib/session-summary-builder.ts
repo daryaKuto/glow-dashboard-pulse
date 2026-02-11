@@ -1,5 +1,5 @@
 import type { GameHistory, SessionHitRecord, SessionSplit, SessionTransition } from '@/features/games/lib/device-game-flow';
-import type { LiveSessionSummary } from '@/components/games/types';
+import type { LiveSessionSummary } from '@/features/games/ui/components/types';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import type { SplitRecord, TransitionRecord } from '@/features/games/lib/telemetry-types';
 import { calculateSessionScore } from '@/domain/games/rules';

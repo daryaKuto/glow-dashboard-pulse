@@ -19,14 +19,14 @@ import TargetActivityCard, {
   RANGE_ORDER,
   buildRangeSummaries,
   type TimeRange,
-} from '@/components/dashboard/TargetActivityCard';
-import RecentSessionsCard from '@/components/dashboard/RecentSessionsCard';
-import { HitTimelineSkeleton, HitDistributionSkeleton } from '@/components/games';
+} from '@/features/dashboard/ui/TargetActivityCard';
+import RecentSessionsCard from '@/features/dashboard/ui/RecentSessionsCard';
+import { HitTimelineSkeleton, HitDistributionSkeleton } from '@/features/games/ui/components';
 import { formatScoreValue } from '@/utils/dashboard';
 
 // Lazy-load chart components to defer ~200KB recharts
-const TimelineCard = React.lazy(() => import('@/components/dashboard/TimelineCard'));
-const HitDistributionCardWrapper = React.lazy(() => import('@/components/dashboard/HitDistributionCardWrapper'));
+const TimelineCard = React.lazy(() => import('@/features/dashboard/ui/TimelineCard'));
+const HitDistributionCardWrapper = React.lazy(() => import('@/features/dashboard/ui/HitDistributionCardWrapper'));
 import { throttledLogOnChange } from '@/utils/log-throttle';
 
 // Modern Stat Card Component

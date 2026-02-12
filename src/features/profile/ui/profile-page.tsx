@@ -1023,13 +1023,13 @@ const Profile: React.FC = () => {
                                       <span className="text-cyan-600 font-medium">{session.thingsboardData.crossTargetStats.totalSwitches}</span>
                                     </div>
                                   )}
-                                  {session.thingsboardData.targetStats && (
+                                  {(session.thingsboardData.targetStats || session.thingsboardData.deviceResults) && (
                                     <div className="flex justify-between items-center bg-gradient-to-r from-indigo-500/5 to-indigo-500/10 p-2 rounded-lg border border-indigo-500/20">
                                       <span className="flex items-center gap-1 text-indigo-600">
                                         <Gamepad2 className="h-6 w-6" />
                                         Targets Used:
                                       </span>
-                                      <span className="text-indigo-600 font-medium">{session.thingsboardData.targetStats.length}</span>
+                                      <span className="text-indigo-600 font-medium">{(session.thingsboardData.targetStats ?? session.thingsboardData.deviceResults).length}</span>
                                     </div>
                                   )}
                                 </div>

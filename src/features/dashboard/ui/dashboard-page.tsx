@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Target as TargetIcon, Users, TrendingUp, Activity, Play, X, BarChart, Award, CheckCircle, Gamepad2, Trophy, Info } from 'lucide-react';
 import { useRooms } from '@/features/rooms';
 import { useDashboardMetrics, useDashboardSessions } from '@/features/dashboard';
+import { useGameHistory } from '@/features/games';
 import { useAuth } from '@/shared/hooks/use-auth';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
@@ -34,7 +35,7 @@ import { FeatureErrorBoundary } from '@/shared/ui/FeatureErrorBoundary';
 const StatCard: React.FC<{
   title: string;
   value: string | number;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   icon: React.ReactNode;
   trend?: { value: number; isPositive: boolean };
   isLoading?: boolean;
@@ -44,7 +45,7 @@ const StatCard: React.FC<{
   <Card className="shadow-card hover:shadow-card-hover transition-all duration-200 bg-gradient-to-br from-white via-white to-brand-primary/[0.04]">
     <CardContent className="p-5 md:p-6">
       {/* Label row with bare icon */}
-      <div className="flex items-center gap-2 mb-1">
+      <div className="flex items-center justify-center gap-2 mb-1">
         <div className="text-brand-primary w-4 h-4">{icon}</div>
         <span className="text-label text-brand-secondary font-body uppercase tracking-wide">
           {title}
@@ -78,14 +79,14 @@ const StatCard: React.FC<{
       {isLoading ? (
         <div className="h-8 md:h-10 w-16 md:w-24 bg-gray-200 rounded animate-pulse" />
       ) : (
-        <p className="text-stat-md md:text-stat-lg font-bold text-brand-dark font-body tabular-nums">
+        <p className="text-stat-md md:text-stat-lg font-bold text-brand-dark font-body tabular-nums text-center">
           {value}
         </p>
       )}
 
       {/* Optional subtitle */}
       {subtitle && (
-        <p className="text-xs text-brand-dark/40 font-body mt-1">{subtitle}</p>
+        <div className="text-xs text-brand-dark/40 font-body mt-1 flex justify-center">{subtitle}</div>
       )}
 
       {/* Optional trend */}
@@ -250,6 +251,9 @@ const Dashboard: React.FC = () => {
   // Use React Query for sessions (replaces Zustand useSessions store)
   const { data: sessions = [], isLoading: sessionsLoading } = useDashboardSessions(user?.id, SESSION_HISTORY_LIMIT);
 
+  // Fetch game history for accurate split times (splits calculated in real-time during games)
+  const { data: gameHistories } = useGameHistory();
+
   // Derive isReady from React Query loading states
   const isReady = !metricsLoading && !sessionsLoading && !roomsLoading;
 
@@ -323,7 +327,7 @@ const Dashboard: React.FC = () => {
     });
   }, [sessions, sessionAnalytics.completedCount]);
 
-  const rangeSummaries = useMemo(() => buildRangeSummaries(sessions), [sessions]);
+  const rangeSummaries = useMemo(() => buildRangeSummaries(sessions, gameHistories), [sessions, gameHistories]);
 
   const currentStreakLength = useMemo(() => {
     if (sessions.length === 0) {
@@ -496,9 +500,34 @@ const Dashboard: React.FC = () => {
                     value={summaryReady ? totalTargets : '—'}
                     subtitle={
                       summaryReady
-                        ? [onlineTargets > 0 && `${onlineTargets} online`, standbyTargets > 0 && `${standbyTargets} standby`]
-                            .filter(Boolean)
-                            .join(', ') || '0 online'
+                        ? (
+                          <span className="flex items-center gap-2">
+                            {onlineTargets > 0 && (
+                              <span className="flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+                                {onlineTargets} online
+                              </span>
+                            )}
+                            {standbyTargets > 0 && (
+                              <span className="flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
+                                {standbyTargets} standby
+                              </span>
+                            )}
+                            {totalTargets - onlineTargets - standbyTargets > 0 && (
+                              <span className="flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" />
+                                {totalTargets - onlineTargets - standbyTargets} offline
+                              </span>
+                            )}
+                            {onlineTargets === 0 && standbyTargets === 0 && totalTargets === 0 && (
+                              <span className="flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+                                0 online
+                              </span>
+                            )}
+                          </span>
+                        )
                         : ''
                     }
                     icon={<TargetIcon className="w-4 h-4" />}

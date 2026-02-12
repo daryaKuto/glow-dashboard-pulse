@@ -37,7 +37,7 @@ const SessionStatCard: React.FC<{ session: Session; index: number }> = ({ sessio
       : `${hitCount} hits`;
 
   return (
-    <div className="rounded-[var(--radius)] bg-[rgba(28,25,43,0.02)] p-3.5 md:p-4 space-y-3">
+    <div className="rounded-[var(--radius)] bg-white p-3.5 md:p-4 space-y-3 shadow-card">
       {/* Top row: game name + date */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -49,7 +49,7 @@ const SessionStatCard: React.FC<{ session: Session; index: number }> = ({ sessio
             {session.gameName || session.scenarioName || 'Custom Game'}
           </span>
         </div>
-        <span className="text-[10px] text-brand-dark/30 font-body shrink-0">
+        <span className="text-[10px] text-brand-dark font-body shrink-0">
           {date.format('ddd, h:mm a')}
         </span>
       </div>
@@ -59,13 +59,13 @@ const SessionStatCard: React.FC<{ session: Session; index: number }> = ({ sessio
         <p className="text-stat-md font-bold text-brand-dark font-body tabular-nums leading-none">
           {Number.isFinite(session.score) ? formatScoreValue(session.score) : 'N/A'}
         </p>
-        <span className="text-[11px] text-brand-dark/40 font-body">Score</span>
+        <span className="text-[11px] text-brand-dark font-body">Score</span>
       </div>
 
       {/* Progress bar: accuracy or hit rate */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
-          <span className="text-[10px] text-brand-dark/40 font-body uppercase tracking-wide">
+          <span className="text-[10px] text-brand-dark font-body uppercase tracking-wide">
             {barLabel}
           </span>
           <span className="text-[11px] font-semibold text-brand-dark font-body tabular-nums">
@@ -90,7 +90,7 @@ const SessionStatCard: React.FC<{ session: Session; index: number }> = ({ sessio
           <span className="text-sm font-bold text-brand-dark font-body tabular-nums">
             {hitCount}
           </span>
-          <span className="text-[9px] text-brand-dark/40 font-body">Hits</span>
+          <span className="text-[9px] text-brand-dark font-body">Hits</span>
         </div>
         <div className="w-px h-8 bg-[rgba(28,25,43,0.06)]" />
         <div className="flex-1 flex flex-col items-center py-2 gap-0.5">
@@ -98,7 +98,7 @@ const SessionStatCard: React.FC<{ session: Session; index: number }> = ({ sessio
           <span className="text-sm font-bold text-brand-dark font-body tabular-nums">
             {hasAccuracy ? `${accuracy.toFixed(0)}%` : totalShots > 0 ? totalShots : '—'}
           </span>
-          <span className="text-[9px] text-brand-dark/40 font-body">
+          <span className="text-[9px] text-brand-dark font-body">
             {hasAccuracy ? 'Accuracy' : 'Shots'}
           </span>
         </div>
@@ -108,7 +108,7 @@ const SessionStatCard: React.FC<{ session: Session; index: number }> = ({ sessio
           <span className="text-sm font-bold text-brand-dark font-body tabular-nums">
             {formatDurationValue(session.duration)}
           </span>
-          <span className="text-[9px] text-brand-dark/40 font-body">Duration</span>
+          <span className="text-[9px] text-brand-dark font-body">Duration</span>
         </div>
       </div>
     </div>
@@ -137,7 +137,7 @@ const RecentSessionsCard: React.FC<RecentSessionsCardProps> = ({ sessions, isLoa
                 <CardTitle className="text-base font-heading text-brand-dark">
                   Recent Sessions
                 </CardTitle>
-                <p className="text-[11px] text-brand-dark/40 font-body">Latest games</p>
+                <p className="text-[11px] text-brand-dark font-body">Latest games</p>
               </div>
             </div>
             <button
@@ -156,7 +156,7 @@ const RecentSessionsCard: React.FC<RecentSessionsCardProps> = ({ sessions, isLoa
             {Array.from({ length: 4 }).map((_, i) => (
               <div
                 key={i}
-                className="rounded-[var(--radius)] bg-[rgba(28,25,43,0.02)] p-3.5 md:p-4 space-y-3 animate-pulse"
+                className="rounded-[var(--radius)] bg-white p-3.5 md:p-4 space-y-3 shadow-card animate-pulse"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">

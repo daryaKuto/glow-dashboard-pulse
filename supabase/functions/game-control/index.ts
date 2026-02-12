@@ -434,9 +434,45 @@ async function handleHistory(
         miss_count: 0,
         total_shots: hitCount,
         accuracy_percentage: typeof summary.accuracy === "number" ? summary.accuracy : null,
-        avg_reaction_time_ms: null,
-        best_reaction_time_ms: null,
-        worst_reaction_time_ms: null,
+        avg_reaction_time_ms: (() => {
+          // 1st: compute from individual splits (same-device hit intervals, in seconds)
+          if (Array.isArray(summary.splits) && summary.splits.length > 0) {
+            const validSplits = summary.splits
+              .map((s: any) => typeof s.time === 'number' && Number.isFinite(s.time) && s.time > 0 ? s.time : null)
+              .filter((v: number | null): v is number => v !== null);
+            if (validSplits.length > 0) {
+              const avgSeconds = validSplits.reduce((sum: number, t: number) => sum + t, 0) / validSplits.length;
+              return Math.round(avgSeconds * 1000);
+            }
+          }
+          // 2nd: use averageHitInterval (overall avg between all hits, in seconds)
+          if (typeof summary.averageHitInterval === 'number' && Number.isFinite(summary.averageHitInterval) && summary.averageHitInterval > 0) {
+            return Math.round(summary.averageHitInterval * 1000);
+          }
+          return null;
+        })(),
+        best_reaction_time_ms: (() => {
+          if (Array.isArray(summary.splits) && summary.splits.length > 0) {
+            const validSplits = summary.splits
+              .map((s: any) => typeof s.time === 'number' && Number.isFinite(s.time) && s.time > 0 ? s.time : null)
+              .filter((v: number | null): v is number => v !== null);
+            if (validSplits.length > 0) {
+              return Math.round(Math.min(...validSplits) * 1000);
+            }
+          }
+          return null;
+        })(),
+        worst_reaction_time_ms: (() => {
+          if (Array.isArray(summary.splits) && summary.splits.length > 0) {
+            const validSplits = summary.splits
+              .map((s: any) => typeof s.time === 'number' && Number.isFinite(s.time) && s.time > 0 ? s.time : null)
+              .filter((v: number | null): v is number => v !== null);
+            if (validSplits.length > 0) {
+              return Math.round(Math.max(...validSplits) * 1000);
+            }
+          }
+          return null;
+        })(),
         game_id: isUuid(summary.gameId) ? summary.gameId : null,
         started_at: startedAtIso,
         ended_at: endedAtIso,

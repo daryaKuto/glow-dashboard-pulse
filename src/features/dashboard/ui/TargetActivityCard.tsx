@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { formatScoreValue } from '@/utils/dashboard';
 import type { DashboardSession as Session } from '@/features/dashboard';
+import type { GameHistory } from '@/features/games/lib/device-game-flow';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -26,6 +27,7 @@ export type RangeSummary = {
   chartData: Array<{ label: string; hits: number }>;
   averageScore: number | null;
   bestScore: number | null;
+  avgSplit: number | null;
   totalShots: number;
   sessionCount: number;
   targetBuckets: TargetBucket[];
@@ -73,7 +75,7 @@ const extractTargetStats = (session: Session): TargetStat[] => {
   return stats;
 };
 
-export const buildRangeSummaries = (sessions: Session[]): Record<TimeRange, RangeSummary> => {
+export const buildRangeSummaries = (sessions: Session[], gameHistories?: GameHistory[]): Record<TimeRange, RangeSummary> => {
   const now = Date.now();
   const summaries: Record<TimeRange, RangeSummary> = {} as Record<TimeRange, RangeSummary>;
   const entries = sessions
@@ -176,6 +178,84 @@ export const buildRangeSummaries = (sessions: Session[]): Record<TimeRange, Rang
     // For time-based scoring, "best" means the lowest/fastest time
     const bestScore = scoreValues.length > 0 ? Math.min(...scoreValues) : null;
 
+    // Average split — cascading fallback:
+    // 1. Splits from game history matching this time range
+    // 2. averageHitInterval from game history matching this time range
+    // 3. Splits/averageHitInterval from sessions' thingsboardData JSONB (always available)
+    // 4. avg_reaction_time_ms from sessions DB column
+    const avgSplit = (() => {
+      // Try game history first (most accurate source)
+      if (gameHistories && gameHistories.length > 0) {
+        const filteredHistories = gameHistories.filter((gh) => {
+          const ts = gh.startTime;
+          return ts >= rangeStart && ts < bucketRangeEnd;
+        });
+
+        // 1st: individual split times from game history
+        const allSplitTimes: number[] = [];
+        for (const gh of filteredHistories) {
+          if (gh.splits && gh.splits.length > 0) {
+            for (const split of gh.splits) {
+              if (typeof split.time === 'number' && Number.isFinite(split.time) && split.time > 0) {
+                allSplitTimes.push(split.time);
+              }
+            }
+          }
+        }
+        if (allSplitTimes.length > 0) {
+          const avgSeconds = allSplitTimes.reduce((sum, t) => sum + t, 0) / allSplitTimes.length;
+          return Number((avgSeconds * 1000).toFixed(0));
+        }
+
+        // 2nd: averageHitInterval from game history (seconds → ms)
+        const intervalValues = filteredHistories
+          .map((gh) => gh.averageHitInterval)
+          .filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0);
+        if (intervalValues.length > 0) {
+          const avgSeconds = intervalValues.reduce((sum, v) => sum + v, 0) / intervalValues.length;
+          return Number((avgSeconds * 1000).toFixed(0));
+        }
+      }
+
+      // 3rd: Extract splits or averageHitInterval from sessions' thingsboardData JSONB
+      const tbSplitTimes: number[] = [];
+      const tbIntervals: number[] = [];
+      for (const session of filteredSessions) {
+        const tb = session.thingsboardData as Record<string, unknown> | null;
+        if (!tb) continue;
+        // Check splits array in thingsboardData
+        if (Array.isArray(tb.splits)) {
+          for (const s of tb.splits) {
+            const t = (s as Record<string, unknown>)?.time;
+            if (typeof t === 'number' && Number.isFinite(t) && t > 0) {
+              tbSplitTimes.push(t); // seconds
+            }
+          }
+        }
+        // Check averageHitInterval in thingsboardData
+        const ahi = tb.averageHitInterval;
+        if (typeof ahi === 'number' && Number.isFinite(ahi) && ahi > 0) {
+          tbIntervals.push(ahi); // seconds
+        }
+      }
+      if (tbSplitTimes.length > 0) {
+        const avgSeconds = tbSplitTimes.reduce((sum, t) => sum + t, 0) / tbSplitTimes.length;
+        return Number((avgSeconds * 1000).toFixed(0));
+      }
+      if (tbIntervals.length > 0) {
+        const avgSeconds = tbIntervals.reduce((sum, v) => sum + v, 0) / tbIntervals.length;
+        return Number((avgSeconds * 1000).toFixed(0));
+      }
+
+      // 4th: avg_reaction_time_ms from sessions DB column (already in ms)
+      const splitValues = filteredSessions
+        .map((session) => (typeof session.avgReactionTime === 'number' && Number.isFinite(session.avgReactionTime) && session.avgReactionTime > 0 ? session.avgReactionTime : null))
+        .filter((value): value is number => value !== null);
+      return splitValues.length > 0
+        ? Number((splitValues.reduce((sum, value) => sum + value, 0) / splitValues.length).toFixed(0))
+        : null;
+    })();
+
     const targetBuckets: TargetBucket[] = bucketDeviceMaps.map((bucketMap, index) => ({
       label: buckets[index].label,
       devices: Array.from(bucketMap.values()).sort((a, b) => b.hits - a.hits),
@@ -187,6 +267,7 @@ export const buildRangeSummaries = (sessions: Session[]): Record<TimeRange, Rang
       chartData: buckets.map((bucket) => ({ label: bucket.label, hits: bucket.hits })),
       averageScore,
       bestScore,
+      avgSplit,
       totalShots,
       sessionCount: filteredSessions.length,
       targetBuckets,
@@ -294,7 +375,7 @@ const ActivityChart: React.FC<ActivityChartProps> = ({
 
   const maxHits = Math.max(...activityBuckets.map((d) => d.metric), 1);
   const nextTier = STREAK_TIERS.find((tier) => currentStreakLength < tier.threshold) ?? STREAK_TIERS[STREAK_TIERS.length - 1];
-  const averageScoreDisplay = formatScoreValue(summary?.averageScore ?? null);
+  const avgSplitDisplay = summary?.avgSplit != null ? `${(summary.avgSplit / 1000).toFixed(2)}s` : '—';
   const bestScoreDisplay = formatScoreValue(summary?.bestScore ?? null);
   const totalShotsDisplay = summary ? summary.totalShots.toLocaleString() : '—';
 
@@ -305,7 +386,7 @@ const ActivityChart: React.FC<ActivityChartProps> = ({
           <TargetIcon className="h-4 w-4 text-brand-primary" />
           <div>
             <h3 className="text-sm font-medium text-brand-dark font-body">Target Activity</h3>
-            <p className="text-[11px] text-brand-dark/40 font-body">Session telemetry</p>
+            <p className="text-[11px] text-brand-dark font-body">Session telemetry</p>
           </div>
         </div>
         <span className="text-label text-brand-secondary font-body uppercase tracking-wide">
@@ -315,7 +396,7 @@ const ActivityChart: React.FC<ActivityChartProps> = ({
 
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Average Score', value: averageScoreDisplay },
+          { label: 'Avg Split', value: avgSplitDisplay },
           { label: 'Best Score', value: bestScoreDisplay },
           { label: 'Shots Fired', value: totalShotsDisplay },
         ].map((metric) => (
@@ -337,7 +418,7 @@ const ActivityChart: React.FC<ActivityChartProps> = ({
             <p className="text-stat-lg md:text-stat-hero font-bold text-brand-dark font-body tabular-nums leading-none">
               {summary ? summary.totalShots.toLocaleString() : '—'}
             </p>
-            <span className="text-[11px] text-brand-dark/40 font-body mt-0.5 block">
+            <span className="text-[11px] text-brand-dark font-body mt-0.5 block">
               {activeRange === 'day' && 'Hits today'}
               {activeRange === 'week' && 'Hits this week'}
               {activeRange === 'month' && 'Hits this month'}
@@ -402,7 +483,7 @@ const ActivityChart: React.FC<ActivityChartProps> = ({
                     </div>
                     {showLabel ? (
                       <span className={cn(
-                        "text-brand-dark/40 font-body truncate w-full text-center",
+                        "text-brand-dark font-body truncate w-full text-center",
                         manyBars ? "text-[8px]" : "text-[10px]"
                       )}>{item.label}</span>
                     ) : (

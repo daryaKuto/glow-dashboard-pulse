@@ -52,15 +52,17 @@ export function calculateSessionTotals(sessions: SessionData[]): SessionTotals {
       avgScore: null,
     };
   }
-  
-  const scores = sessions.map((s) => s.score);
-  const totalScore = scores.reduce((sum, score) => sum + score, 0);
-  
+
+  // Only include completed sessions (score > 0). Score=0 means DNF.
+  const validScores = sessions.map((s) => s.score).filter((s) => s > 0);
+
   // For time-based scoring, "best" means the lowest/fastest time
   return {
     totalSessions: sessions.length,
-    bestScore: Math.min(...scores),
-    avgScore: Math.round(totalScore / sessions.length),
+    bestScore: validScores.length > 0 ? Math.min(...validScores) : null,
+    avgScore: validScores.length > 0
+      ? Math.round(validScores.reduce((sum, score) => sum + score, 0) / validScores.length)
+      : null,
   };
 }
 
@@ -194,16 +196,17 @@ export function calculateScoreTrend(
     (s) => new Date(s.startedAt) >= startDate
   );
   
-  // Group by date
+  // Group by date — only include completed sessions (score > 0, DNF excluded)
   const grouped = new Map<string, number[]>();
-  
+
   for (const session of sessionsInRange) {
+    if (session.score <= 0) continue; // Skip DNF sessions
     const date = new Date(session.startedAt).toISOString().split('T')[0];
     const existing = grouped.get(date) ?? [];
     existing.push(session.score);
     grouped.set(date, existing);
   }
-  
+
   // Calculate average per day
   const trend: TrendDataPoint[] = [];
   for (const [date, scores] of grouped) {

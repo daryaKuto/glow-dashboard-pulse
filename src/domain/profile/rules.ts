@@ -121,14 +121,18 @@ export function calculateAverageAccuracy(sessions: SessionSummary[]): number | n
 /**
  * Calculate best score from sessions.
  * For time-based scoring, "best" means the lowest/fastest time.
+ * DNF sessions (score=0) are excluded — only completed runs count.
  */
 export function calculateBestScore(sessions: SessionSummary[]): number | null {
-  if (sessions.length === 0) {
+  // Only include completed sessions (score > 0). Score=0 means DNF.
+  const validScores = sessions.map((s) => s.score).filter((s) => s > 0);
+
+  if (validScores.length === 0) {
     return null;
   }
-  
+
   // For time-based scoring, lower is better
-  return Math.min(...sessions.map(s => s.score));
+  return Math.min(...validScores);
 }
 
 /**

@@ -43,6 +43,7 @@ import {
   ErrorBanner,
   PresetBanner,
 } from './components';
+import { FeatureErrorBoundary } from '@/shared/ui/FeatureErrorBoundary';
 
 const REVIEW_TARGET_DISPLAY_LIMIT = 6;
 
@@ -632,6 +633,7 @@ const Games: React.FC = () => {
         <MobileDrawer isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)} />
 
         <main className="flex-1 overflow-y-auto">
+          <FeatureErrorBoundary feature="Game Session">
           <div className="p-2 md:p-4 lg:p-6 xl:p-8 max-w-[1600px] mx-auto">
             {errorMessage && (
               <ErrorBanner
@@ -755,6 +757,7 @@ const Games: React.FC = () => {
               </div>
             </div>
           </div>
+          </FeatureErrorBoundary>
         </main>
         <StartSessionDialog
           open={isSessionDialogVisible}

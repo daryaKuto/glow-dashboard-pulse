@@ -58,6 +58,7 @@ import RenameTargetDialog from '@/features/targets/ui/RenameTargetDialog';
 import { useSubscription } from '@/features/auth/hooks';
 import { PremiumLockIcon } from '@/components/shared/SubscriptionGate';
 import { useAuth } from '@/shared/hooks/use-auth';
+import { logger } from '@/shared/lib/logger';
 
 // Modern Target Card Component with ThingsBoard integration
 const TargetCard: React.FC<{
@@ -373,12 +374,10 @@ const Targets: React.FC = () => {
   
   useEffect(() => {
     if (!subscriptionLoading) {
-      console.log('🔐 [Targets] Subscription Status:', {
-        email: userEmail,
+      logger.debug('[Targets] Subscription Status:', {
         tier,
         isPremium,
         canCustomize: isPremium,
-        timestamp: new Date().toISOString()
       });
     }
   }, [isPremium, tier, subscriptionLoading, userEmail]);
@@ -416,7 +415,7 @@ const Targets: React.FC = () => {
   useEffect(() => {
     if (storeTargets.length === 0) return;
     const timestamp = new Date().toISOString();
-    console.log('[Targets] Live target details fetched', {
+    logger.debug('[Targets] Live target details fetched', {
       timestamp,
       count: storeTargets.length,
       targets: storeTargets.map((t) => ({
@@ -490,7 +489,7 @@ const Targets: React.FC = () => {
         });
 
         if (!isCancelled) {
-          console.log('[Targets] Game history hit totals aggregated', {
+          logger.debug('[Targets] Game history hit totals aggregated', {
             totalDevices: Object.keys(totals).length,
             totals,
           });
@@ -499,7 +498,7 @@ const Targets: React.FC = () => {
         }
       } catch (error) {
         if (!isCancelled) {
-          console.error('❌ [Targets] Failed to aggregate hit history totals', error);
+          logger.error('❌ [Targets] Failed to aggregate hit history totals', error);
           toast.error('Unable to load target hit history from Supabase');
         }
       } finally {
@@ -519,12 +518,12 @@ const Targets: React.FC = () => {
   const ensureTargets = useCallback(async (force = false) => {
     const debug = isFetchDebugEnabled();
     if (debug) {
-      console.info('[Targets] ensureTargets invoked', { force });
+      logger.info('[Targets] ensureTargets invoked', { force });
     }
     try {
       const fetchedTargets = await fetchTargetsFromEdge(force);
       if (debug) {
-        console.info('[Targets] ensureTargets fetched targets', {
+        logger.info('[Targets] ensureTargets fetched targets', {
           count: fetchedTargets?.length ?? 0,
           fromForce: force,
         });
@@ -532,9 +531,9 @@ const Targets: React.FC = () => {
       setTargets(fetchedTargets);
       return fetchedTargets;
     } catch (error) {
-      console.error('❌ [Targets] Failed to fetch targets from edge:', error);
+      logger.error('❌ [Targets] Failed to fetch targets from edge:', error);
       if (debug) {
-        console.info('[Targets] ensureTargets encountered error', error);
+        logger.info('[Targets] ensureTargets encountered error', error);
       }
       if (force) {
         toast.error('Failed to refresh targets');
@@ -576,7 +575,7 @@ const Targets: React.FC = () => {
 
     const hydrateDetails = async () => {
       if (debug) {
-        console.info('[Targets] priming target details', { idsCount: ids.length, force: shouldForce });
+        logger.info('[Targets] priming target details', { idsCount: ids.length, force: shouldForce });
       }
       try {
         const success = await fetchTargetDetails(ids, {
@@ -591,7 +590,7 @@ const Targets: React.FC = () => {
           detailsFetchKeyRef.current = '';
         }
       } catch (error) {
-        console.error('❌ [Targets] Failed to hydrate target details', error);
+        logger.error('❌ [Targets] Failed to hydrate target details', error);
       }
     };
 
@@ -604,7 +603,7 @@ const Targets: React.FC = () => {
   useEffect(() => {
     if (!liveRooms.length) {
       refetchRooms().catch(error => {
-        console.error('Failed to fetch rooms:', error);
+        logger.error('Failed to fetch rooms:', error);
       });
     }
   }, [liveRooms.length, refetchRooms]);
@@ -633,11 +632,11 @@ const Targets: React.FC = () => {
     const recentShotsAggregate = targets.reduce((acc, target) => acc + (target.recentShotsCount ?? 0), 0);
 
     const timestamp = new Date().toISOString();
-    console.log('='.repeat(80));
-    console.log(`🔍 [VERIFICATION] Shot Records Summary - ${timestamp}`);
-    console.log('='.repeat(80));
+    logger.debug('='.repeat(80));
+    logger.debug(`🔍 [VERIFICATION] Shot Records Summary - ${timestamp}`);
+    logger.debug('='.repeat(80));
 
-    console.log('📊 [VERIFICATION] System Status:', {
+    logger.debug('📊 [VERIFICATION] System Status:', {
       mode: 'LIVE',
       totalTargets: targets.length,
       onlineTargets: targets.filter(t => t.status === 'online' || t.status === 'standby').length,
@@ -648,12 +647,12 @@ const Targets: React.FC = () => {
       recentActivity: recentShotsAggregate,
     });
 
-    console.log('📊 [VERIFICATION] Target Details:');
+    logger.debug('📊 [VERIFICATION] Target Details:');
     targets.forEach((target, index) => {
       const mergedShots = target.totalShots ?? 0;
       const mergedShotTime = target.lastShotTime ?? null;
 
-      console.log(`  ${index + 1}. ${target.name} (${target.id}):`, {
+      logger.debug(`  ${index + 1}. ${target.name} (${target.id}):`, {
         status: target.status,
         activityStatus: target.activityStatus,
         roomId: target.roomId || 'unassigned',
@@ -667,25 +666,25 @@ const Targets: React.FC = () => {
       });
     });
 
-    console.log('📊 [VERIFICATION] Data Flow Summary:');
-    console.log('  1. Supabase Edge → target-details → Telemetry & history');
-    console.log('  2. Targets store → Merge edge data into shared state');
-    console.log('  3. Targets Page → Render shared state across views');
+    logger.debug('📊 [VERIFICATION] Data Flow Summary:');
+    logger.debug('  1. Supabase Edge → target-details → Telemetry & history');
+    logger.debug('  2. Targets store → Merge edge data into shared state');
+    logger.debug('  3. Targets Page → Render shared state across views');
 
-    console.log('📊 [VERIFICATION] Key Verification Points:');
-    console.log('  • Check that totalShots matches ThingsBoard hits value');
-    console.log('  • Check that lastShotTime matches ThingsBoard hit_ts value');
-    console.log('  • Check that activity status reflects actual data');
-    console.log('  • Compare with check script output for device names and IDs');
+    logger.debug('📊 [VERIFICATION] Key Verification Points:');
+    logger.debug('  • Check that totalShots matches ThingsBoard hits value');
+    logger.debug('  • Check that lastShotTime matches ThingsBoard hit_ts value');
+    logger.debug('  • Check that activity status reflects actual data');
+    logger.debug('  • Compare with check script output for device names and IDs');
 
-    console.log('='.repeat(80));
+    logger.debug('='.repeat(80));
   }, [targets]);
 
   // Handle cache updates
 
   // Handle refresh
   const handleRefresh = async () => {
-    console.log('🔄 Refreshing targets from edge cache...');
+    logger.debug('🔄 Refreshing targets from edge cache...');
 
     try {
       const refreshedTargets = await ensureTargets(true);
@@ -712,7 +711,7 @@ const Targets: React.FC = () => {
       await Promise.all(tasks);
       toast.success('🔗 Targets refreshed');
     } catch (error) {
-      console.error('❌ [Targets] Refresh failed', error);
+      logger.error('❌ [Targets] Refresh failed', error);
       toast.error('Failed to refresh targets');
     }
   };
@@ -798,15 +797,15 @@ const Targets: React.FC = () => {
     if (existingIndex === -1) {
       acc.push(target);
     } else {
-      console.warn(`⚠️ Duplicate target found: ${target.name} (ID: ${target.id})`);
+      logger.warn(`⚠️ Duplicate target found: ${target.name} (ID: ${target.id})`);
       // Keep the one with more complete data (has roomId or more properties)
       const existing = acc[existingIndex];
       if (target.roomId && !existing.roomId) {
         acc[existingIndex] = target; // Replace with the one that has roomId
-        console.log(`   → Replaced with version that has roomId: ${target.roomId}`);
+        logger.debug(`   → Replaced with version that has roomId: ${target.roomId}`);
       } else if (Object.keys(target).length > Object.keys(existing).length) {
         acc[existingIndex] = target; // Replace with more complete data
-        console.log(`   → Replaced with more complete version`);
+        logger.debug(`   → Replaced with more complete version`);
       }
     }
     return acc;
@@ -904,7 +903,7 @@ const Targets: React.FC = () => {
     try {
       await unassignTargetsMutation.mutateAsync({ groupId, targetIds: [targetId] });
     } catch (error) {
-      console.error('Failed to remove target from group:', error);
+      logger.error('Failed to remove target from group:', error);
     }
   };
 
@@ -914,7 +913,7 @@ const Targets: React.FC = () => {
       await assignTargetsMutation.mutateAsync({ groupId, targetIds });
       setGroupIdToAddTargets(null);
     } catch (error) {
-      console.error('Failed to add targets to group:', error);
+      logger.error('Failed to add targets to group:', error);
     }
   };
 

@@ -4,6 +4,7 @@ import type { SessionHitRecord } from '@/features/games/lib/device-game-flow';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import { tbSendOneway } from '@/features/games/lib/thingsboard-client';
 import { toast } from '@/components/ui/sonner';
+import { logger } from '@/shared/lib/logger';
 
 /** Shape of the telemetry snapshot provided by useDirectTbTelemetry */
 interface TelemetrySnapshot {
@@ -120,7 +121,7 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
       }
 
       try {
-        console.info('[Games] Stopping target due to goal reached', {
+        logger.info('[Games] Stopping target due to goal reached', {
           deviceId,
           deviceName,
           goalShots,

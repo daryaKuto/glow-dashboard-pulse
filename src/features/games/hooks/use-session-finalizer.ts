@@ -12,6 +12,7 @@ import {
   saveGameHistory,
 } from '@/features/games/lib/game-history';
 import type { SessionCallbacks } from './use-session-registry';
+import { logger } from '@/shared/lib/logger';
 
 export type { FinalizeSessionArgs };
 
@@ -141,9 +142,9 @@ export function useSessionFinalizer(options: UseSessionFinalizerOptions): UseSes
       try {
         const { status, sessionPersisted, sessionPersistError } = await saveGameHistory(sessionSummary.historyEntry);
         if (status === 'created') {
-          console.info('[Games] Game history entry created', sessionSummary.historyEntry.gameId);
+          logger.info('[Games] Game history entry created', sessionSummary.historyEntry.gameId);
         } else if (status === 'updated') {
-          console.info('[Games] Game history entry updated', sessionSummary.historyEntry.gameId);
+          logger.info('[Games] Game history entry updated', sessionSummary.historyEntry.gameId);
         }
         if (!sessionPersisted) {
           console.warn('[Games] Session analytics missing from Supabase sessions table', {
@@ -218,7 +219,7 @@ export function useSessionFinalizer(options: UseSessionFinalizerOptions): UseSes
 
     if ((isSingleTarget || allTargetsWithGoalsStopped) && stoppedTargets.size > 0) {
       goalTerminationTriggeredRef.current = true;
-      console.info('[Games] All targets with goals reached their goals. Terminating game.', {
+      logger.info('[Games] All targets with goals reached their goals. Terminating game.', {
         isSingleTarget,
         allTargetsWithGoalsStopped,
         activeDeviceIds,
@@ -247,7 +248,7 @@ export function useSessionFinalizer(options: UseSessionFinalizerOptions): UseSes
       return;
     }
     autoStopTriggeredRef.current = true;
-    console.info('[Games] Auto-stopping session because desired duration elapsed', {
+    logger.info('[Games] Auto-stopping session because desired duration elapsed', {
       desiredDurationSeconds: sessionDurationSeconds,
       elapsedSeconds: sessionTimerSeconds,
     });

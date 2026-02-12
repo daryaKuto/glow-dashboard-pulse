@@ -6,6 +6,7 @@ import type { LiveSessionSummary } from '@/features/games/ui/components/types';
 import { invokeGameControl } from '@/lib/edge';
 import { toast } from '@/components/ui/sonner';
 import type { SessionRegistry, SessionCallbacks } from './use-session-registry';
+import { logger } from '@/shared/lib/logger';
 
 
 export interface UseTbSessionFlowOptions {
@@ -480,7 +481,7 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
       return;
     }
 
-    console.info('[Games] Stopping direct ThingsBoard session', {
+    logger.info('[Games] Stopping direct ThingsBoard session', {
       gameId: directSessionGameId,
       deviceIds: activeDeviceIdsSnapshot,
     });
@@ -489,7 +490,7 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
     setSessionLifecycle('stopping');
     setGameStopTime(stopTimestamp);
     freezeSessionTimer(stopTimestamp);
-    console.info('[Games] Game stop initiated', {
+    logger.info('[Games] Game stop initiated', {
       gameId: directSessionGameId,
       stopTimestamp,
       stopTimeISO: new Date(stopTimestamp).toISOString(),
@@ -504,7 +505,7 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
 
     let stopResponse: Awaited<ReturnType<typeof invokeGameControl>> | null = null;
     try {
-      console.info('[Games] Sending stop via edge game-control', {
+      logger.info('[Games] Sending stop via edge game-control', {
         deviceIds: stopDeviceIds,
         gameId: directSessionGameId,
       });
@@ -512,7 +513,7 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
         deviceIds: stopDeviceIds,
         gameId: directSessionGameId,
       });
-      console.info('[Games] Edge game-control stop response', stopResponse);
+      logger.info('[Games] Edge game-control stop response', stopResponse);
     } catch (error) {
       console.error('[Games] Edge game-control stop failed', error);
       stopResponse = null;
@@ -585,7 +586,7 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
         goalShotsPerTarget,
       });
 
-      console.info('[Games] Direct session persisted successfully', {
+      logger.info('[Games] Direct session persisted successfully', {
         gameId: directSessionGameId,
         stopTimestamp,
       });

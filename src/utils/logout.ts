@@ -9,19 +9,20 @@
 
 import { resetGameFlowState } from '@/features/games';
 import { queryClient } from '@/app/query-client';
+import { logger } from '@/shared/lib/logger';
 
 /**
  * Clear all application state and data
  */
 export const clearAllApplicationState = () => {
-  console.log('[Logout] Clearing all application state...');
+  logger.debug('[Logout] Clearing all application state...');
 
   try {
     localStorage.clear();
-    console.log('[Logout] localStorage cleared');
+    logger.debug('[Logout] localStorage cleared');
 
     sessionStorage.clear();
-    console.log('[Logout] sessionStorage cleared');
+    logger.debug('[Logout] sessionStorage cleared');
 
     if ('caches' in window) {
       caches.keys().then(names => {
@@ -39,7 +40,7 @@ export const clearAllApplicationState = () => {
       });
     }
 
-    console.log('[Logout] Application state cleared successfully');
+    logger.debug('[Logout] Application state cleared successfully');
   } catch (error) {
     console.error('[Logout] Error clearing application state:', error);
   }
@@ -52,23 +53,23 @@ export const clearAllApplicationState = () => {
  * and calls feature-specific reset functions for any remaining Zustand stores.
  */
 export const resetAllStores = () => {
-  console.log('[Logout] Resetting all stores...');
+  logger.debug('[Logout] Resetting all stores...');
 
   try {
     // Clear all React Query caches (covers all server data)
     queryClient.clear();
-    console.log('[Logout] React Query cache cleared');
+    logger.debug('[Logout] React Query cache cleared');
 
     // Reset the game flow store via its public API
     // (the only remaining Zustand store with runtime state)
     try {
       resetGameFlowState();
-      console.log('[Logout] GameFlow store reset');
+      logger.debug('[Logout] GameFlow store reset');
     } catch (error) {
       console.warn('[Logout] Could not reset GameFlow store:', error);
     }
 
-    console.log('[Logout] All stores reset successfully');
+    logger.debug('[Logout] All stores reset successfully');
   } catch (error) {
     console.error('[Logout] Error resetting stores:', error);
   }
@@ -78,7 +79,7 @@ export const resetAllStores = () => {
  * Complete logout process
  */
 export const performCompleteLogout = () => {
-  console.log('[Logout] Starting complete logout process...');
+  logger.debug('[Logout] Starting complete logout process...');
 
   clearAllApplicationState();
   resetAllStores();
@@ -98,5 +99,5 @@ export const performCompleteLogout = () => {
     console.warn('[Logout] Error clearing intervals/timeouts:', error);
   }
 
-  console.log('[Logout] Complete logout process finished');
+  logger.debug('[Logout] Complete logout process finished');
 };

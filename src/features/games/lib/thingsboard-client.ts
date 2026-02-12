@@ -2,6 +2,7 @@ import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { getRateLimiter } from '@/shared/lib/rate-limit-config';
 import { RateLimitMonitor } from '@/shared/lib/rate-limit-monitor';
 import { RateLimitError } from '@/shared/lib/rate-limiter';
+import { logger } from '@/shared/lib/logger';
 
 /**
  * IMPORTANT: This module is reserved for the live Games experience.
@@ -434,7 +435,7 @@ export const getBatchServerAttributes = async (
 
   const duration = performance.now() - startTime;
   if (deviceIds.length > 10) {
-    console.info('⚡ [Performance] getBatchServerAttributes', {
+    logger.info('⚡ [Performance] getBatchServerAttributes', {
       deviceCount: deviceIds.length,
       duration: `${duration.toFixed(2)}ms`,
       avgPerDevice: `${(duration / deviceIds.length).toFixed(2)}ms`,

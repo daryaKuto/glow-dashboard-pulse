@@ -15,6 +15,7 @@ import {
   isAxiosNetworkError,
   type ThingsboardDevice,
 } from './thingsboard-client';
+import { logger } from '@/shared/lib/logger';
 
 interface ThingsboardSessionResponse {
   token: string;
@@ -330,7 +331,7 @@ const fetchTelemetryForDevices = async (deviceIds: string[], keys: string[], lim
   
   const duration = performance.now() - startTime;
   if (deviceIds.length > 10) {
-    console.info('⚡ [Performance] fetchTelemetryForDevices', {
+    logger.info('⚡ [Performance] fetchTelemetryForDevices', {
       deviceCount: deviceIds.length,
       duration: `${duration.toFixed(2)}ms`,
       avgPerDevice: `${(duration / deviceIds.length).toFixed(2)}ms`,
@@ -463,7 +464,7 @@ export const fetchTargetsWithTelemetry = async (
       ]);
       const totalDuration = performance.now() - fetchStartTime;
       
-      console.info('⚡ [Performance] fetchTargetsWithTelemetry (ThingsBoard)', {
+      logger.info('⚡ [Performance] fetchTargetsWithTelemetry (ThingsBoard)', {
         deviceCount: deviceIds.length,
         telemetryDuration: `${telemetryDuration.toFixed(2)}ms`,
         attributesDuration: `${attributesDuration.toFixed(2)}ms`,

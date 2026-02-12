@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tbSubscribeTelemetry } from '@/features/games/lib/thingsboard-client';
+import { logger } from '@/shared/lib/logger';
 
 interface DeviceDescriptor {
   deviceId: string;
@@ -271,7 +272,7 @@ export const useDirectTbTelemetry = ({
         realtime: true,
         pollIntervalMs: 1_000,
         onError: (error) => {
-          console.info('[useDirectTbTelemetry] Falling back to polling telemetry', error);
+          logger.info('[useDirectTbTelemetry] Falling back to polling telemetry', error);
         },
       },
     );

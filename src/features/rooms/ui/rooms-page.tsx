@@ -26,6 +26,7 @@ import RoomCard from '@/components/RoomCard';
 import DragDropList from '@/components/DragDropList';
 import { toast } from '@/components/ui/sonner';
 import CreateRoomModal from '@/components/CreateRoomModal';
+import { logger } from '@/shared/lib/logger';
 import {
   useRooms,
   useCreateRoom,
@@ -79,7 +80,7 @@ const RoomsPage: React.FC = () => {
   // Optimistically update local state without API call
   const updateTargetsOptimistically = (targetIds: string[], newRoomId: string | null) => {
     // This will be handled by React Query cache updates
-    console.log(`✨ [OPTIMISTIC] UI: Updated ${targetIds.length} targets locally to room ${newRoomId}`);
+    logger.debug(`✨ [OPTIMISTIC] UI: Updated ${targetIds.length} targets locally to room ${newRoomId}`);
   };
 
   const handleCreateRoom = async (roomData: {

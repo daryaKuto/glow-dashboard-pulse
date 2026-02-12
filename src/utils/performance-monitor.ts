@@ -59,7 +59,7 @@ export function measure(name: string, startMark: string, endMark?: string): numb
  * Log all performance marks (for debugging)
  */
 export function logPerformanceSummary(): void {
-  if (marks.length === 0) return;
+  if (!import.meta.env.DEV || marks.length === 0) return;
   
   console.group('⚡ Performance Summary');
   marks.forEach((mark, index) => {

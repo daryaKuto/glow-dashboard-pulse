@@ -9,8 +9,8 @@
  * - hooks.ts: React Query hooks for auth data (subscription tier)
  * - schema.ts: Zod schemas and types
  * 
- * Note: Core auth state (user, session, loading) is still managed by 
- * AuthProvider (src/providers/AuthProvider.tsx) for session lifecycle.
+ * Note: Core auth state (user, session, loading) is still managed by
+ * AuthProvider (src/app/auth-provider.tsx) for session lifecycle.
  * The repo/service here centralizes Supabase auth operations.
  * 
  * For auth state: useAuth() from @/shared/hooks/use-auth

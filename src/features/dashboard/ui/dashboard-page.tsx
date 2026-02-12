@@ -28,6 +28,7 @@ import { formatScoreValue } from '@/utils/dashboard';
 const TimelineCard = React.lazy(() => import('@/features/dashboard/ui/TimelineCard'));
 const HitDistributionCardWrapper = React.lazy(() => import('@/features/dashboard/ui/HitDistributionCardWrapper'));
 import { throttledLogOnChange } from '@/utils/log-throttle';
+import { FeatureErrorBoundary } from '@/shared/ui/FeatureErrorBoundary';
 
 // Modern Stat Card Component
 const StatCard: React.FC<{
@@ -528,6 +529,7 @@ const Dashboard: React.FC = () => {
         />
         
         <main className="flex-1 overflow-y-auto responsive-container">
+          <FeatureErrorBoundary feature="Dashboard">
           <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
             
             
@@ -688,6 +690,7 @@ const Dashboard: React.FC = () => {
             </div>
 
           </div>
+          </FeatureErrorBoundary>
         </main>
       </div>
     </div>

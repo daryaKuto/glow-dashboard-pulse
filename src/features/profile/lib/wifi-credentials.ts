@@ -6,6 +6,7 @@
 import { supabase } from '@/data/supabase-client';
 import { fetchTargetsWithTelemetry, fetchDeviceAttributes } from '@/lib/edge';
 import { encryptPassword, decryptPassword } from '@/shared/lib/credentials';
+import { logger } from '@/shared/lib/logger';
 
 export interface WifiCredentials {
   ssid: string;
@@ -18,12 +19,12 @@ export interface WifiCredentials {
  */
 export const fetchWifiFromThingsBoard = async (userId: string): Promise<WifiCredentials | null> => {
   try {
-    console.log('[WiFi Service] Fetching WiFi credentials from ThingsBoard for user:', userId);
+    logger.debug('[WiFi Service] Fetching WiFi credentials from ThingsBoard for user:', userId);
 
     const { targets } = await fetchTargetsWithTelemetry(false);
 
     if (!targets || targets.length === 0) {
-      console.log('[WiFi Service] No targets/devices returned from Supabase edge');
+      logger.debug('[WiFi Service] No targets/devices returned from Supabase edge');
       return null;
     }
 
@@ -36,7 +37,7 @@ export const fetchWifiFromThingsBoard = async (userId: string): Promise<WifiCred
         : '';
 
     if (!deviceId) {
-      console.log('[WiFi Service] Unable to resolve a device ID from targets payload');
+      logger.debug('[WiFi Service] Unable to resolve a device ID from targets payload');
       return null;
     }
 
@@ -49,11 +50,11 @@ export const fetchWifiFromThingsBoard = async (userId: string): Promise<WifiCred
     const password = String(attributes.wifi_password ?? attributes.password ?? '') || '';
 
     if (!ssid && !password) {
-      console.log('[WiFi Service] No WiFi credentials found on device attributes');
+      logger.debug('[WiFi Service] No WiFi credentials found on device attributes');
       return null;
     }
 
-    console.log('[WiFi Service] WiFi credentials found via edge function', {
+    logger.debug('[WiFi Service] WiFi credentials found via edge function', {
       ssid,
       hasPassword: Boolean(password),
       deviceId,
@@ -61,7 +62,7 @@ export const fetchWifiFromThingsBoard = async (userId: string): Promise<WifiCred
 
     return { ssid, password };
   } catch (error) {
-    console.error('[WiFi Service] Error fetching WiFi from ThingsBoard:', error);
+    logger.error('[WiFi Service] Error fetching WiFi from ThingsBoard:', error);
     return null;
   }
 };
@@ -75,7 +76,7 @@ export const syncWifiToSupabase = async (
   password: string
 ): Promise<boolean> => {
   try {
-    console.log('[WiFi Service] Syncing WiFi credentials to Supabase for user:', userId);
+    logger.debug('[WiFi Service] Syncing WiFi credentials to Supabase for user:', userId);
     
     // Encrypt the password
     const encryptedPassword = await encryptPassword(password);
@@ -92,14 +93,14 @@ export const syncWifiToSupabase = async (
       .eq('id', userId);
     
     if (error) {
-      console.error('[WiFi Service] Error syncing WiFi to Supabase:', error);
+      logger.error('[WiFi Service] Error syncing WiFi to Supabase:', error);
       return false;
     }
     
-    console.log('[WiFi Service] WiFi credentials synced to Supabase successfully');
+    logger.debug('[WiFi Service] WiFi credentials synced to Supabase successfully');
     return true;
   } catch (error) {
-    console.error('[WiFi Service] Error syncing WiFi to Supabase:', error);
+    logger.error('[WiFi Service] Error syncing WiFi to Supabase:', error);
     return false;
   }
 };
@@ -109,7 +110,7 @@ export const syncWifiToSupabase = async (
  */
 export const getWifiFromSupabase = async (userId: string): Promise<WifiCredentials | null> => {
   try {
-    console.log('[WiFi Service] Getting WiFi credentials from Supabase for user:', userId);
+    logger.debug('[WiFi Service] Getting WiFi credentials from Supabase for user:', userId);
     
     const { data, error } = await supabase
       .from('user_profiles')
@@ -118,19 +119,19 @@ export const getWifiFromSupabase = async (userId: string): Promise<WifiCredentia
       .single();
     
     if (error) {
-      console.error('[WiFi Service] Error fetching WiFi from Supabase:', error);
+      logger.error('[WiFi Service] Error fetching WiFi from Supabase:', error);
       return null;
     }
     
     if (!data.wifi_ssid_encrypted || !data.wifi_password_encrypted) {
-      console.log('[WiFi Service] No WiFi credentials found in Supabase');
+      logger.debug('[WiFi Service] No WiFi credentials found in Supabase');
       return null;
     }
     
     // Decrypt the password
     const decryptedPassword = await decryptPassword(data.wifi_password_encrypted);
     
-    console.log('[WiFi Service] WiFi credentials retrieved from Supabase:', {
+    logger.debug('[WiFi Service] WiFi credentials retrieved from Supabase:', {
       ssid: data.wifi_ssid_encrypted,
       hasPassword: !!decryptedPassword,
       lastSync: data.wifi_last_sync
@@ -141,7 +142,7 @@ export const getWifiFromSupabase = async (userId: string): Promise<WifiCredentia
       password: decryptedPassword
     };
   } catch (error) {
-    console.error('[WiFi Service] Error getting WiFi from Supabase:', error);
+    logger.error('[WiFi Service] Error getting WiFi from Supabase:', error);
     return null;
   }
 };
@@ -152,13 +153,13 @@ export const getWifiFromSupabase = async (userId: string): Promise<WifiCredentia
  */
 export const syncWifiCredentialsOnLogin = async (userId: string): Promise<boolean> => {
   try {
-    console.log('[WiFi Service] Starting WiFi sync on login for user:', userId);
+    logger.debug('[WiFi Service] Starting WiFi sync on login for user:', userId);
     
     // Fetch WiFi from ThingsBoard
     const wifiCredentials = await fetchWifiFromThingsBoard(userId);
     
     if (!wifiCredentials) {
-      console.log('[WiFi Service] No WiFi credentials found in ThingsBoard, skipping sync');
+      logger.debug('[WiFi Service] No WiFi credentials found in ThingsBoard, skipping sync');
       return false;
     }
     
@@ -166,14 +167,14 @@ export const syncWifiCredentialsOnLogin = async (userId: string): Promise<boolea
     const success = await syncWifiToSupabase(userId, wifiCredentials.ssid, wifiCredentials.password);
     
     if (success) {
-      console.log('[WiFi Service] WiFi credentials synced successfully on login');
+      logger.debug('[WiFi Service] WiFi credentials synced successfully on login');
     } else {
-      console.error('[WiFi Service] Failed to sync WiFi credentials on login');
+      logger.error('[WiFi Service] Failed to sync WiFi credentials on login');
     }
     
     return success;
   } catch (error) {
-    console.error('[WiFi Service] Error during WiFi sync on login:', error);
+    logger.error('[WiFi Service] Error during WiFi sync on login:', error);
     return false;
   }
 };
@@ -195,7 +196,7 @@ export const hasWifiCredentials = async (userId: string): Promise<boolean> => {
     
     return !!(data.wifi_ssid_encrypted && data.wifi_password_encrypted);
   } catch (error) {
-    console.error('[WiFi Service] Error checking WiFi credentials:', error);
+    logger.error('[WiFi Service] Error checking WiFi credentials:', error);
     return false;
   }
 };

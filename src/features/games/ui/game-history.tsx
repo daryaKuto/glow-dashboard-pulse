@@ -5,7 +5,8 @@
  * filtering, and sorting capabilities.
  */
 
-import React, { useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,11 +26,15 @@ interface GameHistoryProps {
   onGameSelect?: (game: GameHistoryType) => void;
 }
 
+const COLLAPSED_ROW_HEIGHT = 160;
+const EXPANDED_ROW_HEIGHT = 320;
+
 export const GameHistoryComponent: React.FC<GameHistoryProps> = ({ onGameSelect }) => {
   const { data: gameHistory = [], isLoading, error } = useGameHistory();
   const [selectedGame, setSelectedGame] = useState<GameHistoryType | null>(null);
   const [sortBy, setSortBy] = useState<'date' | 'hits' | 'duration'>('date');
   const [filterBy, setFilterBy] = useState<'all' | 'recent' | 'high-score'>('all');
+  const parentRef = useRef<HTMLDivElement>(null);
 
   // Sort and filter games
   const sortedGames = gameHistory
@@ -248,38 +253,108 @@ export const GameHistoryComponent: React.FC<GameHistoryProps> = ({ onGameSelect 
         </div>
       </div>
 
-      {/* Game History List */}
-      <div className="space-y-4">
-        {sortedGames.length === 0 ? (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <History className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                No Games Yet
-              </h3>
-              <p className="text-gray-600">
-                Start playing to see your game history here
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          sortedGames.map((game) => {
-            const totalHits = getTotalHits(game);
-            const bestDevice = getBestDevice(game);
+      {/* Game History List (virtualized) */}
+      {sortedGames.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <History className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              No Games Yet
+            </h3>
+            <p className="text-gray-600">
+              Start playing to see your game history here
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <VirtualGameList
+          games={sortedGames}
+          selectedGame={selectedGame}
+          parentRef={parentRef}
+          onSelect={(game) => {
             const isSelected = selectedGame?.gameId === game.gameId;
+            setSelectedGame(isSelected ? null : game);
+            onGameSelect?.(game);
+          }}
+          getTotalHits={getTotalHits}
+          getBestDevice={getBestDevice}
+          formatDate={formatDate}
+          formatDuration={formatDuration}
+        />
+      )}
+    </div>
+  );
+};
 
-            return (
+/** Virtualized list that only renders visible game cards */
+function VirtualGameList({
+  games,
+  selectedGame,
+  parentRef,
+  onSelect,
+  getTotalHits,
+  getBestDevice,
+  formatDate,
+  formatDuration,
+}: {
+  games: GameHistoryType[];
+  selectedGame: GameHistoryType | null;
+  parentRef: React.RefObject<HTMLDivElement | null>;
+  onSelect: (game: GameHistoryType) => void;
+  getTotalHits: (game: GameHistoryType) => number;
+  getBestDevice: (game: GameHistoryType) => GameHistoryType['deviceResults'][number];
+  formatDate: (ts: number) => string;
+  formatDuration: (mins: number) => string;
+}) {
+  const virtualizer = useVirtualizer({
+    count: games.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: (index) => {
+      const game = games[index];
+      const isExpanded = selectedGame?.gameId === game.gameId;
+      return isExpanded ? EXPANDED_ROW_HEIGHT : COLLAPSED_ROW_HEIGHT;
+    },
+    overscan: 5,
+    gap: 16,
+  });
+
+  return (
+    <div
+      ref={parentRef}
+      className="overflow-auto"
+      style={{ maxHeight: '70vh' }}
+    >
+      <div
+        style={{
+          height: `${virtualizer.getTotalSize()}px`,
+          width: '100%',
+          position: 'relative',
+        }}
+      >
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const game = games[virtualRow.index];
+          const hits = getTotalHits(game);
+          const bestDevice = getBestDevice(game);
+          const isSelected = selectedGame?.gameId === game.gameId;
+
+          return (
+            <div
+              key={game.gameId}
+              data-index={virtualRow.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
               <Card
-                key={game.gameId}
                 className={`cursor-pointer transition-all hover:shadow-md ${
                   isSelected ? 'ring-2 ring-brand-primary' : ''
                 }`}
-                onClick={() => {
-                  setSelectedGame(isSelected ? null : game);
-                  if (onGameSelect) {
-                    onGameSelect(game);
-                  }
-                }}
+                onClick={() => onSelect(game)}
               >
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-3">
@@ -291,7 +366,7 @@ export const GameHistoryComponent: React.FC<GameHistoryProps> = ({ onGameSelect 
                     </div>
                     <div className="text-right">
                       <div className="text-2xl font-bold text-brand-primary">
-                        {totalHits}
+                        {hits}
                       </div>
                       <div className="text-sm text-gray-600">Total Hits</div>
                     </div>
@@ -313,12 +388,11 @@ export const GameHistoryComponent: React.FC<GameHistoryProps> = ({ onGameSelect 
                     <div>
                       <div className="text-gray-600">Avg per Device</div>
                       <div className="font-medium">
-                        {Math.round(totalHits / game.deviceResults.length)}
+                        {Math.round(hits / game.deviceResults.length)}
                       </div>
                     </div>
                   </div>
 
-                  {/* Device Results */}
                   {isSelected && (
                     <div className="mt-4 pt-4 border-t">
                       <h4 className="font-medium mb-2">Device Results</h4>
@@ -344,12 +418,12 @@ export const GameHistoryComponent: React.FC<GameHistoryProps> = ({ onGameSelect 
                   )}
                 </CardContent>
               </Card>
-            );
-          })
-        )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
-};
+}
 
 export default GameHistoryComponent;

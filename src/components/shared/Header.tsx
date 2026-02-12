@@ -14,6 +14,7 @@ import {
 import { toast } from '@/components/ui/sonner';
 import { UserRound, Settings, LogOut, Home, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { logger } from '@/shared/lib/logger';
 
 interface HeaderProps {
   onMenuClick?: () => void;
@@ -27,9 +28,9 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
   const handleSignOut = async () => {
     try {
-      console.log('[Header] Starting logout process...');
+      logger.debug('[Header] Starting logout process...');
       await signOut();
-      console.log('[Header] Logout completed, redirecting to login...');
+      logger.debug('[Header] Logout completed, redirecting to login...');
       // The AuthProvider will handle the redirect, so we don't need to navigate here
     } catch (error) {
       console.error('[Header] Logout error:', error);

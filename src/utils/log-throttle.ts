@@ -2,6 +2,8 @@
  * Throttle utility for console logs to prevent flooding
  */
 
+import { logger } from '@/shared/lib/logger';
+
 interface ThrottleState {
   lastLogTime: number;
   count: number;
@@ -26,7 +28,7 @@ export function throttledLog(
   const state = throttleState.get(key);
   
   if (!state || now - state.lastLogTime >= minIntervalMs) {
-    console.info(message, data);
+    logger.info(message, data);
     throttleState.set(key, {
       lastLogTime: now,
       count: (state?.count ?? 0) + 1,
@@ -84,7 +86,7 @@ export function throttledLogOnChange(
   const timePassed = !state || now - state.lastLogTime >= minIntervalMs;
   
   if (dataChanged || timePassed) {
-    console.info(message, data);
+    logger.info(message, data);
     throttleState.set(key, {
       lastLogTime: now,
       count: (state?.count ?? 0) + 1,

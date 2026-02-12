@@ -1,5 +1,6 @@
 import { supabase } from '@/data/supabase-client';
 import { fetchTargetsWithTelemetry } from '@/lib/edge';
+import { logger } from '@/shared/lib/logger';
 import type { Target } from '@/features/targets/schema';
 
 export interface UserTargetGroup {
@@ -64,7 +65,7 @@ class SupabaseTargetGroupsService {
 
   // Clear cache when mutations occur
   private clearGroupsCache(): void {
-    console.log('🧹 [CACHE] Clearing groups with assignments cache');
+    logger.debug('🧹 [CACHE] Clearing groups with assignments cache');
     this.groupsWithAssignmentsCache = {
       data: null,
       timestamp: 0,

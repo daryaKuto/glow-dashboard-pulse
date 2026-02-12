@@ -3,6 +3,7 @@ import type { Target } from '@/features/targets/schema';
 import { getRateLimiter } from '@/shared/lib/rate-limit-config';
 import { RateLimitMonitor } from '@/shared/lib/rate-limit-monitor';
 import { throttledLog, throttledLogOnChange } from '@/utils/log-throttle';
+import { logger } from '@/shared/lib/logger';
 
 /**
  * Rate-limited wrapper for Supabase edge function calls.
@@ -26,7 +27,7 @@ async function rateLimitedEdgeCall<T>(
       await limiter.acquire();
     } catch (error) {
       // Log rate limit error but don't block the request entirely
-      console.warn(`[Edge] Rate limit exceeded for ${functionName}`, error);
+      logger.warn(`[Edge] Rate limit exceeded for ${functionName}`, error);
       RateLimitMonitor.recordHit('SUPABASE_EDGE', 0, status.queuedRequests);
       // Re-throw to let caller handle the rate limit error
       throw error;
@@ -119,7 +120,7 @@ const getSupabaseAuthHeaders = async (): Promise<Record<string, string>> => {
       headers.Authorization = `Bearer ${token}`;
     }
   } catch (sessionError) {
-    console.warn('[Edge] Unable to retrieve Supabase session before edge function call', sessionError);
+    logger.warn('[Edge] Unable to retrieve Supabase session before edge function call', sessionError);
   }
   return headers;
 };
@@ -306,7 +307,7 @@ export async function fetchTargetsWithTelemetry(force = false): Promise<{ target
   if (!data || !Array.isArray(data.data)) {
     const summary = mapSummary(data?.summary);
     const cached = Boolean(data?.cached);
-    console.info('[Edge] targets-with-telemetry fetched (no list)', {
+    logger.info('[Edge] targets-with-telemetry fetched (no list)', {
       supabaseEdgeFunction: 'targets-with-telemetry',
       backingTables: ['public.user_profiles', 'public.user_rooms', 'public.user_room_targets'],
       thingsboardInvolved: true,
@@ -494,7 +495,7 @@ export async function fetchDashboardMetrics(force = false): Promise<{ metrics: D
       headers.Authorization = `Bearer ${token}`;
     }
   } catch (sessionError) {
-    console.warn('[Edge] Unable to retrieve Supabase session before dashboard metrics fetch', sessionError);
+    logger.warn('[Edge] Unable to retrieve Supabase session before dashboard metrics fetch', sessionError);
   }
 
   const invokeRequest = async () => {
@@ -544,7 +545,7 @@ export async function fetchDashboardMetrics(force = false): Promise<{ metrics: D
   try {
     result = await invokeRequest();
   } catch (invokeError) {
-    console.warn('[Edge] dashboard-metrics invoke failed, retrying via fetch', invokeError);
+    logger.warn('[Edge] dashboard-metrics invoke failed, retrying via fetch', invokeError);
     result = await fetchDirect();
     if (!result) {
       throw invokeError;
@@ -556,7 +557,7 @@ export async function fetchDashboardMetrics(force = false): Promise<{ metrics: D
   }
 
   if (result.error) {
-    console.warn('[Edge] dashboard-metrics invoke returned error', result.error);
+    logger.warn('[Edge] dashboard-metrics invoke returned error', result.error);
     const fallback = await fetchDirect();
     if (fallback) {
       result = fallback;
@@ -679,7 +680,7 @@ export async function fetchTelemetryHistory(deviceIds: string[], startTs: number
 
   const devices = data?.devices ?? [];
   const cached = Boolean(data?.cached);
-  console.info('[Edge] telemetry-history fetched', {
+  logger.info('[Edge] telemetry-history fetched', {
     deviceCount: devices.length,
     cached,
   });
@@ -713,7 +714,7 @@ export async function fetchDeviceAttributes(
       headers.Authorization = `Bearer ${token}`;
     }
   } catch (sessionError) {
-    console.warn('[Edge] Unable to retrieve Supabase session before device-admin get-attributes', sessionError);
+    logger.warn('[Edge] Unable to retrieve Supabase session before device-admin get-attributes', sessionError);
   }
 
   const body: Record<string, unknown> = {
@@ -741,7 +742,7 @@ export async function fetchDeviceAttributes(
   }
 
   const attributes = data?.attributes ?? {};
-  console.info('[Edge] device-admin attributes fetched', {
+  logger.info('[Edge] device-admin attributes fetched', {
     deviceId,
     scope: options.scope ?? null,
     keyCount: attributes ? Object.keys(attributes).length : 0,
@@ -780,7 +781,7 @@ export async function fetchShootingActivity(deviceIds: string[], keys?: string[]
 
   const activity = data?.activity ?? [];
   const cached = Boolean(data?.cached);
-  console.info('[Edge] shooting-activity fetched', {
+  logger.info('[Edge] shooting-activity fetched', {
     deviceCount: activity.length,
     cached,
   });
@@ -950,7 +951,7 @@ export async function fetchGameControlDevices(): Promise<{ devices: GameControlD
       headers.Authorization = `Bearer ${token}`;
     }
   } catch (sessionError) {
-    console.warn('[Edge] Unable to retrieve Supabase session before game-control fetch', sessionError);
+    logger.warn('[Edge] Unable to retrieve Supabase session before game-control fetch', sessionError);
   }
 
   const { data, error } = await rateLimitedEdgeCall<GameControlStatusResponse>('game-control', {
@@ -965,7 +966,7 @@ export async function fetchGameControlDevices(): Promise<{ devices: GameControlD
   const devices = Array.isArray(data?.devices) ? data.devices : [];
 
   const fetchedAt = Number(data?.fetchedAt ?? Date.now());
-  console.info('[Edge] game-control status fetched', {
+  logger.info('[Edge] game-control status fetched', {
     deviceCount: devices.length,
     fetchedAt,
   });
@@ -1015,7 +1016,7 @@ export async function invokeGameControl(
       headers.Authorization = `Bearer ${token}`;
     }
   } catch (sessionError) {
-    console.warn('[Edge] Unable to retrieve Supabase session before game-control command', sessionError);
+    logger.warn('[Edge] Unable to retrieve Supabase session before game-control command', sessionError);
   }
 
   const { data, error } = await rateLimitedEdgeCall<GameControlCommandResponse>('game-control', {
@@ -1032,7 +1033,7 @@ export async function invokeGameControl(
     throw new Error('No response from game-control function');
   }
 
-  console.info('[Edge] game-control command result', {
+  logger.info('[Edge] game-control command result', {
     action,
     deviceCount: payload.deviceIds?.length ?? 0,
     successCount: data.successCount ?? null,
@@ -1119,7 +1120,7 @@ export async function fetchGamePresets(): Promise<GamePreset[]> {
   });
 
   if (error) {
-    console.error('[Edge] game-presets list failed', {
+    logger.error('[Edge] game-presets list failed', {
       error: error.message,
       status: error.status,
       elapsedMs: Date.now() - requestStartedAt,
@@ -1160,7 +1161,7 @@ export interface SaveGamePresetInput {
 
 export async function saveGamePreset(preset: SaveGamePresetInput): Promise<GamePreset> {
   const requestStartedAt = Date.now();
-  console.info('[Edge] Invoking game-presets save', {
+  logger.info('[Edge] Invoking game-presets save', {
     presetName: preset.name,
     targetCount: preset.targetIds.length,
     includeRoom: Boolean(preset.roomId),
@@ -1184,7 +1185,7 @@ export async function saveGamePreset(preset: SaveGamePresetInput): Promise<GameP
   });
 
   if (error) {
-    console.error('[Edge] game-presets save failed', {
+    logger.error('[Edge] game-presets save failed', {
       error: error.message,
       status: error.status,
       elapsedMs: Date.now() - requestStartedAt,
@@ -1193,7 +1194,7 @@ export async function saveGamePreset(preset: SaveGamePresetInput): Promise<GameP
   }
 
   const mapped = mapGamePreset(data!.preset);
-  console.info('[Edge] game-presets saved', {
+  logger.info('[Edge] game-presets saved', {
     presetId: mapped.id,
     name: mapped.name,
     targetCount: mapped.targetIds.length,
@@ -1213,5 +1214,5 @@ export async function deleteGamePreset(id: string): Promise<void> {
     throw error;
   }
 
-  console.info('[Edge] game-presets deleted', { id });
+  logger.info('[Edge] game-presets deleted', { id });
 }

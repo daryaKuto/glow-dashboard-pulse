@@ -1,5 +1,6 @@
 import { fetchGameControlDevices, fetchGameControlInfo, invokeGameControl, type GameControlDevice } from '@/lib/edge';
 import { subscribeToGameTelemetry, type TelemetryEnvelope } from '@/features/games/lib/game-telemetry';
+import { logger } from '@/shared/lib/logger';
 
 // Device Game Flow Types based on DeviceManagement.md
 export interface DeviceGameEvent {
@@ -139,7 +140,7 @@ class DeviceGameFlowService {
     gameId: string, 
     gameDuration: number
   ): Promise<{ success: string[], failed: string[]; warnings: GameCommandWarning[] }> {
-    console.log(`🎮 Preparing ${deviceIds.length} devices for game ${gameId} (${gameDuration} min)`);
+    logger.debug(`🎮 Preparing ${deviceIds.length} devices for game ${gameId} (${gameDuration} min)`);
     const results = { success: [] as string[], failed: [] as string[] };
     const warnings: GameCommandWarning[] = [];
 
@@ -171,7 +172,7 @@ class DeviceGameFlowService {
         results.success.push(deviceId);
       });
     } catch (error) {
-      console.error('❌ Failed to load device statuses from edge function:', error);
+      logger.error('❌ Failed to load device statuses from edge function:', error);
       results.failed.push(...deviceIds);
     }
 
@@ -194,7 +195,7 @@ class DeviceGameFlowService {
             if (commandResult.warning) {
               const warningEntry: GameCommandWarning = { deviceId: commandResult.deviceId, warning: commandResult.warning };
               warnings.push(warningEntry);
-              console.warn(`⚠️ configure RPC warning for ${commandResult.deviceId}: ${commandResult.warning}`);
+              logger.warn(`⚠️ configure RPC warning for ${commandResult.deviceId}: ${commandResult.warning}`);
             }
           });
         } else if ((response.failureCount ?? 0) > 0) {
@@ -202,13 +203,13 @@ class DeviceGameFlowService {
           results.success = [];
         }
       } catch (error) {
-        console.error('❌ Failed to configure devices via edge function:', error);
+        logger.error('❌ Failed to configure devices via edge function:', error);
         results.failed.push(...results.success);
         results.success = [];
       }
     }
 
-    console.log(`🎮 Configuration results: ${results.success.length} success, ${results.failed.length} failed, ${warnings.length} warnings`);
+    logger.debug(`🎮 Configuration results: ${results.success.length} success, ${results.failed.length} failed, ${warnings.length} warnings`);
     return { ...results, warnings };
   }
 
@@ -220,7 +221,7 @@ class DeviceGameFlowService {
     deviceIds: string[], 
     gameId: string
   ): Promise<GameCommandSummary> {
-    console.log(`🚀 Starting game ${gameId} on ${deviceIds.length} devices`);
+    logger.debug(`🚀 Starting game ${gameId} on ${deviceIds.length} devices`);
     const now = Date.now();
     const summary: GameCommandSummary = {
       success: [],
@@ -284,11 +285,11 @@ class DeviceGameFlowService {
       summary.startedAt = response.startedAt ?? now;
       summary.gameId = response.gameId ?? gameId;
     } catch (error) {
-      console.error('❌ Failed to start game via edge function:', error);
+      logger.error('❌ Failed to start game via edge function:', error);
       summary.failed.push(...deviceIds);
     }
 
-    console.log(`🚀 Start results: ${summary.success.length} success, ${summary.failed.length} failed`);
+    logger.debug(`🚀 Start results: ${summary.success.length} success, ${summary.failed.length} failed`);
     return summary;
   }
 
@@ -358,7 +359,7 @@ class DeviceGameFlowService {
       summary.stoppedAt = response.stoppedAt ?? now;
       summary.gameId = response.gameId ?? gameId;
     } catch (error) {
-      console.error('❌ Failed to stop game via edge function:', error);
+      logger.error('❌ Failed to stop game via edge function:', error);
       summary.failed.push(...deviceIds);
     }
 
@@ -454,7 +455,7 @@ class DeviceGameFlowService {
         });
       });
     } catch (error) {
-      console.error('❌ Failed to refresh device info from edge function:', error);
+      logger.error('❌ Failed to refresh device info from edge function:', error);
     }
   }
 
@@ -463,7 +464,7 @@ class DeviceGameFlowService {
    * According to DeviceManagement.md: Every 5 seconds by the Rule Engine
    */
   startPeriodicInfoRequests(deviceIds: string[], gameId: string): NodeJS.Timeout {
-    console.log(`⏰ Starting periodic info requests for game ${gameId}`);
+    logger.debug(`⏰ Starting periodic info requests for game ${gameId}`);
     
     return setInterval(() => {
       this.requestDeviceInfo(deviceIds, gameId);
@@ -474,7 +475,7 @@ class DeviceGameFlowService {
    * Stop periodic info requests
    */
   stopPeriodicInfoRequests(intervalId: NodeJS.Timeout): void {
-    console.log(`⏰ Stopping periodic info requests`);
+    logger.debug(`⏰ Stopping periodic info requests`);
     clearInterval(intervalId);
   }
 
@@ -602,7 +603,7 @@ class DeviceGameFlowService {
   processDeviceEvent(event: DeviceGameEvent): void {
     const { deviceId, event: eventType, gameId, gameStatus, wifiStrength, ambientLight, hitCount } = event.values;
     
-    console.log(`📨 Processing device event: ${eventType} from ${deviceId}`, event.values);
+    logger.debug(`📨 Processing device event: ${eventType} from ${deviceId}`, event.values);
     
     // Update device status
     const currentStatus = this.deviceStatuses.get(deviceId) || {
@@ -621,7 +622,7 @@ class DeviceGameFlowService {
     switch (eventType) {
       case 'connect':
         // Connect (Power-On/Restart): Device connects to the MQTT broker
-        console.log(`🔗 Device ${deviceId} connected`);
+        logger.debug(`🔗 Device ${deviceId} connected`);
         currentStatus.isOnline = true;
         currentStatus.gameStatus = 'idle';
         currentStatus.wifiStrength = wifiStrength || 0;
@@ -630,7 +631,7 @@ class DeviceGameFlowService {
       
       case 'info':
         // Info (Alive Packet): Device periodically sends status
-        console.log(`📡 Device ${deviceId} info update`);
+        logger.debug(`📡 Device ${deviceId} info update`);
         currentStatus.isOnline = true;
         currentStatus.lastSeen = Date.now();
         if (gameStatus) currentStatus.gameStatus = gameStatus;
@@ -640,7 +641,7 @@ class DeviceGameFlowService {
       
       case 'hit':
         // Target Hit (Asynchronous): Device sends a hit event
-        console.log(`🎯 Device ${deviceId} registered hit! Count: ${hitCount || currentStatus.hitCount + 1}`);
+        logger.debug(`🎯 Device ${deviceId} registered hit! Count: ${hitCount || currentStatus.hitCount + 1}`);
         currentStatus.isOnline = true;
         currentStatus.lastSeen = Date.now();
         if (hitCount !== undefined) {
@@ -658,7 +659,7 @@ class DeviceGameFlowService {
       
       case 'timeout':
         // Game Timeout: Device detects timeout based on gameDuration
-        console.log(`⏰ Device ${deviceId} game timeout. Final hits: ${hitCount}`);
+        logger.debug(`⏰ Device ${deviceId} game timeout. Final hits: ${hitCount}`);
         currentStatus.gameStatus = 'stop';
         currentStatus.lastSeen = Date.now();
         if (hitCount !== undefined) currentStatus.hitCount = hitCount;
@@ -666,7 +667,7 @@ class DeviceGameFlowService {
       
       case 'stop':
         // Game Stop: Device responds to stop command or completes game
-        console.log(`🛑 Device ${deviceId} game stopped. Final hits: ${hitCount}`);
+        logger.debug(`🛑 Device ${deviceId} game stopped. Final hits: ${hitCount}`);
         currentStatus.gameStatus = 'stop';
         currentStatus.lastSeen = Date.now();
         if (hitCount !== undefined) currentStatus.hitCount = hitCount;
@@ -674,7 +675,7 @@ class DeviceGameFlowService {
       
       case 'disconnect':
         // Device disconnected (power-off or network issue)
-        console.log(`❌ Device ${deviceId} disconnected`);
+        logger.debug(`❌ Device ${deviceId} disconnected`);
         currentStatus.isOnline = false;
         currentStatus.gameStatus = 'offline';
         break;
@@ -695,7 +696,7 @@ class DeviceGameFlowService {
         if (eventType === 'timeout' || eventType === 'stop') {
           const allStopped = session.devices.every(d => d.gameStatus === 'stop');
           if (allStopped) {
-            console.log(`🏁 Game ${gameId} completed - all devices stopped`);
+            logger.debug(`🏁 Game ${gameId} completed - all devices stopped`);
             session.status = 'completed';
             session.endTime = Date.now();
           }
@@ -703,7 +704,7 @@ class DeviceGameFlowService {
       }
     }
 
-    console.log(`✅ Device ${deviceId} status updated:`, currentStatus);
+    logger.debug(`✅ Device ${deviceId} status updated:`, currentStatus);
   }
 
   /**

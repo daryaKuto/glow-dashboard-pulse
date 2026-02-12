@@ -1,5 +1,6 @@
 import { supabase } from '@/data/supabase-client';
 import { fetchTargetsWithTelemetry } from '@/lib/edge';
+import { logger } from '@/shared/lib/logger';
 import type { Target } from '@/features/targets/schema';
 
 export interface UserRoom {
@@ -49,7 +50,7 @@ class SupabaseRoomsService {
 
   // Clear cache when mutations occur
   private clearTargetsCache(): void {
-    console.log('🧹 [CACHE] Clearing targets with assignments cache');
+    logger.debug('🧹 [CACHE] Clearing targets with assignments cache');
     this.targetsWithAssignmentsCache = {
       data: null,
       timestamp: 0,
@@ -74,12 +75,12 @@ class SupabaseRoomsService {
     const { data: { user }, error } = await supabase.auth.getUser();
     
     if (error) {
-      console.error('❌ Supabase auth error:', error);
+      logger.error('❌ Supabase auth error:', error);
       throw new Error(`Authentication error: ${error.message}`);
     }
     
     if (!user) {
-      console.error('❌ No user found in Supabase session');
+      logger.error('❌ No user found in Supabase session');
       throw new Error('No authenticated user found');
     }
     return user.id;
@@ -97,7 +98,7 @@ class SupabaseRoomsService {
     try {
       this.onTargetsInvalidated();
     } catch (error) {
-      console.warn('⚠️ [CACHE] Failed to notify targets invalidation handler:', error);
+      logger.warn('⚠️ [CACHE] Failed to notify targets invalidation handler:', error);
     }
   }
 
@@ -106,7 +107,7 @@ class SupabaseRoomsService {
       const { targets } = await fetchTargetsWithTelemetry(force);
       return targets;
     } catch (error) {
-      console.warn('⚠️ [CACHE] Unable to fetch latest targets snapshot:', error);
+      logger.warn('⚠️ [CACHE] Unable to fetch latest targets snapshot:', error);
       return [];
     }
   }
@@ -127,7 +128,7 @@ class SupabaseRoomsService {
         .order('order_index', { ascending: true });
 
       if (error) {
-        console.error('❌ Error fetching user rooms:', error);
+        logger.error('❌ Error fetching user rooms:', error);
         throw error;
       }
 
@@ -139,7 +140,7 @@ class SupabaseRoomsService {
 
       return transformedRooms;
     } catch (error) {
-      console.error('Error fetching user rooms:', error);
+      logger.error('Error fetching user rooms:', error);
       throw error;
     }
   }
@@ -173,7 +174,7 @@ class SupabaseRoomsService {
         target_count: roomData.assignedTargets?.length || 0
       };
     } catch (error) {
-      console.error('Error creating room:', error);
+      logger.error('Error creating room:', error);
       throw error;
     }
   }
@@ -199,7 +200,7 @@ class SupabaseRoomsService {
       if (error) throw error;
       return room;
     } catch (error) {
-      console.error('Error updating room:', error);
+      logger.error('Error updating room:', error);
       throw error;
     }
   }
@@ -221,7 +222,7 @@ class SupabaseRoomsService {
 
       if (error) throw error;
     } catch (error) {
-      console.error('Error deleting room:', error);
+      logger.error('Error deleting room:', error);
       throw error;
     }
   }
@@ -242,7 +243,7 @@ class SupabaseRoomsService {
         if (error) throw error;
       }
     } catch (error) {
-      console.error('Error updating room order:', error);
+      logger.error('Error updating room order:', error);
       throw error;
     }
   }
@@ -250,18 +251,18 @@ class SupabaseRoomsService {
   // Assign targets to a room
   async assignTargetsToRoom(roomId: string, targetIds: string[], targetNames?: Map<string, string>): Promise<void> {
     try {
-      console.log(`🎯 [ASSIGNMENT] Starting assignment of ${targetIds.length} targets to room ${roomId}`);
-      console.log(`🎯 [ASSIGNMENT] Target IDs:`, targetIds);
-      console.log(`🎯 [ASSIGNMENT] Target names map:`, targetNames ? Object.fromEntries(targetNames) : 'None provided');
+      logger.debug(`🎯 [ASSIGNMENT] Starting assignment of ${targetIds.length} targets to room ${roomId}`);
+      logger.debug(`🎯 [ASSIGNMENT] Target IDs:`, targetIds);
+      logger.debug(`🎯 [ASSIGNMENT] Target names map:`, targetNames ? Object.fromEntries(targetNames) : 'None provided');
       
       const userId = await this.getCurrentUserId();
-      console.log(`🔍 [ID-CHECK] User ID retrieved: ${userId}`);
-      console.log(`🔍 [ID-CHECK] Room ID format: ${roomId} (type: ${typeof roomId})`);
+      logger.debug(`🔍 [ID-CHECK] User ID retrieved: ${userId}`);
+      logger.debug(`🔍 [ID-CHECK] Room ID format: ${roomId} (type: ${typeof roomId})`);
       
       // First, unassign these targets from any other room
-      console.log('🎯 [ASSIGNMENT] Unassigning targets from other rooms...');
+      logger.debug('🎯 [ASSIGNMENT] Unassigning targets from other rooms...');
       await this.unassignTargets(targetIds);
-      console.log('✅ [SUCCESS] Targets unassigned from other rooms');
+      logger.debug('✅ [SUCCESS] Targets unassigned from other rooms');
       
       // Create target assignments with proper names
       const assignments = targetIds.map(targetId => {
@@ -271,12 +272,11 @@ class SupabaseRoomsService {
           target_id: targetId,
           target_name: targetNames?.get(targetId) || `Target ${targetId.substring(0, 8)}`
         };
-        console.log(`🔍 [ID-CHECK] Created assignment for target ${targetId}:`, assignment);
+        logger.debug(`🔍 [ID-CHECK] Created assignment for target ${targetId}:`, assignment);
         return assignment;
       });
 
-      console.log('🎯 [ASSIGNMENT] Inserting assignments into Supabase:', assignments);
-      console.log('🔐 [AUTH] Current user:', await supabase.auth.getUser());
+      logger.debug('[Rooms] Inserting assignments into Supabase, count:', assignments.length);
       
       const { data, error } = await supabase
         .from('user_room_targets')
@@ -284,23 +284,23 @@ class SupabaseRoomsService {
         .select();
 
       if (error) {
-        console.error('❌ [ERROR] Supabase insert error:', error);
-        console.error('❌ [ERROR] Error code:', error.code);
-        console.error('❌ [ERROR] Error message:', error.message);
-        console.error('❌ [ERROR] Error details:', error.details);
-        console.error('❌ [ERROR] Error hint:', error.hint);
-        console.error('❌ [ERROR] Assignments that failed:', assignments);
+        logger.error('❌ [ERROR] Supabase insert error:', error);
+        logger.error('❌ [ERROR] Error code:', error.code);
+        logger.error('❌ [ERROR] Error message:', error.message);
+        logger.error('❌ [ERROR] Error details:', error.details);
+        logger.error('❌ [ERROR] Error hint:', error.hint);
+        logger.error('❌ [ERROR] Assignments that failed, count:', assignments.length);
         throw error; // Make sure this reaches the UI
       }
       
-      console.log('✅ [SUCCESS] Assignments inserted successfully:', data);
-      console.log(`📊 [DATA] Inserted ${data?.length || 0} assignment records`);
+      logger.debug('✅ [SUCCESS] Assignments inserted successfully:', data);
+      logger.debug(`📊 [DATA] Inserted ${data?.length || 0} assignment records`);
       
       // Clear cache after successful assignment
       this.clearTargetsCache();
       
       // Step 5: Verify the data was actually saved and can be read back
-      console.log('🔍 [VERIFY] Verifying assignments can be read back...');
+      logger.debug('🔍 [VERIFY] Verifying assignments can be read back...');
       try {
         const { data: verifyData, error: verifyError } = await supabase
           .from('user_room_targets')
@@ -309,24 +309,24 @@ class SupabaseRoomsService {
           .eq('room_id', roomId);
         
         if (verifyError) {
-          console.error('❌ [VERIFY-ERROR] Failed to read back assignments:', verifyError);
+          logger.error('❌ [VERIFY-ERROR] Failed to read back assignments:', verifyError);
         } else {
-          console.log('✅ [VERIFY] Successfully read back assignments:', verifyData);
-          console.log(`📊 [VERIFY] Read back ${verifyData?.length || 0} assignment records`);
+          logger.debug('✅ [VERIFY] Successfully read back assignments:', verifyData);
+          logger.debug(`📊 [VERIFY] Read back ${verifyData?.length || 0} assignment records`);
           
           if (!verifyData || verifyData.length === 0) {
-            console.error('❌ [VERIFY-ERROR] No assignments found after insert - RLS may be blocking reads');
+            logger.error('❌ [VERIFY-ERROR] No assignments found after insert - RLS may be blocking reads');
           } else if (verifyData.length !== data.length) {
-            console.warn(`⚠️ [VERIFY-WARNING] Mismatch: inserted ${data.length}, read back ${verifyData.length}`);
+            logger.warn(`⚠️ [VERIFY-WARNING] Mismatch: inserted ${data.length}, read back ${verifyData.length}`);
           } else {
-            console.log('✅ [VERIFY] All assignments successfully verified');
+            logger.debug('✅ [VERIFY] All assignments successfully verified');
           }
         }
       } catch (verifyErr) {
-        console.error('❌ [VERIFY-ERROR] Exception during verification:', verifyErr);
+        logger.error('❌ [VERIFY-ERROR] Exception during verification:', verifyErr);
       }
     } catch (error) {
-      console.error('❌ [ERROR] Error assigning targets to room:', error);
+      logger.error('❌ [ERROR] Error assigning targets to room:', error);
       throw error;
     }
   }
@@ -334,13 +334,13 @@ class SupabaseRoomsService {
   // Unassign targets from all rooms
   async unassignTargets(targetIds: string[]): Promise<void> {
     try {
-      console.log(`🎯 [ASSIGNMENT] Unassigning ${targetIds.length} targets from all rooms`);
-      console.log(`🎯 [ASSIGNMENT] Target IDs to unassign:`, targetIds);
+      logger.debug(`🎯 [ASSIGNMENT] Unassigning ${targetIds.length} targets from all rooms`);
+      logger.debug(`🎯 [ASSIGNMENT] Target IDs to unassign:`, targetIds);
       
       const userId = await this.getCurrentUserId();
-      console.log(`🔍 [ID-CHECK] User ID for unassign: ${userId}`);
+      logger.debug(`🔍 [ID-CHECK] User ID for unassign: ${userId}`);
       
-      console.log('🎯 [ASSIGNMENT] Executing Supabase delete query...');
+      logger.debug('🎯 [ASSIGNMENT] Executing Supabase delete query...');
       const { data, error } = await supabase
         .from('user_room_targets')
         .delete()
@@ -349,8 +349,8 @@ class SupabaseRoomsService {
         .select();
 
       if (error) {
-        console.error('❌ [ERROR] Supabase unassign error:', error);
-        console.error('❌ [ERROR] Error details:', {
+        logger.error('❌ [ERROR] Supabase unassign error:', error);
+        logger.error('❌ [ERROR] Error details:', {
           message: error.message,
           details: error.details,
           hint: error.hint,
@@ -359,13 +359,13 @@ class SupabaseRoomsService {
         throw error;
       }
       
-      console.log('✅ [SUCCESS] Targets unassigned successfully:', data);
-      console.log(`📊 [DATA] Unassigned ${data?.length || 0} assignment records`);
+      logger.debug('✅ [SUCCESS] Targets unassigned successfully:', data);
+      logger.debug(`📊 [DATA] Unassigned ${data?.length || 0} assignment records`);
       
       // Clear cache after successful unassignment
       this.clearTargetsCache();
     } catch (error) {
-      console.error('❌ [ERROR] Error unassigning targets:', error);
+      logger.error('❌ [ERROR] Error unassigning targets:', error);
       throw error;
     }
   }
@@ -373,15 +373,15 @@ class SupabaseRoomsService {
   // Assign single target to room (wrapper for assignTargetsToRoom)
   async assignTargetToRoom(targetId: string, roomId: string | null, targetName?: string): Promise<void> {
     try {
-      console.log(`🎯 [ASSIGNMENT] Single target assignment: ${targetId} to ${roomId ? `room ${roomId}` : 'unassigned'}`);
-      console.log(`🔍 [ID-CHECK] Target ID format: ${targetId} (type: ${typeof targetId})`);
-      console.log(`🔍 [ID-CHECK] Room ID format: ${roomId} (type: ${typeof roomId})`);
+      logger.debug(`🎯 [ASSIGNMENT] Single target assignment: ${targetId} to ${roomId ? `room ${roomId}` : 'unassigned'}`);
+      logger.debug(`🔍 [ID-CHECK] Target ID format: ${targetId} (type: ${typeof targetId})`);
+      logger.debug(`🔍 [ID-CHECK] Room ID format: ${roomId} (type: ${typeof roomId})`);
       
       if (roomId === null) {
         // Unassign target from all rooms
-        console.log('🎯 [ASSIGNMENT] Unassigning target from all rooms...');
+        logger.debug('🎯 [ASSIGNMENT] Unassigning target from all rooms...');
         await this.unassignTargets([targetId]);
-        console.log('✅ [SUCCESS] Target unassigned from all rooms');
+        logger.debug('✅ [SUCCESS] Target unassigned from all rooms');
         return;
       }
 
@@ -389,13 +389,13 @@ class SupabaseRoomsService {
       let finalTargetName = targetName;
       if (!finalTargetName) {
         try {
-          console.log('🔍 [TARGET-NAME] Fetching target name from latest targets snapshot...');
+          logger.debug('🔍 [TARGET-NAME] Fetching target name from latest targets snapshot...');
           const allTargets = await this.fetchLatestTargets();
           const target = allTargets.find((t) => this.getTargetId(t) === targetId);
           finalTargetName = target?.name || `Target ${targetId.substring(0, 8)}`;
-          console.log(`🔍 [TARGET-NAME] Found target name: ${finalTargetName}`);
+          logger.debug(`🔍 [TARGET-NAME] Found target name: ${finalTargetName}`);
         } catch (error) {
-          console.warn('⚠️ [TARGET-NAME] Could not fetch target name, using fallback:', error);
+          logger.warn('⚠️ [TARGET-NAME] Could not fetch target name, using fallback:', error);
           finalTargetName = `Target ${targetId.substring(0, 8)}`;
         }
       }
@@ -406,9 +406,9 @@ class SupabaseRoomsService {
 
       // Call the plural method with single target
       await this.assignTargetsToRoom(roomId, [targetId], targetNames);
-      console.log(`✅ [SUCCESS] Single target assignment completed: ${targetId} → ${roomId}`);
+      logger.debug(`✅ [SUCCESS] Single target assignment completed: ${targetId} → ${roomId}`);
     } catch (error) {
-      console.error('❌ [ERROR] Error in single target assignment:', error);
+      logger.error('❌ [ERROR] Error in single target assignment:', error);
       throw error;
     }
   }
@@ -429,7 +429,7 @@ class SupabaseRoomsService {
       // Clear cache after successful unassignment
       this.clearTargetsCache();
     } catch (error) {
-      console.error('Error unassigning targets from room:', error);
+      logger.error('Error unassigning targets from room:', error);
       throw error;
     }
   }
@@ -463,7 +463,7 @@ class SupabaseRoomsService {
 
       return roomTargets;
     } catch (error) {
-      console.error('Error fetching room targets:', error);
+      logger.error('Error fetching room targets:', error);
       throw error;
     }
   }
@@ -518,7 +518,7 @@ class SupabaseRoomsService {
 
       return unassignedTargets;
     } catch (error) {
-      console.error('Error fetching unassigned targets:', error);
+      logger.error('Error fetching unassigned targets:', error);
       // Return all synced targets as fallback
       return this.getSyncedTargets();
     }
@@ -537,7 +537,7 @@ class SupabaseRoomsService {
       if (error) throw error;
       return data || [];
     } catch (error) {
-      console.error('Error fetching target room assignments:', error);
+      logger.error('Error fetching target room assignments:', error);
       return [];
     }
   }
@@ -585,7 +585,7 @@ class SupabaseRoomsService {
 
       return roomsWithCounts;
     } catch (error) {
-      console.error('❌ Error getting rooms with target counts:', error);
+      logger.error('❌ Error getting rooms with target counts:', error);
       throw error;
     }
   }
@@ -596,11 +596,11 @@ class SupabaseRoomsService {
       // Step 1: Verify authentication status
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError) {
-        console.error('❌ [AUTH-ERROR] Authentication check failed:', authError);
+        logger.error('❌ [AUTH-ERROR] Authentication check failed:', authError);
         throw new Error(`Authentication failed: ${authError.message}`);
       }
       if (!user) {
-        console.error('❌ [AUTH-ERROR] No authenticated user found');
+        logger.error('❌ [AUTH-ERROR] No authenticated user found');
         throw new Error('No authenticated user found');
       }
       
@@ -612,7 +612,7 @@ class SupabaseRoomsService {
       
       // Step 2: Verify user ID matches auth user
       if (userId !== user.id) {
-        console.error(`❌ [AUTH-ERROR] User ID mismatch: auth.id=${user.id}, getCurrentUserId()=${userId}`);
+        logger.error('❌ [AUTH-ERROR] User ID mismatch between auth and getCurrentUserId()');
         throw new Error('User ID mismatch between auth and profile');
       }
       
@@ -623,8 +623,8 @@ class SupabaseRoomsService {
         .eq('user_id', userId);
 
       if (error) {
-        console.error('❌ [ERROR] Error fetching assignments:', error);
-        console.error('❌ [ERROR] Error details:', {
+        logger.error('❌ [ERROR] Error fetching assignments:', error);
+        logger.error('❌ [ERROR] Error details:', {
           message: error.message,
           details: error.details,
           hint: error.hint,
@@ -641,7 +641,7 @@ class SupabaseRoomsService {
           .limit(5);
         
         if (allError) {
-          console.error('❌ [DEBUG-ERROR] Error checking all assignments:', allError);
+          logger.error('❌ [DEBUG-ERROR] Error checking all assignments:', allError);
         }
       }
 
@@ -675,7 +675,7 @@ class SupabaseRoomsService {
             .eq('user_id', userId)
             .in('target_id', staleAssignmentIds);
         } catch (error) {
-          console.error('❌ Error cleaning up stale assignments:', error);
+          logger.error('❌ Error cleaning up stale assignments:', error);
         }
       }
 
@@ -700,10 +700,10 @@ class SupabaseRoomsService {
       const mergedIds = targetsWithAssignments.map(t => this.getTargetId(t));
       const duplicateMergedIds = mergedIds.filter((id, index) => mergedIds.indexOf(id) !== index);
       if (duplicateMergedIds.length > 0) {
-        console.warn('🚨 Duplicate target IDs found in merged data:', duplicateMergedIds);
+        logger.warn('🚨 Duplicate target IDs found in merged data:', duplicateMergedIds);
         duplicateMergedIds.forEach(dupId => {
           const duplicates = targetsWithAssignments.filter(t => this.getTargetId(t) === dupId);
-          console.log(`   ID ${dupId}:`, duplicates.map(t => ({ name: t.name, roomId: t.roomId })));
+          logger.debug(`   ID ${dupId}:`, duplicates.map(t => ({ name: t.name, roomId: t.roomId })));
         });
       }
 
@@ -714,7 +714,7 @@ class SupabaseRoomsService {
           if (existingIndex === -1) {
             acc.push(target);
           } else {
-            console.warn(`⚠️ Service: Duplicate target found: ${target.name} (ID: ${targetId})`);
+            logger.warn(`⚠️ Service: Duplicate target found: ${target.name} (ID: ${targetId})`);
             // Keep the one with more complete data (has roomId or more properties)
             const existing = acc[existingIndex];
             if (target.roomId && !existing.roomId) {
@@ -735,7 +735,7 @@ class SupabaseRoomsService {
         return uniqueTargets;
       } catch (error) {
         // Fallback: Use Supabase data only
-        console.warn('ThingsBoard unavailable, showing assigned devices only:', error);
+        logger.warn('ThingsBoard unavailable, showing assigned devices only:', error);
         
         // Return devices we know about from assignments
         return assignments?.map(a => ({
@@ -747,7 +747,7 @@ class SupabaseRoomsService {
         })) || [];
       }
     } catch (error) {
-      console.error('Error fetching targets with assignments:', error);
+      logger.error('Error fetching targets with assignments:', error);
       throw error;
     }
   }
@@ -808,7 +808,7 @@ class SupabaseRoomsService {
 
       return session.id;
     } catch (error) {
-      console.error('Error storing session:', error);
+      logger.error('Error storing session:', error);
       throw error;
     }
   }
@@ -818,12 +818,12 @@ class SupabaseRoomsService {
     try {
       const userId = await this.getCurrentUserId();
       
-      console.log(`Storing ${targets.length} synced targets for user ${userId}`);
+      logger.debug(`Storing ${targets.length} synced targets for user ${userId}`);
       
       // In a full implementation, you'd store these in a user_targets table
       // For now, we'll use the mock data approach but mark it as "synced"
     } catch (error) {
-      console.error('Error storing synced targets:', error);
+      logger.error('Error storing synced targets:', error);
     }
   }
 }

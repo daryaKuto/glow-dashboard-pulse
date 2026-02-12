@@ -16,6 +16,7 @@ import { useSetDeviceAttributes } from '@/features/targets';
 import { toast } from '@/components/ui/sonner';
 import { Upload, X, Music, Palette, Loader2, Sparkles, Star, Zap, Crown, CheckCircle2 } from 'lucide-react';
 import { useSubscription } from '@/features/auth/hooks';
+import { logger } from '@/shared/lib/logger';
 
 interface TargetCustomizationDialogProps {
   targetId: string;
@@ -218,7 +219,7 @@ export const TargetCustomizationDialog: React.FC<TargetCustomizationDialogProps>
                   id="sound-enabled"
                   checked={soundEnabled}
                   onCheckedChange={(checked) => {
-                    console.log('Sound enabled toggle:', checked);
+                    logger.debug('Sound enabled toggle:', checked);
                     setSoundEnabled(checked);
                   }}
                   className="premium-switch"
@@ -313,7 +314,7 @@ export const TargetCustomizationDialog: React.FC<TargetCustomizationDialogProps>
                   id="light-enabled"
                   checked={lightEnabled}
                   onCheckedChange={(checked) => {
-                    console.log('Light enabled toggle:', checked);
+                    logger.debug('Light enabled toggle:', checked);
                     setLightEnabled(checked);
                   }}
                   className="premium-switch"

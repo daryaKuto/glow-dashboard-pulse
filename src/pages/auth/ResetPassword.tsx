@@ -56,9 +56,10 @@ const ResetPassword = () => {
       setTimeout(() => {
         navigate('/login');
       }, 2000);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to update password. Please try again.';
       console.error('Password reset error:', error);
-      toast.error(error.message || 'Failed to update password. Please try again.');
+      toast.error(message);
     } finally {
       setLoading(false);
     }

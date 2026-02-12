@@ -1,4 +1,4 @@
-import React, { useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import React, { useState, useEffect, ReactNode, useCallback } from 'react';
 import { supabase } from '@/data/supabase-client';
 import { ensureThingsboardSession, invalidateThingsboardSessionCache } from '@/lib/edge';
 import { authService } from '@/features/auth';
@@ -7,7 +7,8 @@ import { performCompleteLogout } from '@/utils/logout';
 import { isApiOk } from '@/shared/lib/api-response';
 import type { User, Session } from '@supabase/supabase-js';
 import { throttledLog } from '@/utils/log-throttle';
-import { AuthContext } from '@/contexts/AuthContext';
+import { AuthContext, type AuthContextType } from './auth-context';
+import { logger } from '@/shared/lib/logger';
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -19,10 +20,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Check if user is authenticated
   const checkSession = useCallback(async () => {
     setLoading(true);
-    
+
     try {
       const result = await authService.getSession();
-      
+
       if (!isApiOk(result)) {
         console.error('[AuthProvider] Session error:', result.error);
         setUser(null);
@@ -92,14 +93,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (!isApiOk(result)) {
         console.error('[AuthProvider] Supabase sign out error:', result.error);
       }
-      
+
       // Clear all application state using comprehensive logout utility
       performCompleteLogout();
       invalidateThingsboardSessionCache();
       // Clear local auth state
       setUser(null);
       setSession(null);
-      
+
       // Force redirect to login page to ensure clean state
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';
@@ -119,7 +120,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const signIn = useCallback(async (email: string, password: string) => {
     try {
       const result = await authService.signIn(email, password);
-      
+
       if (!isApiOk(result)) {
         throw new Error(result.error.message);
       }
@@ -127,7 +128,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const { user: authUser, session: authSession } = result.data;
       setUser(authUser);
       setSession(authSession);
-      
+
       // Trigger ThingsBoard authentication in background
       try {
         const { unifiedDataService } = await import('@/features/profile/lib/unified-data');
@@ -150,7 +151,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
 
       if (authUser?.email && import.meta.env.DEV) {
-        console.info('[Auth] Credentials accepted', {
+        logger.info('[Auth] Credentials accepted', {
           source: 'supabase.auth.signInWithPassword',
           email: authUser.email,
           userId: authUser.id,
@@ -168,7 +169,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const signUp = useCallback(async (email: string, password: string, userData?: Record<string, unknown>) => {
     try {
       const result = await authService.signUp(email, password, userData);
-      
+
       if (!isApiOk(result)) {
         throw new Error(result.error.message);
       }
@@ -176,7 +177,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const { user: authUser, session: authSession } = result.data;
       setUser(authUser);
       setSession(authSession);
-      
+
       // Save ThingsBoard credentials using the same email/password
       try {
         const saveResult = await saveThingsBoardCredentialsService(authUser.id, email, password);
@@ -190,7 +191,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       if (authUser?.email && import.meta.env.DEV) {
-        console.log('[Auth] Signed up as', authUser.email);
+        logger.debug('[Auth] Signed up as', authUser.email);
       }
     } catch (error) {
       console.error('[AuthProvider] Sign up error:', error);
@@ -202,7 +203,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const resetPassword = useCallback(async (email: string) => {
     try {
       const result = await authService.resetPassword(email);
-      
+
       if (!isApiOk(result)) {
         throw new Error(result.error.message);
       }
@@ -216,7 +217,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updatePassword = useCallback(async (newPassword: string) => {
     try {
       const result = await authService.updatePassword(newPassword);
-      
+
       if (!isApiOk(result)) {
         throw new Error(result.error.message);
       }
@@ -230,7 +231,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     try {
       const result = await authService.changePassword(currentPassword, newPassword);
-      
+
       if (!isApiOk(result)) {
         throw new Error(result.error.message);
       }
@@ -252,7 +253,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     updatePassword,
     changePassword
   };
-  
+
   return (
     <AuthContext.Provider value={value}>
       {children}

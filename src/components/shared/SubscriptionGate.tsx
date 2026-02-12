@@ -8,6 +8,7 @@ import { useSubscription } from '@/features/auth/hooks';
 import { Lock, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { logger } from '@/shared/lib/logger';
 
 interface SubscriptionGateProps {
   children: React.ReactNode;
@@ -54,7 +55,7 @@ export const SubscriptionGate: React.FC<SubscriptionGateProps> = ({
               className="bg-amber-600 hover:bg-amber-700"
               onClick={() => {
                 // TODO: Navigate to subscription/billing page
-                console.log('Navigate to subscription page');
+                logger.debug('Navigate to subscription page');
               }}
             >
               <Sparkles className="h-4 w-4 mr-2" />

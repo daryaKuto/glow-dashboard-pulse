@@ -33,6 +33,7 @@ import {
   type GameCommandWarning,
 } from '@/features/games/lib/device-game-flow';
 import { saveGameHistory as persistGameHistory } from '@/features/games/lib/game-history';
+import { logger } from '@/shared/lib/logger';
 
 type ConfigureDevicesResult = {
   ok: boolean;
@@ -122,9 +123,9 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
         });
       });
 
-      console.log(`Initialized ${uniqueDeviceIds.length} devices for game flow`);
+      logger.debug(`Initialized ${uniqueDeviceIds.length} devices for game flow`);
     } catch (error) {
-      console.error('Failed to initialize devices:', error);
+      logger.error('Failed to initialize devices:', error);
       set({ error: 'Failed to initialize devices' });
     }
   },
@@ -152,10 +153,10 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
       );
 
       set({ currentSession: session });
-      console.log(`Created game session: ${gameId}`);
+      logger.debug(`Created game session: ${gameId}`);
       return true;
     } catch (error) {
-      console.error('Failed to create game:', error);
+      logger.error('Failed to create game:', error);
       set({ error: 'Failed to create game' });
       return false;
     }
@@ -190,10 +191,10 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       set({ isConfiguring: false });
-      console.log(`Configured ${results.success.length} devices`);
+      logger.debug(`Configured ${results.success.length} devices`);
       return { ok: true, success: results.success, failed: results.failed, warnings: results.warnings };
     } catch (error) {
-      console.error('Failed to configure devices:', error);
+      logger.error('Failed to configure devices:', error);
       set({ error: 'Failed to configure devices', isConfiguring: false });
       return { ok: false, success: [], failed: deviceIds, warnings: [] };
     }
@@ -220,7 +221,7 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
         return false;
       }
       if (results.warnings.length > 0) {
-        console.warn(
+        logger.warn(
           '[useGameFlow] Start warnings:',
           results.warnings.map(entry => `${entry.deviceId}:${entry.warning}`).join(', ')
         );
@@ -242,10 +243,10 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
         periodicInfoInterval: intervalId
       });
 
-      console.log(`Started game on ${results.success.length} devices with periodic monitoring`);
+      logger.debug(`Started game on ${results.success.length} devices with periodic monitoring`);
       return true;
     } catch (error) {
-      console.error('Failed to start game:', error);
+      logger.error('Failed to start game:', error);
       set({ error: 'Failed to start game' });
       return false;
     }
@@ -272,7 +273,7 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
         return false;
       }
       if (results.warnings.length > 0) {
-        console.warn(
+        logger.warn(
           '[useGameFlow] Stop warnings:',
           results.warnings.map(entry => `${entry.deviceId}:${entry.warning}`).join(', ')
         );
@@ -294,10 +295,10 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
         periodicInfoInterval: null
       });
 
-      console.log(`Stopped game on ${results.success.length} devices`);
+      logger.debug(`Stopped game on ${results.success.length} devices`);
       return true;
     } catch (error) {
-      console.error('Failed to stop game:', error);
+      logger.error('Failed to stop game:', error);
       set({ error: 'Failed to stop game' });
       return false;
     }
@@ -328,17 +329,17 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
         void persistGameHistory(historyEntry)
           .then(({ status, sessionPersisted, sessionPersistError }) => {
             if (status) {
-              console.info('[useGameFlow] Game history entry', status, historyEntry.gameId);
+              logger.info('[useGameFlow] Game history entry', status, historyEntry.gameId);
             }
             if (!sessionPersisted) {
-              console.warn('[useGameFlow] Session analytics failed to persist', {
+              logger.warn('[useGameFlow] Session analytics failed to persist', {
                 gameId: historyEntry.gameId,
                 sessionPersistError,
               });
             }
           })
           .catch((error) => {
-            console.warn('[useGameFlow] Failed to persist game history', error);
+            logger.warn('[useGameFlow] Failed to persist game history', error);
           });
       }
 
@@ -353,9 +354,9 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
         periodicInfoInterval: null
       });
 
-      console.log(`Ended game session: ${currentSession.gameId}`);
+      logger.debug(`Ended game session: ${currentSession.gameId}`);
     } catch (error) {
-      console.error('Failed to end game:', error);
+      logger.error('Failed to end game:', error);
       set({ error: 'Failed to end game' });
     }
   },
@@ -402,7 +403,7 @@ export const useGameFlow = create<GameFlowState>((set, get) => ({
     });
 
     set(initialState);
-    console.log('[useGameFlow] Store reset');
+    logger.debug('[useGameFlow] Store reset');
   },
 }));
 

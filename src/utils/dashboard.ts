@@ -1,4 +1,4 @@
-import type { Target } from '@/store/useTargets';
+import type { Target } from '@/features/targets/schema';
 
 export const formatScoreValue = (value: number | null | undefined): string => {
   if (value === null || value === undefined || Number.isNaN(value)) {

@@ -1,39 +1,55 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useAuth } from '@/providers/AuthProvider';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useAuth } from '@/shared/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Mail, ArrowLeft, CheckCircle } from 'lucide-react';
+import { Mail, ArrowLeft, CheckCircle, AlertCircle } from 'lucide-react';
 import { toast } from '@/components/ui/sonner';
+import { resetPasswordSchema, type ResetPasswordData } from '@/features/auth/schema';
 
 const ForgotPassword = () => {
   const { resetPassword } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [email, setEmail] = useState('');
   const [emailSent, setEmailSent] = useState(false);
+  const [submittedEmail, setSubmittedEmail] = useState('');
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!email) {
-      toast.error('Please enter your email address');
-      return;
-    }
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    reset,
+  } = useForm<ResetPasswordData>({
+    resolver: zodResolver(resetPasswordSchema),
+    defaultValues: {
+      email: '',
+    },
+  });
 
-    setLoading(true);
-
+  const onSubmit = async (data: ResetPasswordData) => {
+    setSubmitError(null);
     try {
-      await resetPassword(email);
+      await resetPassword(data.email);
+      setSubmittedEmail(data.email);
       setEmailSent(true);
       toast.success('Password reset email sent! Check your inbox.');
     } catch (error: unknown) {
       console.error('Password reset error:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to send reset email. Please try again.');
-    } finally {
-      setLoading(false);
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Failed to send reset email. Please try again.';
+      setSubmitError(errorMessage);
+      toast.error(errorMessage);
     }
+  };
+
+  const handleSendAnother = () => {
+    setEmailSent(false);
+    setSubmittedEmail('');
+    reset();
   };
 
   if (emailSent) {
@@ -61,14 +77,14 @@ const ForgotPassword = () => {
                 Check Your Email
               </h2>
               <p className="text-gray-600 mb-4">
-                We've sent a password reset link to <strong>{email}</strong>
+                We've sent a password reset link to <strong>{submittedEmail}</strong>
               </p>
               <p className="text-sm text-gray-500 mb-6">
                 Click the link in the email to reset your password. The link will expire in 1 hour.
               </p>
               <div className="space-y-2">
                 <Button 
-                  onClick={() => setEmailSent(false)}
+                  onClick={handleSendAnother}
                   variant="outline"
                   className="w-full"
                 >
@@ -118,7 +134,14 @@ const ForgotPassword = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            {submitError && (
+              <div className="flex items-center gap-2 p-3 text-sm text-red-600 bg-red-50 rounded-md border border-red-200">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                <span>{submitError}</span>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
               <div className="relative">
@@ -127,20 +150,27 @@ const ForgotPassword = () => {
                   id="email"
                   type="email"
                   placeholder="Enter your email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="pl-10"
+                  {...register('email')}
+                  aria-invalid={errors.email ? 'true' : 'false'}
+                  aria-describedby={errors.email ? 'email-error' : undefined}
+                  className={`pl-10 ${
+                    errors.email ? 'border-red-500 focus-visible:ring-red-500' : ''
+                  }`}
                 />
               </div>
+              {errors.email && (
+                <p id="email-error" className="text-sm text-red-600">
+                  {errors.email.message}
+                </p>
+              )}
             </div>
 
             <Button
               type="submit"
               className="w-full"
-              disabled={loading}
+              disabled={isSubmitting}
             >
-              {loading ? 'Sending...' : 'Send Reset Link'}
+              {isSubmitting ? 'Sending...' : 'Send Reset Link'}
             </Button>
           </form>
 

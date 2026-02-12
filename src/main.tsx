@@ -4,10 +4,13 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App.tsx'
 import './index.css'
-import { AuthProvider } from './providers/AuthProvider'
+import { AuthProvider } from './app/auth-provider'
+import { Providers } from './app/providers'
+import { ErrorBoundary } from './shared/lib/error-boundary'
+import { logger } from './shared/lib/logger'
 
 // Initialize application
-console.info('[Main] Application bootstrapping', {
+logger.info('[Main] Application bootstrapping', {
   environment: import.meta.env.MODE,
   buildTime: import.meta.env.VITE_BUILD_TIME ?? 'unknown',
   version: import.meta.env.VITE_APP_VERSION ?? 'dev',
@@ -25,10 +28,14 @@ console.info('[Main] Application bootstrapping', {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <Providers>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </Providers>
+      </BrowserRouter>
+    </ErrorBoundary>
   </React.StrictMode>,
 )

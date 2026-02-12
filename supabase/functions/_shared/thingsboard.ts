@@ -142,14 +142,17 @@ export async function setDeviceSharedAttributes(
   attributes: Record<string, unknown>,
   scope: 'SHARED_SCOPE' | 'SERVER_SCOPE' = 'SHARED_SCOPE',
 ): Promise<void> {
+  console.log(`[TB-Attrs] Setting ${scope} for ${deviceId}`, { attributes });
   const res = await tbFetch(`/api/plugins/telemetry/DEVICE/${deviceId}/${scope}`, {
     method: 'POST',
     body: JSON.stringify(attributes),
   });
 
   if (!res.ok) {
-    throw new Error(`Failed to set shared attributes for ${deviceId}: ${res.status} ${res.statusText}`);
+    const bodyText = await res.text().catch(() => '');
+    throw new Error(`Failed to set shared attributes for ${deviceId}: ${res.status} ${res.statusText} body=${bodyText}`);
   }
+  console.log(`[TB-Attrs] ${scope} set OK for ${deviceId}: ${res.status}`);
 }
 
 export async function getDeviceAttributes(
@@ -252,13 +255,17 @@ export async function sendOneWayRpc(
   method: string,
   params: Record<string, unknown>,
 ): Promise<Response> {
+  console.log(`[TB-RPC] Sending oneway RPC '${method}' to ${deviceId}`, { params });
   const res = await tbFetch(`/api/rpc/oneway/${deviceId}`, {
     method: 'POST',
     body: JSON.stringify({ method, params }),
   });
 
+  const bodyText = await res.clone().text().catch(() => '');
+  console.log(`[TB-RPC] Response for '${method}' on ${deviceId}: ${res.status} ${res.statusText}`, { body: bodyText });
+
   if (!res.ok) {
-    throw new Error(`Failed to send RPC ${method} to ${deviceId}: ${res.status} ${res.statusText}`);
+    throw new Error(`Failed to send RPC ${method} to ${deviceId}: ${res.status} ${res.statusText} body=${bodyText}`);
   }
 
   return res;

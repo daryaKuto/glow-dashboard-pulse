@@ -29,6 +29,8 @@ type StartPayload = {
   action: "start";
   deviceIds?: string[];
   gameId?: string;
+  desiredDurationSeconds?: number;
+  roomId?: string;
 };
 
 type StopPayload = {
@@ -686,7 +688,14 @@ async function handleStart(payload: StartPayload) {
       try {
         console.log(`[game-control:start] setting shared attributes for ${deviceId}`);
         const attributesStartedAt = Date.now();
-        await setDeviceSharedAttributes(deviceId, { gameId, status: "busy" });
+        const sharedAttrs: Record<string, unknown> = { gameId, status: "busy" };
+        if (typeof payload.desiredDurationSeconds === 'number' && payload.desiredDurationSeconds > 0) {
+          sharedAttrs.desiredDurationSeconds = payload.desiredDurationSeconds;
+        }
+        if (payload.roomId && payload.roomId.trim().length > 0) {
+          sharedAttrs.roomId = payload.roomId;
+        }
+        await setDeviceSharedAttributes(deviceId, sharedAttrs);
         const attributesCompletedAt = Date.now();
 
         console.log(
@@ -694,14 +703,21 @@ async function handleStart(payload: StartPayload) {
         );
 
         const rpcStartedAt = Date.now();
+        const commandValues: Record<string, unknown> = {
+          deviceId,
+          event: "start",
+          gameId,
+        };
+        if (typeof payload.desiredDurationSeconds === 'number' && payload.desiredDurationSeconds > 0) {
+          commandValues.desiredDurationSeconds = payload.desiredDurationSeconds;
+        }
+        if (payload.roomId && payload.roomId.trim().length > 0) {
+          commandValues.roomId = payload.roomId;
+        }
         try {
           await sendOneWayRpc(deviceId, "start", {
             ts: timestamp,
-            values: {
-              deviceId,
-              event: "start",
-              gameId,
-            },
+            values: commandValues,
           });
         } catch (error) {
           if (isTimeoutError(error)) {

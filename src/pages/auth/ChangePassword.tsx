@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/providers/AuthProvider';
+import { useAuth } from '@/shared/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -48,9 +48,10 @@ const ChangePassword = () => {
       setTimeout(() => {
         navigate('/dashboard');
       }, 2000);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to change password. Please try again.';
       console.error('Change password error:', error);
-      toast.error(error.message || 'Failed to change password. Please try again.');
+      toast.error(message);
     } finally {
       setLoading(false);
     }

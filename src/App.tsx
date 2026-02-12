@@ -1,8 +1,8 @@
 
-import React, { useEffect } from 'react';
+import React, { useEffect, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 
-// Auth pages
+// Auth pages (keep static - needed for initial login flow)
 import Signup from './pages/auth/Signup';
 import Login from './pages/auth/Login';
 import ForgotPassword from './pages/auth/ForgotPassword';
@@ -10,21 +10,26 @@ import ResetPassword from './pages/auth/ResetPassword';
 import ChangePassword from './pages/auth/ChangePassword';
 import OAuthCallback from './pages/auth/callback';
 
-// Dashboard pages
-import Dashboard from './pages/dashboard/Dashboard';
-import Targets from './pages/targets/Targets';
-import Rooms from './pages/Rooms';
-import RoomDesigner from './pages/RoomDesigner';
-import Games from './pages/Games';
-// import Scenarios from './pages/Scenarios'; // Commented out - moved to scenarios folder
-import Leaderboard from './pages/Leaderboard';
-import Profile from './pages/Profile';
-import Settings from './pages/Settings';
+// Dashboard pages - lazy loaded for code splitting
+const DashboardPage = React.lazy(() => import('./features/dashboard/ui/dashboard-page'));
+const TargetsPage = React.lazy(() => import('./features/targets/ui/targets-page'));
+const RoomsPage = React.lazy(() => import('./features/rooms/ui/rooms-page'));
+const GamesPage = React.lazy(() => import('./features/games/ui/games-page'));
+const LeaderboardPage = React.lazy(() => import('./features/leaderboard/ui/leaderboard-page'));
+const ProfilePage = React.lazy(() => import('./features/profile/ui/profile-page'));
+const SettingsPage = React.lazy(() => import('./features/settings/ui/settings-page'));
 import NotFound from './pages/NotFound';
+
+// Loading fallback for lazy-loaded pages
+const PageLoading = () => (
+  <div className="min-h-screen flex items-center justify-center bg-brand-light">
+    <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" />
+  </div>
+);
 
 // Components
 import { Toaster } from './components/ui/sonner';
-import { useAuth } from './providers/AuthProvider';
+import { useAuth } from '@/shared/hooks/use-auth';
 
 import './App.css';
 
@@ -64,24 +69,21 @@ function App() {
         <Route path="/change-password" element={user ? <ChangePassword /> : <Navigate to="/login" replace />} />
         <Route path="/auth/callback" element={<OAuthCallback />} />
         
-        {/* Dashboard routes - require authentication */}
-        <Route path="/dashboard" element={user ? <Dashboard /> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/targets" element={user ? <Targets /> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/rooms" element={user ? <Rooms /> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/rooms/:id" element={user ? <RoomDesigner /> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/games" element={user ? <Games /> : <Navigate to="/login" replace />} />
-        {/* <Route path="/dashboard/scenarios" element={user ? <Scenarios /> : <Navigate to="/login" replace />} /> */}
-        <Route path="/dashboard/leaderboard" element={user ? <Leaderboard /> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/profile" element={user ? <Profile /> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/settings" element={user ? <Settings /> : <Navigate to="/login" replace />} />
+        {/* Dashboard routes - require authentication, wrapped in Suspense for lazy loading */}
+        <Route path="/dashboard" element={user ? <Suspense fallback={<PageLoading />}><DashboardPage /></Suspense> : <Navigate to="/login" replace />} />
+        <Route path="/dashboard/targets" element={user ? <Suspense fallback={<PageLoading />}><TargetsPage /></Suspense> : <Navigate to="/login" replace />} />
+        <Route path="/dashboard/rooms" element={user ? <Suspense fallback={<PageLoading />}><RoomsPage /></Suspense> : <Navigate to="/login" replace />} />
+        <Route path="/dashboard/games" element={user ? <Suspense fallback={<PageLoading />}><GamesPage /></Suspense> : <Navigate to="/login" replace />} />
+        <Route path="/dashboard/leaderboard" element={user ? <Suspense fallback={<PageLoading />}><LeaderboardPage /></Suspense> : <Navigate to="/login" replace />} />
+        <Route path="/dashboard/profile" element={user ? <Suspense fallback={<PageLoading />}><ProfilePage /></Suspense> : <Navigate to="/login" replace />} />
+        <Route path="/dashboard/settings" element={user ? <Suspense fallback={<PageLoading />}><SettingsPage /></Suspense> : <Navigate to="/login" replace />} />
         
         {/* Fallback route - redirect from old path structure */}
         <Route path="/profile" element={<Navigate to="/dashboard/profile" replace />} />
         <Route path="/settings" element={<Navigate to="/dashboard/settings" replace />} />
         <Route path="/targets" element={<Navigate to="/dashboard/targets" replace />} />
         <Route path="/rooms" element={<Navigate to="/dashboard/rooms" replace />} />
-        {/* <Route path="/scenarios" element={<Navigate to="/dashboard/scenarios" replace />} /> */}
-        <Route path="/sessions" element={<Navigate to="/dashboard/scenarios" replace />} />
+        <Route path="/sessions" element={<Navigate to="/dashboard/games" replace />} />
         <Route path="/leaderboard" element={<Navigate to="/dashboard/leaderboard" replace />} />
         
         {/* 404 route */}

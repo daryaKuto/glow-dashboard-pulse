@@ -51,3 +51,13 @@ supabase/*
 !supabase/README.md
 
 .cursor/
+CLAUDE.md
+
+# Test output
+test-results/
+coverage/
+.nyc_output/
+
+# One-off API tests and collections
+tests/api/
+postman/

@@ -62,8 +62,8 @@ Deno.serve(async (req) => {
     }
 
     // Need to refresh from ThingsBoard
-    const { devices, telemetryById } = await fetchDevicesWithTelemetry();
-    const { targets: refreshedTargets, context } = await buildTargetsForUser(user.id, devices, telemetryById);
+    const { devices, telemetryById, serverAttributesById } = await fetchDevicesWithTelemetry();
+    const { targets: refreshedTargets, context } = await buildTargetsForUser(user.id, devices, telemetryById, serverAttributesById);
     await persistDeviceSnapshots(user.id, refreshedTargets);
     const metrics = await buildDashboardMetrics(user.id, refreshedTargets, context);
     await persistDashboardMetrics(user.id, metrics);

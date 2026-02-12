@@ -1,554 +1,322 @@
-# Glow Dashboard Pulse
+# Ailith.co Dashboard
 
-A modern React dashboard application for managing shooting range scenarios, targets, and rooms with real-time telemetry integration via ThingsBoard IoT platform.
+A production-grade React dashboard for managing IoT shooting range infrastructure. The application connects targets (IoT devices) through the ThingsBoard platform and manages authentication, rooms, game sessions, and analytics through Supabase.
 
-## 🔄 Telemetry Strategy
+## Tech Stack
 
-- **Dashboards & rooms** refresh from Supabase edge caches on a ≤10 s SLA using adaptive polling with exponential backoff.
-- **Live game sessions** target a ≤1 s SLA: the client upgrades to a dedicated Supabase `device-telemetry` edge WebSocket bridge during active play and falls back to polling otherwise.
-- Heartbeat and slow-cycle logging provide early warnings if either SLA is breached.
+| Category | Technology |
+|----------|-----------|
+| **Framework** | React 18 + TypeScript |
+| **Build** | Vite 5 (SWC) |
+| **Styling** | Tailwind CSS 3.4 + Shadcn/UI + Radix UI primitives |
+| **Server State** | React Query (@tanstack/react-query) |
+| **Client State** | Zustand (real-time game flow only) |
+| **Routing** | React Router v6 (lazy-loaded routes) |
+| **Forms** | react-hook-form + Zod |
+| **Charts** | Recharts 2.12 (lazy-loaded) |
+| **Icons** | Lucide React |
+| **Backend** | Supabase (auth, database, edge functions) + ThingsBoard IoT |
+| **Testing** | Vitest + Testing Library + jsdom |
 
-### 🎯 Session Popup Flow (Games Page)
+## Architecture
 
-- The **Start Session** dialog reuses the operator’s target selection (`src/pages/Games.tsx`) to build a ThingsBoard subscription list—no device IDs are hardcoded.
-- When the dialog enters launching/running states and a direct ThingsBoard token is available, it opens a scoped WebSocket via `tbSubscribeTelemetry` that streams only the selected targets’ telemetry.
-- Incoming `event: "hit"` records that match the active `gameId` are buffered locally inside the popup so the live feed reflects the exact stream that powered the Expo dashboard flow.
-- If the dialog closes or the target selection changes, the popup tears down the subscription and resets its local buffers to avoid replaying stale hits.
-- Supabase/edge snapshots for the cards and Target Selection panel are pulled once on first load and once after each game is finalized; everything in between is driven by cached device state plus direct ThingsBoard telemetry.
-
-### 🧩 Games Page Architecture
-
-- `src/pages/Games.tsx` now focuses solely on orchestration: it owns all Zustand/store subscriptions, derives memoized datasets (like `deviceHitSummary`, `roomSelections`, and `recentTransitions`), and wires lifecycle handlers into child components.
-- Presentational cards live in `src/components/games/` (`OperatorOverviewCard`, `LiveSessionCard`, `HitTimelineCard`, `HitDistributionCard`, `RoomSelectionCard`, `TargetSelectionCard`, `TargetTransitionsCard`). Each receives pre-computed props from `Games.tsx`, which keeps layout markup isolated from data-fetching logic.
-- The Start Session popup moved to `src/components/games/StartSessionDialog.tsx`. The page simply passes lifecycle state, direct-control flags, and the hydrated `sessionHits` array; the dialog component owns its own ThingsBoard telemetry subscription buffer to keep the live hit feed scoped.
-- Shared helpers (color palette, summary types, selection skeletons) live alongside the cards so the data flow is one-way: `Games.tsx → components`. No component reaches back into the page for state, which makes testing and Storybook coverage significantly easier.
-
-### 🎮 Game Presets Workflow
-
-- `src/store/useGamePresets.ts` fronts the Supabase `game-presets` edge function and exposes `fetchPresets`, `savePreset`, and `deletePreset`. The Games page primes the store on mount and logs all fetch lifecycles for observability.
-- `src/pages/Games.tsx` renders a dedicated `GamePresetsCard` that surfaces presets as reusable “apply / delete” actions. Applying a preset pumps the saved target IDs through the shared `openStartDialogForTargets` helper so `pendingSessionTargets`, `selectedDeviceIds`, and `currentSessionTargets` stay in sync. Room and duration metadata are merged into the `sessionRoomId`/`sessionDurationSeconds` state so downstream components reflect the preset immediately.
-- The Start Session dialog now shows the active room and editable target duration during the selecting phase (`StartSessionDialog.tsx`). Operators can stamp presets straight from the dialog via the new “Save as preset” CTA, which launches a shadcn modal managed from `Games.tsx`.
-- The save modal collects preset metadata (name, description, optional room, optional duration) and persists it through `useGamePresets.savePreset`. Successful saves trigger a toast, refresh the local store, and log the action; failures surface via toast + console in line with existing conventions.
-- Desired duration travels with the session: it’s baked into the ThingsBoard shared attributes/RPC payload (`tbSetShared` + `tbSendOneway`) and is displayed on the `LiveSessionCard` so operators can see the target run length alongside the live stopwatch.
-
-## 🚀 Features
-
-### Core Functionality
-
-#### ✅ **Authentication System**
-- User registration and login via Supabase
-- Session management with automatic token refresh
-- Protected routes and authentication state
-- **Status**: ✅ Fully integrated with Supabase
-
-#### ✅ **Dashboard Overview**
-- Real-time statistics display from ThingsBoard
-- Active targets count with live status
-- Rooms created count
-- Last session score
-- Pending invites
-- **Status**: ✅ Real data from ThingsBoard API
-
-#### ✅ **Target Management**
-- View all targets across rooms from ThingsBoard devices
-- Target status monitoring (online/offline/error)
-- Battery level tracking
-- Hit count and accuracy statistics
-- Target renaming and firmware updates
-- **Status**: ✅ Real data from ThingsBoard devices
-
-#### ✅ **Room Management**
-- Create, rename, and delete rooms
-- Drag-and-drop room reordering
-- Room capacity tracking (target count)
-- Room-target assignment management
-- **Status**: ✅ Real data via ThingsBoard device attributes
-
-#### ✅ **Room Designer**
-- Visual room layout editor
-- Drag-and-drop target placement
-- Target grouping functionality
-- Real-time room preview
-- **Status**: ✅ Real data integration
-
-#### ✅ **Scenario Templates**
-- Pre-defined scenario templates (currently: Double Tap)
-- Scenario configuration (targets, shots, time limits)
-- Room validation before starting scenarios
-- **Status**: ✅ Template system fully implemented
-
-#### ✅ **Scenario Runtime**
-- Full-screen countdown with 3-2-1 beep synchronization
-- Start scenarios with room validation and target selection
-- Real-time scenario status tracking with live progress
-- Stop active scenarios with proper cleanup
-- Demo mode with mock data for testing
-- **Status**: ✅ Fully implemented with ThingsBoard-ready structure
-
-#### ✅ **Leaderboard**
-- User performance rankings
-- Score tracking and comparison
-- **Status**: 🚧 Ready for implementation
-
-#### ✅ **User Profile**
-- User statistics and achievements
-- Recent session history
-- Profile management
-- **Status**: 🚧 Ready for implementation
-
-#### ✅ **Settings**
-- Theme customization
-- Notification preferences
-- Account management
-- **Status**: ✅ UI ready, backend integration pending
-
-### Technical Features
-
-#### ✅ **Real-time WebSocket Integration**
-- Live target hit detection via ThingsBoard telemetry
-- Real-time score updates
-- Connection status monitoring
-- **Status**: ✅ WebSocket client ready for ThingsBoard
-
-#### ✅ **ThingsBoard Integration**
-- API client with automatic JWT refresh
-- Device management and filtering
-- Telemetry data collection
-- WebSocket connections
-- **Status**: ✅ Fully integrated and working
-
-#### ✅ **Metrics & Analytics**
-- Reaction time calculations
-- Hit pattern analysis
-- Performance statistics
-- **Status**: ✅ Real data processing from ThingsBoard
-
-#### ✅ **Mobile-First Design**
-- Responsive layouts optimized for mobile devices
-- Touch-friendly interactions and button sizing
-- Scalable typography and component sizing
-- Mobile-optimized navigation and status banners
-- **Status**: ✅ Fully implemented across all pages
-
-#### ✅ **Countdown System**
-- Full-screen countdown popup with brand styling
-- 3-2-1 countdown with synchronized audio beeps
-- ThingsBoard-ready signal structure for hardware integration
-- Demo mode with mock countdown simulation
-- **Status**: ✅ Complete implementation ready for hardware
-
-## 🛠 Tech Stack
-
-- **Frontend**: React 18 + TypeScript
-- **UI Framework**: Tailwind CSS + shadcn/ui
-- **State Management**: Zustand
-- **Routing**: React Router DOM v6
-- **HTTP Client**: Axios with automatic retry
-- **Real-time**: WebSocket API
-- **Build Tool**: Vite
-- **Testing**: Vitest + Testing Library + jsdom
-- **Backend Integration**: ThingsBoard IoT Platform + Supabase
-- **Authentication**: Supabase Auth
-
-## 📁 Project Structure
+The codebase follows a **layered feature-based architecture** with a pure domain layer:
 
 ```
-glow-dashboard-pulse/
-├── src/                    # Source code
-│   ├── components/         # Reusable UI components
-│   │   ├── ui/            # shadcn/ui components (51 components)
-│   │   │   ├── accordion.tsx, alert-dialog.tsx, alert.tsx
-│   │   │   ├── aspect-ratio.tsx, avatar.tsx, badge.tsx
-│   │   │   ├── breadcrumb.tsx, button.tsx, calendar.tsx
-│   │   │   ├── card.tsx, carousel.tsx, chart.tsx
-│   │   │   ├── checkbox.tsx, collapsible.tsx, command.tsx
-│   │   │   ├── context-menu.tsx, dialog.tsx, drawer.tsx
-│   │   │   ├── dropdown-menu.tsx, form.tsx, hover-card.tsx
-│   │   │   ├── input.tsx, label.tsx, menubar.tsx
-│   │   │   ├── navigation-menu.tsx, pagination.tsx, popover.tsx
-│   │   │   ├── progress.tsx, radio-group.tsx, scroll-area.tsx
-│   │   │   ├── select.tsx, separator.tsx, sheet.tsx
-│   │   │   ├── sidebar.tsx, skeleton.tsx, slider.tsx
-│   │   │   ├── switch.tsx, table.tsx, tabs.tsx
-│   │   │   ├── textarea.tsx, toast.tsx, toggle.tsx
-│   │   │   └── tooltip.tsx, use-toast.ts
-│   │   ├── dashboard/      # Dashboard-specific components
-│   │   │   └── index.ts
-│   │   ├── scenarios/      # Scenario-related components
-│   │   │   ├── CreateScenarioDialog.tsx
-│   │   │   └── ScenarioCard.tsx
-│   │   ├── settings/       # Settings page components
-│   │   │   ├── DangerZone.tsx
-│   │   │   ├── NotificationSettings.tsx
-│   │   │   └── ThemeSettings.tsx
-│   │   ├── DragDropList.tsx
-│   │   ├── FindFriendsTab.tsx
-│   │   ├── GroupBox.tsx
-│   │   ├── Header.tsx
-│   │   ├── InspectorPanel.tsx
-│   │   ├── InviteModal.tsx
-│   │   ├── MobileDrawer.tsx
-│   │   ├── PalettePanel.tsx
-│   │   ├── PhoneVerifyModal.tsx
-│   │   ├── RoomCanvas.tsx
-│   │   ├── RoomCard.tsx
-│   │   ├── ScenarioCountdown.tsx      # Full-screen countdown popup
-│   │   ├── SearchInput.tsx
-│   │   ├── ShootingStatusBanner.tsx   # Mobile-optimized status banner
-│   │   ├── Sidebar.tsx
-│   │   ├── StatCard.tsx
-│   │   ├── TargetCard.tsx
-│   │   ├── TargetIcon.tsx
-│   │   ├── TargetPreferencesSkeleton.tsx
-│   │   ├── TrendChart.tsx
-│   │   └── UserSearchResult.tsx
-│   ├── pages/              # Page components
-│   │   ├── auth/          # Authentication pages
-│   │   │   └── callback.tsx
-│   │   ├── dashboard/      # Dashboard pages
-│   │   │   └── Dashboard.tsx
-│   │   ├── Leaderboard.tsx
-│   │   ├── Login.tsx
-│   │   ├── NotFound.tsx
-│   │   ├── Profile.tsx
-│   │   ├── RoomDesigner.tsx
-│   │   ├── Rooms.tsx
-│   │   ├── Scenarios.tsx
-│   │   ├── Settings.tsx
-│   │   ├── Signup.tsx
-│   │   └── Targets.tsx
-│   ├── store/              # Zustand stores (10 stores)
-│   │   ├── useAuth.ts
-│   │   ├── useDashboardStats.ts
-│   │   ├── useFriends.ts
-│   │   ├── useRoomDesigner.ts
-│   │   ├── useRooms.ts
-│   │   ├── useScenarioRun.ts
-│   │   ├── useScenarios.ts
-│   │   ├── useStats.ts
-│   │   ├── useTargets.ts
-│   │   └── useUserPrefs.ts
-│   ├── services/           # API services
-│   │   ├── countdown.ts    # Countdown service for scenario starts
-│   │   ├── metrics.ts      # Metrics calculation service
-│   │   ├── scenario-api.ts # Scenario execution API
-│   │   ├── scenario-mock.ts # Mock scenario service
-│   │   └── thingsboard.ts  # ThingsBoard integration
-│   ├── lib/                # Utilities and configurations
-│   │   ├── api.ts         # Main API client
-│   │   ├── cache.ts       # Caching utilities
-│   │   ├── tbClient.ts    # ThingsBoard HTTP client
-│   │   ├── types.ts       # Type definitions
-│   │   ├── utils.ts       # Utility functions
-│   │   ├── websocket.ts   # WebSocket client
-│   │   └── utils/         # Additional utilities
-│   │       └── EventEmitter.ts
-│   ├── hooks/              # Custom React hooks
-│   │   ├── use-mobile.tsx
-│   │   ├── use-toast.ts
-│   │   ├── useScenarioLiveData.ts    # Real-time scenario data
-│   │   ├── useScenarioLiveDataMock.ts # Mock scenario data
-│   │   ├── useShootingActivityPolling.ts # Smart polling system
-│   │   └── useSmartPolling.ts
-│   ├── providers/          # React context providers
-│   │   └── AuthProvider.tsx
-│   ├── integrations/       # External service integrations
-│   │   └── supabase/       # Supabase client and types
-│   │       ├── client.ts
-│   │       └── types.ts
-│   ├── types/              # TypeScript type definitions
-│   │   ├── game.ts
-│   │   └── scenario-data.ts
-│   ├── data/               # Static data and templates
-│   │   └── scenarios.ts    # Scenario templates
-│   ├── mocks/              # Mock data directory
-│   ├── App.css
-│   ├── App.tsx
-│   ├── index.css
-│   ├── main.tsx
-│   ├── test-setup.ts
-│   └── vite-env.d.ts
-├── tests/                  # Test files (organized)
-│   ├── api/               # ThingsBoard API integration tests
-│   │   ├── decode-token.js
-│   │   ├── package.json
-│   │   ├── README.md
-│   │   ├── run-tests-fixed.js
-│   │   ├── simple-auth-test.js
-│   │   ├── test_data.json
-│   │   ├── test-runner.js
-│   │   └── working-api-test.js
-│   ├── data/              # Data tests
-│   │   └── scenarios.test.ts
-│   ├── lib/               # Library tests
-│   │   ├── api.test.ts
-│   │   └── tbClient.test.ts
-│   ├── pages/             # Page component tests
-│   │   └── Targets.test.tsx
-│   ├── services/          # Service tests
-│   │   └── thingsboard.test.ts
-│   └── store/             # Store tests
-│       ├── useScenarioRun.test.ts
-│       ├── useStats.test.ts
-│       └── useTargets.test.ts
-├── postman/               # API testing collections
-│   ├── README.md
-│   ├── SwaggerUI.md
-│   ├── TEST_RESULTS.md
-│   ├── ThingsBoard_API_Collection_Fixed.json
-│   └── ThingsBoard_Environment.json
-├── supabase/              # Database schemas and migrations
-│   ├── analytics-schema.sql
-│   ├── clean-analytics-schema.sql
-│   ├── complete-analytics-schema.sql
-│   ├── complete-schema.sql
-│   ├── config.toml
-│   ├── create-tables-only.sql
-│   ├── migrations/
-│   │   └── 001_create_user_settings.sql
-│   └── rls-policies.sql
-├── public/                # Static assets and brand fonts
-│   ├── ailith_dark.png
-│   ├── Comfortaa,Merriweather,Raleway/  # Brand font families
-│   │   ├── Comfortaa/     # 3 files (1 variable font + license + readme)
-│   │   ├── Merriweather/  # 4 files (2 variable fonts + license + readme)
-│   │   └── Raleway/       # 4 files (2 variable fonts + license + readme)
-│   ├── favicon.ico
-│   ├── placeholder.svg
-│   ├── robots.txt
-│   ├── target-logo-fav.png
-│   └── thumb-3.png        # Updated favicon
-├── docs/                  # Comprehensive documentation
-│   ├── API.md
-│   ├── BugFixLog.md
-│   ├── Dashboard.md
-│   ├── Design-System.md
-│   ├── Installation.md
-│   ├── ProjectDocumentation.md
-│   ├── SupabaseSetup.md
-│   ├── TechnicalOverview.md
-│   ├── TechnicalREADME.md
-│   ├── ThingsBoard-Scenario-Integration.md
-│   └── UserManual.md
-├── components.json        # shadcn/ui configuration
-├── eslint.config.js       # ESLint configuration
-├── index.html             # Main HTML file
-├── package.json           # Dependencies and scripts
-├── package-lock.json      # Lock file
-├── postcss.config.js      # PostCSS configuration
-├── README.md              # This file
-├── tailwind.config.ts     # Tailwind CSS configuration
-├── tsconfig.app.json      # TypeScript app config
-├── tsconfig.json          # TypeScript root config
-├── tsconfig.node.json     # TypeScript node config
-├── vite.config.ts         # Vite build configuration
-└── vitest.config.ts       # Vitest test configuration
+src/
+├── app/                    # Application bootstrap
+│   ├── auth-context.ts     # Auth context type definition
+│   ├── auth-provider.tsx   # Auth provider component
+│   ├── providers.tsx       # React Query provider
+│   └── query-client.ts     # React Query configuration
+│
+├── domain/                 # Pure business logic (no React, no Supabase)
+│   ├── dashboard/          # Aggregators, mappers, permissions, validators
+│   ├── games/              # Rules, mappers, permissions, validators
+│   ├── leaderboard/        # Ports (interfaces)
+│   ├── profile/            # Rules, mappers, permissions, validators
+│   ├── rooms/              # Rules, permissions, validators
+│   ├── settings/           # Ports
+│   ├── targets/            # Rules, permissions, validators
+│   └── shared/             # Type guards, validation helpers
+│
+├── features/               # Feature modules (self-contained)
+│   ├── auth/               # Authentication service
+│   ├── dashboard/          # Analytics overview
+│   ├── games/              # Game session management
+│   ├── leaderboard/        # Performance rankings
+│   ├── profile/            # User profile & settings
+│   ├── rooms/              # Room management
+│   ├── settings/           # App preferences
+│   └── targets/            # IoT target device management
+│
+├── shared/                 # Cross-cutting concerns
+│   ├── hooks/              # use-auth, use-mobile, use-toast
+│   ├── lib/                # Logger, rate limiter, error boundary, ApiResponse<T>
+│   ├── types/              # Shared type definitions
+│   └── ui/                 # FeatureErrorBoundary
+│
+├── components/
+│   ├── ui/                 # Shadcn/UI base components (48 components)
+│   └── shared/             # Header, Sidebar, MobileDrawer, SubscriptionGate
+│
+├── pages/                  # Thin route wrappers (auth pages, legacy redirects)
+│   └── auth/               # Login, Signup, ForgotPassword, ResetPassword, etc.
+│
+├── lib/                    # Edge function wrapper, Tailwind cn() utility
+├── utils/                  # Dashboard helpers, throttled logging, logout, perf monitor
+├── config/                 # Telemetry configuration
+├── data/                   # Supabase client, database types
+├── integrations/           # Supabase client setup & generated types
+│
+├── App.tsx                 # Route definitions
+├── main.tsx                # Entry point (ErrorBoundary → BrowserRouter → Providers → AuthProvider → App)
+└── index.css               # CSS variables, @font-face, base styles
 ```
 
-## 🚀 Getting Started
+### Feature Module Structure
+
+Each feature follows a consistent layered pattern:
+
+```
+features/<feature>/
+├── index.ts        # Public API — only exported hooks, types, and components
+├── schema.ts       # Zod schemas + TypeScript types
+├── repo.ts         # Data access layer (Supabase queries, edge function calls)
+├── service.ts      # Business logic orchestration
+├── hooks.ts        # React Query hooks (caching, invalidation, mutations)
+├── hooks/          # Specialized hooks (complex features like games)
+├── lib/            # Feature-specific utilities
+├── state/          # Zustand stores (games only — real-time game flow)
+└── ui/             # React components
+    └── components/ # Presentational sub-components
+```
+
+**Data flows one way:** `repo → service → hooks → UI components`
+
+All repo and service functions return a standardized `ApiResponse<T>` type (`{ ok: true, data: T } | { ok: false, error: { code, message } }`).
+
+### Domain Layer
+
+The `src/domain/` layer contains **pure business logic** with strict rules:
+- No React imports
+- No Supabase or external service imports
+- All functions must be pure (no side effects)
+- All functions must have explicit return types
+
+Each domain module provides: `ports.ts` (interfaces), `validators.ts`, `rules.ts`, `permissions.ts`, and `mappers.ts`.
+
+## Features
+
+### Dashboard
+Real-time analytics overview with stat cards, target activity charts, hit timeline (area chart), hit distribution, and recent sessions list. Charts are lazy-loaded to keep the initial bundle under control (~200KB savings).
+
+### Targets
+View and manage IoT target devices from ThingsBoard. Status monitoring (online/offline), battery tracking, hit counts, custom naming (premium), and device RPC commands. Permission-aware hooks enforce access control.
+
+### Rooms
+Create, rename, reorder (drag-and-drop via @dnd-kit), and delete rooms. Assign targets to rooms. Data stored in Supabase, fetched via rate-limited edge functions.
+
+### Games
+The most complex feature — manages the full game session lifecycle:
+
+1. **Setup** — Select room, pick targets, configure duration (3-step wizard)
+2. **Launch** — Send RPC commands + shared attributes to ThingsBoard devices
+3. **Running** — WebSocket telemetry streaming, real-time hit tracking
+4. **Finalize** — Stop commands, persist session to Supabase, update history
+
+15+ specialized hooks decompose concerns (session lifecycle, telemetry sync, device RPC, preset management, etc.). Zustand is used exclusively here for transient real-time state during active play.
+
+### Game Presets
+Save and reuse target/room/duration configurations. Stored in Supabase via edge functions, managed through React Query hooks.
+
+### Profile & Settings
+User profile management, WiFi credential sync, theme preferences, notification settings.
+
+### Authentication
+Dual auth: Supabase (primary) + ThingsBoard (background). JWT management, session persistence, automatic token refresh. Auth context provided via `src/app/auth-provider.tsx`.
+
+## Backend Integration
+
+### Supabase
+
+**Edge Functions** (in `supabase/functions/`):
+| Function | Purpose |
+|----------|---------|
+| `dashboard-metrics` | Aggregated dashboard stats |
+| `device-admin` | Device administration |
+| `device-command` | Send RPC commands to devices |
+| `device-telemetry` | Telemetry data retrieval |
+| `game-control` | Game session control |
+| `game-presets` | CRUD for saved game configurations |
+| `rooms` | Room CRUD operations |
+| `targets-with-telemetry` | Target list with live telemetry |
+| `target-details` | Individual target detail |
+| `telemetry-history` | Historical telemetry data |
+| `thingsboard-auth` | ThingsBoard token exchange |
+| `thingsboard-session` | ThingsBoard session management |
+| `shooting-activity` | Activity data for charts |
+| `refresh-device-snapshots` | Cache refresh for device state |
+| `scenario-control` | Scenario execution |
+
+**Database tables:** `user_profiles`, `sessions`, `user_rooms`, `user_room_targets`, `game_presets`, `target_groups`, `target_custom_names`
+
+All edge function calls go through a rate-limited wrapper (`src/lib/edge.ts`) using a token-bucket algorithm.
+
+### ThingsBoard
+
+HTTP client (`src/features/games/lib/thingsboard-client.ts`) with:
+- Per-endpoint rate limiting (REST, telemetry, RPC presets)
+- Axios interceptor for automatic token injection
+- WebSocket support for real-time telemetry during live sessions
+- Vite dev proxy (`/api/tb → thingsboard.cloud`) to avoid CORS
+
+## State Management Strategy
+
+| Concern | Tool | Why |
+|---------|------|-----|
+| Server data (targets, rooms, sessions, presets, metrics) | React Query | Caching, background refetch, optimistic updates, query invalidation |
+| Auth session | React Context | Global, infrequently changing, needed everywhere |
+| Real-time game flow (live hit tracking, device status during play) | Zustand | Transient UI state, high-frequency updates, reset on logout |
+
+React Query is configured with 30s stale time, 5min GC, exponential retry with rate-limit awareness, and window-focus refetch in production only.
+
+## Error Handling & Resilience
+
+- **Error boundaries:** Root-level (`shared/lib/error-boundary.tsx`) + per-feature (`shared/ui/FeatureErrorBoundary.tsx`) — feature failures don't crash the app
+- **Rate limiting:** Token-bucket algorithm with configurable presets for Supabase edge, ThingsBoard REST/telemetry/RPC
+- **Rate limit monitoring:** Tracks hits, logs warnings when approaching limits
+- **Structured logging:** Dev-only debug/info, always-on warn/error (`shared/lib/logger.ts`)
+- **Throttled logging:** Prevents log flooding during high-frequency events (`utils/log-throttle.ts`)
+- **Performance monitoring:** Mark/measure utilities for dev profiling (`utils/performance-monitor.ts`)
+
+## Telemetry Strategy
+
+- **Dashboards & rooms:** Supabase edge caches, ≤10s SLA, adaptive polling with exponential backoff
+- **Live game sessions:** ≤1s SLA, WebSocket telemetry during active play, polling fallback
+- All ThingsBoard API calls go through rate-limited Axios interceptors
+
+## Routing
+
+All dashboard routes are lazy-loaded with `React.lazy()` + `Suspense`:
+
+| Route | Page |
+|-------|------|
+| `/dashboard` | Dashboard (analytics overview) |
+| `/dashboard/targets` | Targets management |
+| `/dashboard/rooms` | Rooms management |
+| `/dashboard/games` | Games (session setup, live play, history) |
+| `/dashboard/leaderboard` | Leaderboard |
+| `/dashboard/profile` | User profile |
+| `/dashboard/settings` | App settings |
+| `/login`, `/signup`, `/forgot-password`, `/reset-password` | Auth pages |
+
+Auth pages are statically imported. Old paths (`/targets`, `/rooms`, etc.) redirect to `/dashboard/*`.
+
+## Design System
+
+### Brand Identity
+
+| Token | Value | Role |
+|-------|-------|------|
+| Black | `#1C192B` | Primary text, dark backgrounds |
+| Burnt Orange | `#CE3E0A` | Primary accent — CTAs, active states, links |
+| Purple | `#816E94` | Secondary/muted — inactive states, labels |
+| Ivory | `#F6F7EB` | Page backgrounds |
+
+### Typography
+
+| Font | Role |
+|------|------|
+| **Comfortaa** | Logo & display text only |
+| **Merriweather** | Headlines & section titles |
+| **Raleway** | Body text, labels, stats, numbers, buttons |
+
+Fonts are self-hosted from `public/Comfortaa,Merriweather,Raleway/`.
+
+## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+ 
-- npm or yarn
-- ThingsBoard instance (for IoT data)
-- Supabase project (for authentication)
+- Node.js 18+
+- npm
+- Supabase project (auth + database + edge functions)
+- ThingsBoard instance (IoT platform)
 
 ### Installation
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd glow-dashboard-pulse
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Environment Setup**
-   Create a `.env.local` file:
-   ```env
-   # ThingsBoard Configuration
-   VITE_TB_BASE_URL=https://your-thingsboard-instance.com
-   VITE_TB_WS_URL=wss://your-thingsboard-instance.com
-   VITE_TB_CONTROLLER_ID=your-controller-id
-   
-   # Supabase Configuration
-   VITE_SUPABASE_URL=your-supabase-url
-   VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
-   ```
-   
-   **Note**: The app uses Vite proxy configuration to avoid CORS issues with ThingsBoard Cloud.
-
-4. **Start development server**
-   ```bash
-   npm run dev
-   ```
-
-5. **Run tests**
-   ```bash
-   npm run test
-   ```
-
-6. **Run API tests (ThingsBoard integration)**
-   ```bash
-   cd tests/api && npm test
-   ```
-
-## 🔧 Configuration
-
-### ThingsBoard Integration
-
-The app is fully integrated with ThingsBoard IoT platform:
-
-- **API Endpoints**: Configured via environment variables
-- **Authentication**: JWT-based with automatic refresh
-- **WebSocket**: Real-time telemetry streaming
-- **Device Management**: Target device CRUD operations
-- **Device Filtering**: Smart filtering for target devices
-- **Room Management**: Via device attributes
-
-### Supabase Integration
-
-Authentication and user management via Supabase:
-
-- **User Registration/Login**: Email/password authentication
-- **Session Management**: Automatic token refresh
-- **Protected Routes**: Authentication state management
-
-### Theme Customization
-
-The app uses a custom brand color scheme defined in `tailwind.config.ts`:
-
-- **Brand Primary**: Burnt Orange (`#CE3E0A`) - Icons, buttons when hovered/activated
-- **Brand Secondary**: Purple (`#816E94`) - Search bars, default button states
-- **Brand Text**: Dark Purple (`#1C192B`) - Primary text and fonts
-- **Brand Background**: Ivory (`#F6F7EB`) - Page backgrounds
-- **Brand Surface**: White (`#FFFFFF`) - Card backgrounds
-- **Typography**: Comfortaa (display), Merriweather (headings), Raleway (body)
-
-## 📊 Current Data Sources
-
-### Real Data Integration ✅
-- **ThingsBoard Devices**: Target information and status
-- **ThingsBoard Telemetry**: Real-time hit data and metrics
-- **ThingsBoard Attributes**: Room assignments and configurations
-- **Supabase Auth**: User authentication and sessions
-
-### Recently Implemented ✅
-- Full-screen countdown system with 3-2-1 beep synchronization
-- Mobile-optimized responsive design across all pages
-- Enhanced scenario flow with demo/live mode toggle
-- Shooting status banner with mobile optimization
-- Brand color system integration (CE3E0A, 816E94, 1C192B, F6F7EB)
-- Typography system (Comfortaa, Merriweather, Raleway)
-
-### Ready for Implementation 🚧
-- User profiles and preferences
-- Leaderboard rankings
-- Advanced analytics
-- Scenario execution history
-
-## 🔄 API Integration Status
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Authentication | ✅ Real | Supabase integration complete |
-| Target Management | ✅ Real | ThingsBoard device integration |
-| Room Management | ✅ Real | Via ThingsBoard device attributes |
-| Telemetry Data | ✅ Real | ThingsBoard WebSocket integration |
-| Scenario Templates | ✅ Complete | Template system with countdown integration |
-| Scenario Runtime | ✅ Complete | Full countdown system with ThingsBoard structure |
-| Countdown System | ✅ Complete | 3-2-1 beep sync ready for ThingsBoard |
-| WebSocket | ✅ Real | ThingsBoard telemetry streaming |
-| Metrics | ✅ Real | Live data from ThingsBoard |
-
-## 🧪 Testing
-
-The project includes comprehensive testing with real data:
-
 ```bash
-# Run all tests
-npm run test
-
-# Run tests in watch mode
-npm run test:ui
-
-# Run tests once
-npm run test:run
-
-# Run API integration tests
-cd tests/api && npm test
+git clone <repository-url>
+cd glow-dashboard-pulse
+npm install
 ```
 
-### Test Coverage
-- ✅ Component unit tests (with real providers)
-- ✅ Store state management tests
-- ✅ API integration tests
-- ✅ ThingsBoard service tests
-- ✅ Scenario template validation
-- ✅ Authentication flow tests
+### Environment
 
-### Test Organization
-- All tests are organized under `/tests` directory
-- Unit tests use real providers and data
-- API integration tests in `/tests/api` with separate package.json
-- Proper test isolation and cleanup
+Create a `.env.local`:
 
-## 🚧 Development Roadmap
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
+VITE_TB_HOST=thingsboard.cloud
+VITE_TB_BASE_URL=https://thingsboard.cloud
+```
 
-### Phase 1: Core Infrastructure ✅
-- [x] React + TypeScript setup
-- [x] UI component library
-- [x] State management
-- [x] Routing system
-- [x] Authentication flow
+The Vite dev server proxies `/api/tb` requests to ThingsBoard to avoid CORS issues.
 
-### Phase 2: Real Data Integration ✅
-- [x] ThingsBoard API integration
-- [x] Device management and filtering
-- [x] Real-time telemetry
-- [x] Room management via device attributes
-- [x] Target status monitoring
+### Development
 
-### Phase 3: Advanced Features ✅/🚧
-- [x] Scenario execution engine with countdown system
-- [x] Real-time scenario tracking with live progress
-- [x] Mobile-first responsive design optimization
-- [ ] Advanced analytics dashboard
-- [ ] User profiles and preferences
-- [ ] Leaderboard system
+```bash
+npm run dev          # Start dev server (port 8080)
+npm run build        # Production build
+npm run preview      # Preview production build
+npm run lint         # ESLint
+```
 
-### Phase 4: Production Features 🚧
-- [x] Mobile optimization (completed)
-- [x] Full-screen countdown with beep synchronization
-- [ ] Multi-user scenarios
-- [ ] Offline support
-- [ ] Export/import functionality
-- [ ] Performance monitoring
+### Testing
 
-## 🤝 Contributing
+```bash
+npm test             # Run all tests (Vitest)
+npm run test:watch   # Watch mode
+npm run test:coverage # Coverage report
+```
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
+Tests are organized under `tests/`:
 
-## 📝 License
+```
+tests/
+├── domain/          # Pure business logic tests (20 test files)
+│   ├── dashboard-aggregators.test.ts
+│   ├── games-rules.test.ts
+│   ├── rooms-validators.test.ts
+│   ├── targets-permissions.test.ts
+│   └── ...
+├── features/        # Service and adapter tests (13 test files)
+│   ├── auth-service.test.ts
+│   ├── games-service.test.ts
+│   ├── targets-adapter.test.ts
+│   └── ...
+├── thingsboard/     # ThingsBoard integration tests
+│   ├── api-patterns.test.ts
+│   └── data-validation.test.ts
+├── safety/          # Architectural constraint tests
+│   └── no-direct-thingsboard.test.ts
+├── lib/             # Library utility tests
+├── pages/           # Page component tests
+└── setup.ts         # Test setup (jsdom environment)
+```
+
+## Project Configuration
+
+| File | Purpose |
+|------|---------|
+| `tailwind.config.ts` | Theme tokens, brand colors, typography scale, custom shadows |
+| `src/index.css` | CSS custom properties, @font-face, base styles |
+| `vite.config.ts` | Build config, path aliases (`@/ → ./src/`), ThingsBoard proxy |
+| `vitest.config.ts` | Test runner config (jsdom, 30s timeout) |
+| `components.json` | Shadcn/UI configuration |
+| `tsconfig.app.json` | TypeScript config (strict mode) |
+
+## License
 
 This project is licensed under the MIT License.
-
-## 🆘 Support
-
-For support and questions:
-- Check the documentation in `/docs`
-- Review the API documentation
-- Open an issue on GitHub
-
----
-
-**Note**: This application is fully integrated with ThingsBoard IoT platform and Supabase for real data management. All core features are working with live data from your IoT infrastructure.

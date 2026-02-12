@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
   try {
     const url = new URL(req.url);
     console.log('[refresh-device-snapshots] invocation received', { targetUserId: url.searchParams.get("user_id") });
-    const { devices, telemetryById } = await fetchDevicesWithTelemetry();
+    const { devices, telemetryById, serverAttributesById } = await fetchDevicesWithTelemetry();
     const targetUserId = url.searchParams.get("user_id");
     const userIds = await fetchActiveUsers(targetUserId ?? undefined);
 
@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
 
     for (const userId of userIds) {
       try {
-        const { targets } = await refreshSnapshotsForUser(userId, devices, telemetryById);
+        const { targets } = await refreshSnapshotsForUser(userId, devices, telemetryById, serverAttributesById);
         results.push({ userId, refreshed: true, targetCount: targets.length });
       } catch (error) {
         console.error('[refresh-device-snapshots] user refresh failed', { userId, error: error instanceof Error ? error.message : String(error) });

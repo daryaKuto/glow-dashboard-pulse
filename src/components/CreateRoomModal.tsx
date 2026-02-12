@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Home, Sofa, Utensils, ChefHat, Bed, Briefcase, Building, Car, TreePine, Gamepad2, Dumbbell, Music, BookOpen, Target } from 'lucide-react';
-import type { Target as TargetType } from '@/store/useTargets';
+import type { Target as TargetType } from '@/features/targets/schema';
 
 interface CreateRoomModalProps {
   isOpen: boolean;

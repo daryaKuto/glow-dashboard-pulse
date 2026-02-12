@@ -17,6 +17,7 @@ const DEFAULT_TELEMETRY_KEYS = [
   "wifiStrength",
   "event",
   "gameStatus",
+  "gameId",
 ];
 
 const DEFAULT_HISTORY_KEYS = ["hits", "hit_ts"];
@@ -24,7 +25,7 @@ const DEFAULT_HISTORY_RANGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DEFAULT_HISTORY_LIMIT = 500;
 const CACHE_TTL_MS = 10_000;
 const ACTIVE_THRESHOLD_MS = 30_000;
-const RECENT_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+const RECENT_THRESHOLD_MS = 43200_000; // 12 hours – must match scripts/check-online-targets-thingsboard.sh RECENT_MS
 const RECENT_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
 interface TargetDetailsRequest {
@@ -42,8 +43,12 @@ interface TargetDetailPayload {
   deviceId: string;
   status: "online" | "standby" | "offline";
   activityStatus: "active" | "recent" | "standby";
+  /** Raw from ThingsBoard: device status string. UI derives display status from this + active + tbLastActivityTime. */
+  rawStatus?: string | null;
+  active?: boolean | null;
+  tbLastActivityTime?: number | null;
   lastShotTime: number | null;
-  totalShots: number;
+  totalShots: number | null;
   recentShotsCount: number;
   telemetry: Record<string, unknown>;
   history?: Record<string, unknown>;
@@ -258,13 +263,13 @@ Deno.serve(async (req) => {
     const hitsEntries = Array.isArray((telemetry as Record<string, unknown>).hits)
       ? (telemetry as { hits: Array<{ ts?: number; value?: unknown }> }).hits
       : [];
-    const latestHits = hitsEntries.length > 0 ? hitsEntries[hitsEntries.length - 1] : undefined;
-    const totalShots = toNumber(latestHits?.value) ?? 0;
+    const latestHits = hitsEntries.length > 0 ? hitsEntries[0] : undefined;
+    const totalShots = toNumber(latestHits?.value) ?? null;
 
     const hitTsEntries = Array.isArray((telemetry as Record<string, unknown>).hit_ts)
       ? (telemetry as { hit_ts: Array<{ ts?: number }> }).hit_ts
       : [];
-    const latestHitTs = hitTsEntries.length > 0 ? hitTsEntries[hitTsEntries.length - 1] : undefined;
+    const latestHitTs = hitTsEntries.length > 0 ? hitTsEntries[0] : undefined;
     const lastShotTime = typeof latestHitTs?.ts === "number"
       ? latestHitTs.ts
       : (typeof latestHits?.ts === "number" ? latestHits.ts : null);
@@ -281,31 +286,49 @@ Deno.serve(async (req) => {
     }
 
     // Get ThingsBoard's actual connection status from server-side attributes
-    const isActiveFromTb = typeof serverAttributes.active === "boolean" ? serverAttributes.active : null;
-    const lastActivityTimeFromTb = typeof serverAttributes.lastActivityTime === "number" ? serverAttributes.lastActivityTime : null;
+    let isActiveFromTb: boolean | null = null;
+    if (serverAttributes.active !== undefined && serverAttributes.active !== null) {
+      const v = serverAttributes.active;
+      isActiveFromTb = v === true || String(v).toLowerCase() === "true";
+    }
+    const rawLastActivity = serverAttributes.lastActivityTime ?? null;
+    const numLastActivity =
+      rawLastActivity == null
+        ? null
+        : typeof rawLastActivity === "number"
+          ? rawLastActivity
+          : Number(rawLastActivity);
+    const lastActivityTimeFromTb =
+      numLastActivity != null && Number.isFinite(numLastActivity)
+        ? numLastActivity < 1e11
+          ? numLastActivity * 1000
+          : numLastActivity
+        : null;
 
     // Determine status using ThingsBoard's actual 'active' attribute (most reliable)
     let status: "online" | "standby" | "offline" = "offline";
-    
+
     if (isActiveFromTb === true) {
-      // Device is actively connected to ThingsBoard
       if (activityStatus === "active") {
-        status = "online"; // Connected and actively shooting
+        status = "online";
       } else {
-        status = "standby"; // Connected but idle
+        status = "standby";
       }
     } else if (isActiveFromTb === false) {
-      // Device is explicitly disconnected from ThingsBoard
-      status = "offline";
+      // Script only uses server lastActivityTime for standby – not telemetry timeSinceLastShot.
+      if (lastActivityTimeFromTb !== null && now - lastActivityTimeFromTb <= RECENT_THRESHOLD_MS) {
+        status = "standby";
+      } else {
+        status = "offline";
+      }
     } else {
-      // Fallback when 'active' attribute is not available
+      // When active is null: only standby if server lastActivityTime is recent (matches script).
       if (activityStatus === "active" || activityStatus === "recent") {
         status = "online";
       } else if (lastActivityTimeFromTb !== null && now - lastActivityTimeFromTb <= RECENT_THRESHOLD_MS) {
         status = "standby";
-      } else if (timeSinceLastShot === null) {
-        const hasTelemetryValues = Object.keys(telemetry ?? {}).length > 0;
-        status = hasTelemetryValues ? "standby" : "offline";
+      } else {
+        status = "offline";
       }
     }
 
@@ -336,6 +359,9 @@ Deno.serve(async (req) => {
       deviceId,
       status,
       activityStatus,
+      rawStatus: null,
+      active: isActiveFromTb ?? null,
+      tbLastActivityTime: lastActivityTimeFromTb ?? null,
       lastShotTime,
       totalShots,
       recentShotsCount,

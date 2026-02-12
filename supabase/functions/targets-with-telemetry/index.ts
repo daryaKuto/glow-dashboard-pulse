@@ -4,13 +4,21 @@ import { requireUser } from "../_shared/auth.ts";
 import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { getCache, setCache } from "../_shared/cache.ts";
 import { errorResponse, jsonResponse, preflightResponse } from "../_shared/response.ts";
-import { getTenantDevices, getDeviceTelemetry } from "../_shared/thingsboard.ts";
+import { getTenantDevices, getDeviceTelemetry, getBatchServerAttributes } from "../_shared/thingsboard.ts";
+import { determineStatus, parseActiveAttribute, parseLastActivityTime } from "../_shared/deviceStatus.ts";
 
 type TargetWithTelemetry = {
   id: string;
   name: string;
   type?: string;
   status?: string;
+  activityStatus?: "active" | "recent" | "standby";
+  /** Raw from ThingsBoard: device status string (e.g. ACTIVE, inactive). UI derives display status from this + active + tbLastActivityTime. */
+  rawStatus?: string | null;
+  /** Raw from ThingsBoard: server attribute active (connection state). */
+  active?: boolean | null;
+  /** Raw from ThingsBoard: server attribute lastActivityTime (ms). UI can use for standby threshold. */
+  tbLastActivityTime?: number | null;
   roomId: string | null;
   roomName: string | null;
   telemetry: Record<string, unknown>;
@@ -18,9 +26,14 @@ type TargetWithTelemetry = {
   wifiStrength?: number | null;
   lastEvent?: string | null;
   lastActivityTime?: number | null;
+  gameStatus?: string | null;
+  lastGameId?: string | null;
+  totalShots?: number | null;
+  lastHits?: number | null;
+  lastShotTime?: number | null;
 };
 
-const TELEMETRY_KEYS = ["hits", "hit_ts", "battery", "wifiStrength", "event", "gameStatus"];
+const TELEMETRY_KEYS = ["hits", "hit_ts", "battery", "wifiStrength", "event", "gameStatus", "gameId"];
 const CACHE_TTL_MS = 30_000;
 
 Deno.serve(async (req) => {
@@ -146,38 +159,49 @@ Deno.serve(async (req) => {
 
     const totalRooms = roomsResponse.data?.length ?? 0;
 
-    const summary = allDevices.reduce(
-      (acc, device) => {
-        const deviceId = device.id?.id ?? String(device.id);
-        acc.totalTargets += 1;
-
-        const status = (device.status ?? "").toString().toLowerCase();
-        if (status === "online" || status === "active" || status === "active_online") {
-          acc.onlineTargets += 1;
-        } else {
-          acc.offlineTargets += 1;
-        }
-
-        if (assignmentByTarget.has(deviceId) && assignmentByTarget.get(deviceId)?.roomId) {
-          acc.assignedTargets += 1;
-        } else {
-          acc.unassignedTargets += 1;
-        }
-
-        return acc;
-      },
-      {
-        totalTargets: 0,
-        onlineTargets: 0,
-        offlineTargets: 0,
-        assignedTargets: 0,
-        unassignedTargets: 0,
-        totalRooms,
-        lastUpdated: Date.now(),
-      }
-    );
+    const deviceIds = allDevices.map((d) => d.id?.id ?? String(d.id));
+    const serverAttributesById = await getBatchServerAttributes(deviceIds, [
+      "active",
+      "lastActivityTime",
+      "lastConnectTime",
+      "lastDisconnectTime",
+    ]);
 
     if (summaryOnly) {
+      const summary = allDevices.reduce(
+        (acc, device) => {
+          const deviceId = device.id?.id ?? String(device.id);
+          const attrs = serverAttributesById.get(deviceId) ?? {};
+          const isActive = parseActiveAttribute(attrs.active);
+          const lastActivityTimeFromTb = parseLastActivityTime(attrs.lastActivityTime);
+          const rawStatus = device.status ? String(device.status) : null;
+          const status = determineStatus(rawStatus, null, null, isActive, lastActivityTimeFromTb);
+          acc.totalTargets += 1;
+          if (status === "online") {
+            acc.onlineTargets += 1;
+          } else if (status === "standby") {
+            acc.standbyTargets += 1;
+          } else {
+            acc.offlineTargets += 1;
+          }
+          if (assignmentByTarget.has(deviceId) && assignmentByTarget.get(deviceId)?.roomId) {
+            acc.assignedTargets += 1;
+          } else {
+            acc.unassignedTargets += 1;
+          }
+          return acc;
+        },
+        {
+          totalTargets: 0,
+          onlineTargets: 0,
+          standbyTargets: 0,
+          offlineTargets: 0,
+          assignedTargets: 0,
+          unassignedTargets: 0,
+          totalRooms,
+          lastUpdated: Date.now(),
+        }
+      );
       const summaryPayload = { summary };
       setCache(cacheKey, summaryPayload, CACHE_TTL_MS);
       return jsonResponse({ ...summaryPayload, cached: false });
@@ -196,19 +220,66 @@ Deno.serve(async (req) => {
       })
     );
 
+    let summary = {
+      totalTargets: 0,
+      onlineTargets: 0,
+      standbyTargets: 0,
+      offlineTargets: 0,
+      assignedTargets: 0,
+      unassignedTargets: 0,
+      totalRooms,
+      lastUpdated: Date.now(),
+    };
+
     const targets: TargetWithTelemetry[] = telemetryResults.map(({ device, deviceId, telemetry }) => {
       const assignment = assignmentByTarget.get(deviceId) ?? { roomId: null, roomName: null };
-
+      const attrs = serverAttributesById.get(deviceId) ?? {};
       const battery = telemetry?.battery?.[0]?.value ?? null;
       const wifiStrength = telemetry?.wifiStrength?.[0]?.value ?? null;
       const lastEvent = telemetry?.event?.[0]?.value ?? null;
       const lastActivityTime = telemetry?.hit_ts?.[0]?.ts ?? telemetry?.hits?.[0]?.ts ?? null;
+      const gameStatus = telemetry?.gameStatus?.[0]?.value ?? null;
+      const rawStatus = device.status ? String(device.status) : null;
+      const isActiveFromTb = parseActiveAttribute(attrs.active);
+      const lastActivityTimeFromTb = parseLastActivityTime(attrs.lastActivityTime);
+      const lastShotTime = typeof lastActivityTime === "number" ? lastActivityTime : null;
+      const gameIdRaw = telemetry?.gameId?.[0]?.value ?? null;
+      const lastGameId = gameIdRaw != null ? String(gameIdRaw) : null;
+      const hitsRaw = telemetry?.hits?.[0]?.value ?? null;
+      const totalShots = hitsRaw != null ? Number(hitsRaw) : null;
+      const status = determineStatus(
+        rawStatus,
+        gameStatus,
+        lastShotTime,
+        isActiveFromTb,
+        lastActivityTimeFromTb
+      );
 
+      summary.totalTargets += 1;
+      if (status === "online") {
+        summary.onlineTargets += 1;
+      } else if (status === "standby") {
+        summary.standbyTargets += 1;
+      } else {
+        summary.offlineTargets += 1;
+      }
+      if (assignmentByTarget.has(deviceId) && assignmentByTarget.get(deviceId)?.roomId) {
+        summary.assignedTargets += 1;
+      } else {
+        summary.unassignedTargets += 1;
+      }
+
+      const activityStatus =
+        status === "online" ? "active" : status === "standby" ? "standby" : undefined;
       return {
         id: deviceId,
         name: device.name,
         type: device.type,
-        status: device.status,
+        status,
+        activityStatus,
+        rawStatus: rawStatus ?? null,
+        active: isActiveFromTb ?? null,
+        tbLastActivityTime: lastActivityTimeFromTb ?? null,
         roomId: assignment.roomId,
         roomName: assignment.roomName,
         telemetry,
@@ -216,6 +287,11 @@ Deno.serve(async (req) => {
         wifiStrength,
         lastEvent,
         lastActivityTime,
+        gameStatus: gameStatus ? String(gameStatus) : null,
+        lastGameId,
+        totalShots: totalShots != null && Number.isFinite(totalShots) ? totalShots : null,
+        lastHits: totalShots != null && Number.isFinite(totalShots) ? totalShots : null,
+        lastShotTime,
       };
     });
 

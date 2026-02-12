@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "./supabaseAdmin.ts";
-import { getTenantDevices, getBatchTelemetry, getDeviceTelemetry } from "./thingsboard.ts";
+import { getTenantDevices, getBatchTelemetry, getDeviceTelemetry, getBatchServerAttributes } from "./thingsboard.ts";
+import { determineStatus, parseActiveAttribute, parseLastActivityTime } from "./deviceStatus.ts";
 
 const DEFAULT_TELEMETRY_KEYS = [
   "hits",
@@ -28,6 +29,10 @@ export interface TargetSnapshot {
   name: string;
   type?: string;
   status?: string;
+  /** ThingsBoard server attribute: device connection state. */
+  active?: boolean | null;
+  /** ThingsBoard server attribute: lastActivityTime (ms). */
+  tbLastActivityTime?: number | null;
   roomId: string | null;
   roomName: string | null;
   battery: number | null;
@@ -40,6 +45,7 @@ export interface TargetSnapshot {
 export interface SummaryMetrics {
   totalTargets: number;
   onlineTargets: number;
+  standbyTargets: number;
   offlineTargets: number;
   assignedTargets: number;
   unassignedTargets: number;
@@ -154,13 +160,18 @@ function computeSummary(targets: TargetSnapshot[], totalRooms: number): SummaryM
     (acc, target) => {
       acc.totalTargets += 1;
 
-      if (target.status) {
-        const normalized = target.status.toLowerCase();
-        if (normalized === "online" || normalized === "active" || normalized === "active_online") {
-          acc.onlineTargets += 1;
-        } else {
-          acc.offlineTargets += 1;
-        }
+      const status = determineStatus(
+        target.status ?? null,
+        null,
+        null,
+        target.active ?? null,
+        target.tbLastActivityTime ?? null,
+      );
+
+      if (status === "online") {
+        acc.onlineTargets += 1;
+      } else if (status === "standby") {
+        acc.standbyTargets += 1;
       } else {
         acc.offlineTargets += 1;
       }
@@ -179,6 +190,7 @@ function computeSummary(targets: TargetSnapshot[], totalRooms: number): SummaryM
     {
       totalTargets: 0,
       onlineTargets: 0,
+      standbyTargets: 0,
       offlineTargets: 0,
       assignedTargets: 0,
       rooms: new Set<string>(),
@@ -191,6 +203,7 @@ function computeSummary(targets: TargetSnapshot[], totalRooms: number): SummaryM
   return {
     totalTargets: aggregates.totalTargets,
     onlineTargets: aggregates.onlineTargets,
+    standbyTargets: aggregates.standbyTargets,
     offlineTargets: aggregates.offlineTargets,
     assignedTargets: aggregates.assignedTargets,
     unassignedTargets,
@@ -243,6 +256,7 @@ function buildTargetSnapshot(
   device: ThingsBoardDevice,
   telemetry: Record<string, any>,
   context: UserRoomContext,
+  serverAttrs?: Record<string, any>,
 ): TargetSnapshot {
   const deviceId = normalizeDeviceId(device);
   const roomIdRaw = context.assignmentByTarget.get(deviceId) ?? null;
@@ -254,11 +268,17 @@ function buildTargetSnapshot(
   const lastEvent = extractLatestEvent(telemetry);
   const lastActivityTime = extractLatestTimestamp(telemetry, ["hit_ts", "hits"]);
 
+  const attrs = serverAttrs ?? {};
+  const active = parseActiveAttribute(attrs.active);
+  const tbLastActivityTime = parseLastActivityTime(attrs.lastActivityTime);
+
   return {
     deviceId,
     name: device.name,
     type: device.type,
     status: device.status,
+    active,
+    tbLastActivityTime,
     roomId,
     roomName,
     battery,
@@ -327,19 +347,26 @@ export async function fetchDevicesWithTelemetry(keys = DEFAULT_TELEMETRY_KEYS) {
     }
   }
 
-  return { devices, telemetryById };
+  // Fetch server attributes (active, lastActivityTime) for 3-state status
+  const serverAttributesById = deviceIds.length > 0
+    ? await getBatchServerAttributes(deviceIds, ["active", "lastActivityTime"])
+    : new Map<string, Record<string, any>>();
+
+  return { devices, telemetryById, serverAttributesById };
 }
 
 export async function buildTargetsForUser(
   userId: string,
   devices: ThingsBoardDevice[],
   telemetryById: Map<string, Record<string, any>>,
+  serverAttributesById?: Map<string, Record<string, any>>,
 ): Promise<{ targets: TargetSnapshot[]; context: UserRoomContext }> {
   const context = await fetchUserRoomContext(userId);
   const targets = devices.map((device) => {
     const deviceId = normalizeDeviceId(device);
     const telemetry = telemetryById.get(deviceId) ?? {};
-    return buildTargetSnapshot(device, telemetry, context);
+    const serverAttrs = serverAttributesById?.get(deviceId);
+    return buildTargetSnapshot(device, telemetry, context, serverAttrs);
   });
 
   return { targets, context };
@@ -498,8 +525,9 @@ export async function refreshSnapshotsForUser(
   userId: string,
   devices: ThingsBoardDevice[],
   telemetryById: Map<string, Record<string, any>>,
+  serverAttributesById?: Map<string, Record<string, any>>,
 ) {
-  const { targets, context } = await buildTargetsForUser(userId, devices, telemetryById);
+  const { targets, context } = await buildTargetsForUser(userId, devices, telemetryById, serverAttributesById);
   const metrics = await buildDashboardMetrics(userId, targets, context);
 
   await persistDeviceSnapshots(userId, targets);

@@ -30,7 +30,7 @@ export default {
 					foreground: 'hsl(var(--primary-foreground))'
 				},
 				secondary: {
-					DEFAULT: 'hsl(var(--secondary))', // #816E94 - Default button state
+					DEFAULT: 'hsl(var(--secondary))', // #816E94 - Muted/inactive states, labels, borders
 					foreground: 'hsl(var(--secondary-foreground))'
 				},
 				destructive: {
@@ -42,7 +42,7 @@ export default {
 					foreground: 'hsl(var(--muted-foreground))'
 				},
 				accent: {
-					DEFAULT: 'hsl(var(--accent))', // #816E94
+					DEFAULT: 'hsl(var(--accent))', // #CE3E0A - burnt orange (primary accent)
 					foreground: 'hsl(var(--accent-foreground))'
 				},
 				popover: {
@@ -68,7 +68,7 @@ export default {
 					// Core brand colors (your specified palette)
 					dark: '#1C192B',        // Fonts and dark background/accents
 					primary: '#CE3E0A',     // Icons, buttons when hovered/activated, current page highlights
-					secondary: '#816E94',   // Search bar background, buttons when not hovered/activated
+					secondary: '#816E94',   // Muted/inactive states, labels, subtle borders
 					light: '#F6F7EB',       // Background for every page
 					surface: '#FFFFFF',     // Light card background
 					
@@ -110,20 +110,30 @@ export default {
 				'h2-md': ['1.875rem', { lineHeight: '2.25rem', fontWeight: '600' }],
 				'h3': ['1.25rem', { lineHeight: '1.75rem', fontWeight: '600' }],
 				'overline': ['0.75rem', { lineHeight: '1rem', letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: '500' }],
+				// Strava-style stat display sizes
+				'stat-hero': ['3rem', { lineHeight: '1', fontWeight: '700', letterSpacing: '-0.02em' }],
+				'stat-lg': ['2.25rem', { lineHeight: '1', fontWeight: '700', letterSpacing: '-0.02em' }],
+				'stat-md': ['1.75rem', { lineHeight: '1.1', fontWeight: '700', letterSpacing: '-0.01em' }],
+				'stat-sm': ['1.25rem', { lineHeight: '1.2', fontWeight: '600' }],
+				'label': ['0.6875rem', { lineHeight: '1rem', fontWeight: '500', letterSpacing: '0.06em' }],
 			},
 			backgroundImage: {
 				'iridescent': 'linear-gradient(90deg,#00E6FF 0%,#3C6CFF 30%,#B13CFF 60%,#FF7A00 100%)',
 			},
 			borderRadius: {
+				DEFAULT: 'var(--radius)',
 				lg: 'var(--radius)',
+				'radius-lg': 'var(--radius-lg)',
+				full: 'var(--radius-full)',
 				md: 'calc(var(--radius) - 2px)',
 				sm: 'calc(var(--radius) - 4px)',
-				'2xl': '1.25rem', // Brand default
+				'2xl': '1.25rem',
 			},
 			boxShadow: {
-				// Brand elevation
-				'subtle': 'var(--shadow)',
-				'card': '0 4px 6px rgba(0, 0, 0, 0.3)', // Legacy
+				'card': 'var(--shadow-md)',
+				'card-hover': 'var(--shadow-hover)',
+				'subtle': 'var(--shadow-sm)',
+				'elevated': 'var(--shadow-lg)',
 			},
 			letterSpacing: {
 				'wide': '0.05em',

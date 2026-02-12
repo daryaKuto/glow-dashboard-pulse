@@ -1,9 +1,8 @@
 import React, { useMemo } from 'react';
 import dayjs from 'dayjs';
-import { Target as TargetIcon, Trophy, Zap, Flame, Target, ShieldCheck } from 'lucide-react';
+import { Target as TargetIcon, Flame, Target, ShieldCheck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import { formatScoreValue } from '@/utils/dashboard';
 import type { DashboardSession as Session } from '@/features/dashboard';
 
@@ -47,7 +46,7 @@ export const RANGE_CONFIG: Record<
 
 const extractTargetStats = (session: Session): TargetStat[] => {
   const stats: TargetStat[] = [];
-  const tb = session.thingsboardData ?? null;
+  const tb = (session.thingsboardData ?? null) as Record<string, unknown> | null;
 
   const pushStat = (input: any) => {
     if (!input) return;
@@ -62,18 +61,13 @@ const extractTargetStats = (session: Session): TargetStat[] => {
   };
 
   if (tb) {
-    if (Array.isArray(tb.targetStats)) {
-      tb.targetStats.forEach(pushStat);
-    } else if (Array.isArray(tb.deviceResults)) {
-      tb.deviceResults.forEach(pushStat);
-    } else if (Array.isArray(tb.devices)) {
-      tb.devices.forEach(pushStat);
+    if (Array.isArray((tb as any).targetStats)) {
+      (tb as any).targetStats.forEach((item: any) => pushStat(item));
+    } else if (Array.isArray((tb as any).deviceResults)) {
+      (tb as any).deviceResults.forEach((item: any) => pushStat(item));
+    } else if (Array.isArray((tb as any).devices)) {
+      (tb as any).devices.forEach((item: any) => pushStat(item));
     }
-  }
-
-  const rawSensor = session.rawSensorData ?? null;
-  if (rawSensor && Array.isArray(rawSensor.devices)) {
-    rawSensor.devices.forEach(pushStat);
   }
 
   return stats;
@@ -96,8 +90,10 @@ export const buildRangeSummaries = (sessions: Session[]): Record<TimeRange, Rang
   RANGE_ORDER.forEach((range) => {
     const config = RANGE_CONFIG[range];
     const hasEntries = entries.length > 0;
-    const rangeUpperBound = hasEntries ? entries[entries.length - 1].ts : now;
-    const earliestTs = hasEntries ? entries[0].ts : rangeUpperBound;
+    const earliestTs = hasEntries ? entries[0].ts : now;
+    // Always anchor to now so "Day" = last 24h, "Week" = last 7 days, etc.
+    // Using the latest session timestamp caused stale sessions to appear under "today".
+    const rangeUpperBound = now;
     const windowStartBase =
       config.windowMs === null ? earliestTs : rangeUpperBound - config.windowMs;
 
@@ -168,8 +164,9 @@ export const buildRangeSummaries = (sessions: Session[]): Record<TimeRange, Rang
       (sum, session) => sum + (Number.isFinite(session.hitCount) ? session.hitCount ?? 0 : 0),
       0,
     );
+    // Only include completed sessions (score > 0). Score=0 means DNF.
     const scoreValues = filteredSessions
-      .map((session) => (Number.isFinite(session.score) ? session.score ?? 0 : null))
+      .map((session) => (typeof session.score === 'number' && Number.isFinite(session.score) && session.score > 0 ? session.score : null))
       .filter((value): value is number => value !== null);
 
     const averageScore =
@@ -274,14 +271,21 @@ const ActivityChart: React.FC<ActivityChartProps> = ({
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        <div className="animate-pulse">
-          <div className="h-6 bg-gray-200 rounded w-32 mb-2" />
-          <div className="h-4 bg-gray-200 rounded w-16" />
+      <div className="space-y-4 animate-pulse">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="h-10 w-20 bg-gray-200 rounded mb-1" />
+            <div className="h-3 w-16 bg-gray-200 rounded" />
+          </div>
+          <div className="h-8 w-40 bg-gray-200 rounded-full" />
         </div>
-        <div className="flex items-end justify-between gap-2 h-32">
+        <div className="flex items-end gap-1.5 h-36">
           {Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className="flex-1 bg-gray-200 animate-pulse rounded-t-lg h-16" />
+            <div
+              key={i}
+              className="flex-1 bg-gray-200 rounded-t-[8px]"
+              style={{ height: `${30 + Math.random() * 60}%` }}
+            />
           ))}
         </div>
       </div>
@@ -298,93 +302,95 @@ const ActivityChart: React.FC<ActivityChartProps> = ({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-primary/10 text-brand-primary">
-            <TargetIcon className="h-4 w-4" />
-          </div>
+          <TargetIcon className="h-4 w-4 text-brand-primary" />
           <div>
-            <h3 className="text-sm font-medium text-brand-dark">Target Activity</h3>
-            <p className="text-[11px] text-brand-dark/60">Supabase session telemetry</p>
+            <h3 className="text-sm font-medium text-brand-dark font-body">Target Activity</h3>
+            <p className="text-[11px] text-brand-dark/40 font-body">Session telemetry</p>
           </div>
         </div>
-        <Badge className="bg-brand-primary/10 text-brand-primary border-brand-primary/20">
+        <span className="text-label text-brand-secondary font-body uppercase tracking-wide">
           {summary?.sessionCount ?? 0} sessions
-        </Badge>
+        </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-3">
         {[
-          {
-            label: 'Average Score',
-            value: averageScoreDisplay,
-            icon: <Trophy className="h-4 w-4" />,
-            bg: 'from-brand-primary/10 via-white to-brand-primary/5',
-          },
-          {
-            label: 'Best Score',
-            value: bestScoreDisplay,
-            icon: <Zap className="h-4 w-4" />,
-            bg: 'from-emerald-500/10 via-white to-emerald-500/5',
-          },
-          {
-            label: 'Shots Fired',
-            value: totalShotsDisplay,
-            icon: <TargetIcon className="h-4 w-4" />,
-            bg: 'from-brand-secondary/10 via-white to-brand-secondary/5',
-          },
+          { label: 'Average Score', value: averageScoreDisplay },
+          { label: 'Best Score', value: bestScoreDisplay },
+          { label: 'Shots Fired', value: totalShotsDisplay },
         ].map((metric) => (
-          <div
-            key={metric.label}
-            className={`rounded-lg border border-white/40 bg-gradient-to-br ${metric.bg} px-3 py-2 flex flex-col gap-1`}
-          >
-            <div className="flex items-center justify-between text-[11px] text-brand-dark/60">
-              <span>{metric.label}</span>
-              <span className="text-brand-primary/80">{metric.icon}</span>
-            </div>
-            <p className="text-sm font-heading text-brand-dark">{metric.value}</p>
+          <div key={metric.label} className="rounded-[var(--radius)] bg-brand-primary/5 px-3 py-2 shadow-subtle">
+            <span className="text-label text-brand-secondary font-body uppercase tracking-wide block mb-0.5">
+              {metric.label}
+            </span>
+            <p className="text-stat-sm font-bold text-brand-dark font-body tabular-nums">
+              {metric.value}
+            </p>
           </div>
         ))}
       </div>
 
-      <div className="pt-4 border-t border-gray-200">
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-sm font-medium text-brand-dark">
-            {activeRange === 'day' && '24-Hour Hit Activity'}
-            {activeRange === 'week' && '7-Day Hit Trend'}
-            {activeRange === 'month' && '30-Day Activity'}
-            {activeRange === 'all' && 'All-Time Activity'}
-          </h4>
-          <div className="flex space-x-1">
+      <div className="pt-4 border-t border-[rgba(28,25,43,0.06)]">
+        {/* Hero stat + segmented control row */}
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <p className="text-stat-lg md:text-stat-hero font-bold text-brand-dark font-body tabular-nums leading-none">
+              {summary ? summary.totalShots.toLocaleString() : '—'}
+            </p>
+            <span className="text-[11px] text-brand-dark/40 font-body mt-0.5 block">
+              {activeRange === 'day' && 'Hits today'}
+              {activeRange === 'week' && 'Hits this week'}
+              {activeRange === 'month' && 'Hits this month'}
+              {activeRange === 'all' && 'Total hits'}
+            </span>
+          </div>
+          <div className="bg-brand-light rounded-full p-1 inline-flex">
             {availableRanges.map((range) => (
-              <Button
+              <button
                 key={range}
-                variant={activeRange === range ? 'default' : 'ghost'}
-                size="sm"
                 onClick={() => onRangeChange(range)}
-                className="text-xs px-2 py-1 h-7"
+                className={cn(
+                  'relative px-3 py-1 text-xs font-body font-medium rounded-full transition-all duration-200',
+                  activeRange === range
+                    ? 'bg-brand-primary text-white'
+                    : 'text-brand-dark/60 hover:text-brand-dark'
+                )}
               >
                 {range === 'day' && 'Day'}
                 {range === 'week' && 'Week'}
                 {range === 'month' && 'Month'}
                 {range === 'all' && 'All'}
-              </Button>
+              </button>
             ))}
           </div>
         </div>
         {hasData ? (
           <>
-            <div className="flex items-end justify-between gap-2 h-20">
+            <div className={cn(
+              "flex items-end h-36 overflow-hidden",
+              activityBuckets.length > 14 ? "gap-0.5" : activityBuckets.length > 8 ? "gap-1" : "gap-1.5 sm:gap-2"
+            )}>
               {activityBuckets.map((item, index) => {
                 const isLatest = index === activityBuckets.length - 1;
                 const barHeight = (item.metric / maxHits) * 100;
+                const manyBars = activityBuckets.length > 14;
+                // Show every Nth label when there are many bars
+                const showLabel = manyBars
+                  ? index % Math.ceil(activityBuckets.length / 8) === 0 || isLatest
+                  : true;
                 return (
-                  <div key={`${item.label}-${index}`} className="flex flex-col items-center gap-2 flex-1">
-                    <div className="flex-1 flex items-end w-full">
+                  <div key={`${item.label}-${index}`} className="flex flex-col items-center gap-1 flex-1 min-w-0 h-full">
+                    <div className="flex-1 flex items-end w-full min-w-0">
                       <div
-                        className={`w-full rounded-t-lg transition-all duration-300 ${
-                          isLatest ? 'bg-brand-primary' : 'bg-brand-secondary/30 hover:bg-brand-secondary/50'
-                        }`}
+                        className={cn(
+                          "w-full transition-all duration-300",
+                          manyBars ? "rounded-t-[4px]" : "rounded-t-[8px]",
+                          isLatest
+                            ? 'bg-brand-primary'
+                            : 'bg-brand-secondary/20 hover:bg-brand-secondary/35'
+                        )}
                         style={{
-                          height: `${Math.max(6, barHeight)}%`,
+                          height: `${Math.max(4, barHeight)}%`,
                           minHeight: '4px',
                         }}
                         title={
@@ -394,21 +400,28 @@ const ActivityChart: React.FC<ActivityChartProps> = ({
                         }
                       />
                     </div>
-                    <span className="text-xs text-brand-dark/50 font-body">{item.label}</span>
+                    {showLabel ? (
+                      <span className={cn(
+                        "text-brand-dark/40 font-body truncate w-full text-center",
+                        manyBars ? "text-[8px]" : "text-[10px]"
+                      )}>{item.label}</span>
+                    ) : (
+                      <span className="h-[10px]" />
+                    )}
                   </div>
                 );
               })}
             </div>
-            <div className="mt-4 rounded-lg border border-brand-primary/20 bg-brand-primary/5 p-3 space-y-3">
+            <div className="mt-4 rounded-[var(--radius)] bg-brand-primary/5 p-3 space-y-3">
               <div className="text-center space-y-1">
-                <p className="text-xs uppercase tracking-wide text-brand-primary/80 font-semibold">Don't break your streak</p>
-                <p className="text-sm text-brand-dark">
+                <p className="text-label text-brand-primary font-body uppercase tracking-wide">Don't break your streak</p>
+                <p className="text-sm text-brand-dark font-body">
                   {currentStreakLength > 0
                     ? `You're on a ${currentStreakLength}-day streak. Keep it going!`
                     : 'Play today to start your streak.'}
                 </p>
               </div>
-              <div className="rounded-lg border p-2.5 bg-white flex flex-wrap items-center gap-2 justify-between">
+              <div className="rounded-[var(--radius)] p-2.5 bg-white shadow-subtle flex flex-wrap items-center gap-2 justify-between">
                 {(() => {
                   const Icon = nextTier.Icon;
                   const daysRemaining = Math.max(nextTier.threshold - Math.min(currentStreakLength, nextTier.threshold), 0);
@@ -416,15 +429,13 @@ const ActivityChart: React.FC<ActivityChartProps> = ({
                   return (
                     <>
                       <div className="flex items-center gap-2">
-                        <div className={`rounded-full p-2.5 ${achieved ? 'bg-green-100 text-green-700' : 'bg-brand-secondary/10 text-brand-secondary'}`}>
-                          <Icon className="h-5 w-5" />
-                        </div>
+                        <Icon className={`h-5 w-5 ${achieved ? 'text-green-600' : 'text-brand-primary'}`} />
                         <div>
-                          <p className="text-sm font-semibold text-brand-dark">{nextTier.label}</p>
-                          <p className="text-xs text-brand-dark/60">{nextTier.description}</p>
+                          <p className="text-sm font-semibold text-brand-dark font-body">{nextTier.label}</p>
+                          <p className="text-xs text-brand-dark/60 font-body">{nextTier.description}</p>
                         </div>
                       </div>
-                      <p className="text-xs font-medium text-brand-primary text-left sm:text-right ml-auto">
+                      <p className="text-xs font-medium text-brand-primary font-body text-left sm:text-right ml-auto">
                         {achieved ? 'Milestone achieved — keep it rolling!' : `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} until unlock`}
                       </p>
                     </>
@@ -434,8 +445,8 @@ const ActivityChart: React.FC<ActivityChartProps> = ({
             </div>
           </>
         ) : (
-          <div className="rounded-lg border border-dashed border-brand-secondary/40 bg-brand-secondary/5 px-4 py-6 text-center text-sm text-brand-dark/60">
-            No Supabase sessions found for this range.
+          <div className="rounded-[var(--radius)] border border-dashed border-[rgba(28,25,43,0.12)] bg-brand-light px-4 py-6 text-center text-sm text-brand-dark/40 font-body">
+            No sessions found for this range.
           </div>
         )}
       </div>
@@ -462,44 +473,48 @@ const TargetActivityCard: React.FC<TargetActivityCardProps> = ({
   currentStreakLength,
   showSkeleton,
 }) => (
-  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg h-full">
-    <CardHeader className="pb-1 md:pb-3 p-2 md:p-4">
-      <CardTitle className="text-xs md:text-base lg:text-lg font-heading text-brand-dark">Target Activity</CardTitle>
+  <Card className="shadow-card h-full bg-gradient-to-br from-white to-brand-primary/[0.03]">
+    <CardHeader className="pb-1 md:pb-3 p-5 md:p-6">
+      <CardTitle className="text-base font-heading text-brand-dark">Target Activity</CardTitle>
     </CardHeader>
-    <CardContent className="p-2 md:p-4">
+    <CardContent className="p-5 md:p-6 pt-0">
       {showSkeleton ? (
         <div className="space-y-4 animate-pulse">
           <div className="flex items-center justify-between">
             <div className="h-4 w-28 bg-gray-200 rounded" />
             <div className="h-6 w-20 bg-gray-200 rounded" />
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-3">
             {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="rounded-lg border border-gray-200 bg-white/70 px-3 py-2 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="h-3 w-12 bg-gray-200 rounded" />
-                  <div className="h-4 w-8 bg-gray-200 rounded" />
-                </div>
-                <div className="h-4 w-16 bg-gray-200 rounded" />
+              <div key={i} className="rounded-[var(--radius)] bg-white shadow-subtle px-3 py-2 space-y-2">
+                <div className="h-3 w-12 bg-gray-200 rounded" />
+                <div className="h-5 w-16 bg-gray-200 rounded" />
               </div>
             ))}
           </div>
-          <div className="space-y-3 pt-2 border-t border-gray-100">
-            <div className="flex items-end justify-between gap-2 h-20">
+          <div className="space-y-4 pt-4 border-t border-[rgba(28,25,43,0.06)]">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="h-10 w-16 bg-gray-200 rounded mb-1" />
+                <div className="h-3 w-14 bg-gray-200 rounded" />
+              </div>
+              <div className="h-7 w-36 bg-gray-200 rounded-full" />
+            </div>
+            <div className="flex items-end gap-1.5 h-36">
               {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="flex flex-col items-center gap-2 flex-1">
+                <div key={i} className="flex-1 flex flex-col items-center gap-1.5 h-full">
                   <div className="flex-1 flex items-end w-full">
-                    <div className="w-full rounded-t-lg bg-gray-200" style={{ height: `${10 + i * 5}%` }} />
+                    <div className="w-full rounded-t-[8px] bg-gray-200" style={{ height: `${15 + i * 8}%` }} />
                   </div>
-                  <div className="h-3 w-8 bg-gray-200 rounded" />
+                  <div className="h-2.5 w-6 bg-gray-200 rounded" />
                 </div>
               ))}
             </div>
-            <div className="rounded-lg border border-gray-200 bg-white/80 p-3 space-y-2">
+            <div className="rounded-[var(--radius)] bg-brand-primary/5 p-3 space-y-2">
               <div className="h-3 w-32 bg-gray-200 rounded mx-auto" />
-              <div className="rounded-lg border border-gray-200 bg-white p-2 flex items-center justify-between">
+              <div className="rounded-[var(--radius)] bg-white shadow-subtle p-2 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-full bg-gray-200" />
+                  <div className="w-5 h-5 bg-gray-200 rounded" />
                   <div className="space-y-1">
                     <div className="h-3 w-16 bg-gray-200 rounded" />
                     <div className="h-3 w-20 bg-gray-200 rounded" />

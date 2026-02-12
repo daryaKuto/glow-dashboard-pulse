@@ -52,8 +52,7 @@ const Games: React.FC = () => {
   mark('games-page-render-start');
   const isMobile = useIsMobile();
   const { user } = useAuth();
-  // Tracks the shadcn sidebar state so we know whether to render the drawer on small screens.
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
 
   const { isLoading: loadingDevices, refresh: refreshGameDevices } = useGameDevices({ immediate: false });
   const {
@@ -625,13 +624,12 @@ const Games: React.FC = () => {
   const canDismissSessionDialog = sessionLifecycle === 'selecting' && !isStarting && !isLaunchingLifecycle;
 
   return (
-    <div className="min-h-screen bg-brand-background">
-      <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
+    <div className="min-h-screen bg-brand-background pt-[116px] lg:pt-16">
+      <Header />
+      {isMobile && <MobileDrawer />}
 
-      <div className="flex flex-1">
-        {!isMobile && <Sidebar />}
-        <MobileDrawer isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)} />
-
+      {!isMobile && <Sidebar />}
+      <div className="flex flex-1 lg:pl-64">
         <main className="flex-1 overflow-y-auto">
           <FeatureErrorBoundary feature="Game Session">
           <div className="p-2 md:p-4 lg:p-6 xl:p-8 max-w-[1600px] mx-auto">

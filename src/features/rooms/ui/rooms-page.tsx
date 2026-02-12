@@ -42,7 +42,7 @@ import {
 const RoomsPage: React.FC = () => {
   const location = useLocation();
   const isMobile = useIsMobile();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+
   
   // React Query hooks
   const { data: roomsData, isLoading, refetch: refetchRooms } = useRooms(true);
@@ -293,16 +293,12 @@ const RoomsPage: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-light responsive-container">
-      <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
-      
-      <div className="flex flex-1 no-overflow">
-        {!isMobile && <Sidebar />}
-        <MobileDrawer 
-          isOpen={isMobileMenuOpen} 
-          onClose={() => setIsMobileMenuOpen(false)} 
-        />
-        
+    <div className="min-h-screen flex flex-col bg-brand-light responsive-container pt-[116px] lg:pt-16">
+      <Header />
+      {isMobile && <MobileDrawer />}
+
+      {!isMobile && <Sidebar />}
+      <div className="flex flex-1 no-overflow lg:pl-64">
         <main className="flex-1 overflow-y-auto responsive-container">
           <div className="w-full px-4 py-2 md:container md:mx-auto md:p-4 lg:p-6 responsive-transition h-full">
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">

@@ -297,7 +297,7 @@ const TargetsSummary: React.FC<{
 
 const Targets: React.FC = () => {
   const isMobile = useIsMobile();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+
   const queryClient = useQueryClient();
   // Use new React Query hooks
   const { data: roomsData, isLoading: roomsLoading, refetch: refetchRooms } = useRooms();
@@ -958,16 +958,12 @@ const Targets: React.FC = () => {
   // Remove simple loading spinner - use inline conditional rendering instead
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-light">
-      <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
-      
-      <div className="flex flex-1">
-        {!isMobile && <Sidebar />}
-        <MobileDrawer 
-          isOpen={isMobileMenuOpen} 
-          onClose={() => setIsMobileMenuOpen(false)} 
-        />
-        
+    <div className="min-h-screen flex flex-col bg-brand-light pt-[116px] lg:pt-16">
+      <Header />
+      {isMobile && <MobileDrawer />}
+
+      {!isMobile && <Sidebar />}
+      <div className="flex flex-1 lg:pl-64">
         <main className="flex-1 overflow-y-auto">
           <div className="p-3 md:p-4 lg:p-6 max-w-7xl mx-auto space-y-3 md:space-y-4 lg:space-y-6">
             

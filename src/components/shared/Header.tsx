@@ -2,92 +2,38 @@ import React from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/shared/hooks/use-auth';
 import { useIsMobile } from '@/shared/hooks/use-mobile';
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { toast } from '@/components/ui/sonner';
-import { UserRound, Settings, LogOut, Home, Menu } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { logger } from '@/shared/lib/logger';
 
-interface HeaderProps {
-  onMenuClick?: () => void;
-}
-
-const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
+const Header: React.FC = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const displayUser = user;
 
   const handleSignOut = async () => {
     try {
       logger.debug('[Header] Starting logout process...');
       await signOut();
       logger.debug('[Header] Logout completed, redirecting to login...');
-      // The AuthProvider will handle the redirect, so we don't need to navigate here
     } catch (error) {
       console.error('[Header] Logout error:', error);
-      // Even if there's an error, try to redirect to login
       navigate('/login');
     }
   };
 
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map(word => word[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
-  };
-
-  const getUserDisplayName = (user: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-    if (user?.user_metadata?.first_name && user?.user_metadata?.last_name) {
-      return `${user.user_metadata.first_name} ${user.user_metadata.last_name}`;
-    }
-    return user?.email || 'User';
-  };
-
   return (
-    <header className="w-full h-12 md:h-16 bg-white text-brand-dark border-b border-gray-200 shadow-sm flex items-center justify-between px-2 md:px-4 z-10">
-      <div className="flex items-center gap-2 md:gap-4 h-full">
-        {/* Mobile hamburger menu */}
-        {isMobile && onMenuClick && (
-          <button
-            onClick={onMenuClick}
-            className="p-1 bg-brand-brown rounded-lg text-white hover:bg-brand-secondary/90 transition-colors"
-          >
-            <Menu className="w-4 h-4" />
-          </button>
-        )}
-        
-        {/* Logo - Left aligned on desktop, centered on mobile */}
-        {!isMobile && (
-          <Link to="/dashboard" className="flex items-center h-full">
-            <img src="/ailith_dark.png" alt="ailith.co Logo" className="h-6 md:h-8 lg:h-10 w-auto object-contain" />
-          </Link>
-        )}
-      </div>
-      
-      {/* Mobile-only Centered Logo */}
-      {isMobile && (
-        <div className="flex-1 flex justify-center">
-          <Link to="/dashboard" className="flex items-center h-full">
-            <img src="/ailith_dark.png" alt="ailith.co Logo" className="h-6 w-auto object-contain" />
-          </Link>
-        </div>
-      )}
-      
+    <header className="w-full h-12 md:h-16 bg-white text-brand-dark border-b border-gray-200 shadow-sm flex items-center justify-between px-3 md:px-4 z-50 fixed top-0 left-0 right-0">
+      {/* Logo */}
+      <Link to="/dashboard" className="flex items-center h-full">
+        <img src="/ailith_dark.png" alt="ailith.co Logo" className="h-6 md:h-8 lg:h-10 w-auto object-contain" />
+      </Link>
+
+      {/* Actions */}
       <div className="flex items-center gap-2 md:gap-4">
-        {displayUser ? (
-          <Button 
+        {user ? (
+          <Button
             onClick={handleSignOut}
             size="sm"
             className="h-7 md:h-9 px-2 md:px-3 bg-brand-primary hover:bg-brand-primary/80 text-white font-body flex items-center gap-1 md:gap-2 text-xs md:text-sm"

@@ -20,7 +20,7 @@ import {
 const Settings = () => {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+
 
   // Get user from auth context
   const { user, loading: authLoading } = useAuth();
@@ -63,16 +63,12 @@ const Settings = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-light">
-      <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
+    <div className="min-h-screen flex flex-col bg-brand-light pt-[116px] lg:pt-16">
+      <Header />
+      {isMobile && <MobileDrawer />}
 
-      <div className="flex flex-1">
-        {!isMobile && <Sidebar />}
-        <MobileDrawer
-          isOpen={isMobileMenuOpen}
-          onClose={() => setIsMobileMenuOpen(false)}
-        />
-
+      {!isMobile && <Sidebar />}
+      <div className="flex flex-1 lg:pl-64">
         <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
           <div className="container mx-auto">
             <div className="flex justify-between items-center mb-6">

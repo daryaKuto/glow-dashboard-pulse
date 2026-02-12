@@ -55,7 +55,7 @@ const EMPTY_PREFS: UserPreferences = {};
 
 const Profile: React.FC = () => {
   const isMobile = useIsMobile();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+
   const { user: authUser } = useAuth();
   // Use new React Query hooks
   const { data: roomsData, refetch: refetchRooms } = useRooms();
@@ -326,16 +326,12 @@ const Profile: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-light">
-      <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
-      
-      <div className="flex flex-1">
-        {!isMobile && <Sidebar />}
-        <MobileDrawer 
-          isOpen={isMobileMenuOpen} 
-          onClose={() => setIsMobileMenuOpen(false)} 
-        />
-        
+    <div className="min-h-screen flex flex-col bg-brand-light pt-[116px] lg:pt-16">
+      <Header />
+      {isMobile && <MobileDrawer />}
+
+      {!isMobile && <Sidebar />}
+      <div className="flex flex-1 lg:pl-64">
         <main className="flex-1 overflow-y-auto">
           <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <h2 className="text-h1 font-heading text-brand-dark mb-8">Profile</h2>

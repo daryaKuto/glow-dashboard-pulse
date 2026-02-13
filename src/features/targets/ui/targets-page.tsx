@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import { useRooms, type Room } from '@/features/rooms';
 import {
   useTargets,
@@ -25,18 +26,15 @@ import type { Target } from '@/features/targets';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import {
+  Target as TargetIcon,
   Plus,
-  RefreshCw,
   Search,
   Wifi,
   WifiOff,
-  Zap,
-  Battery,
   MapPin,
   MoreVertical,
   Settings,
@@ -60,7 +58,51 @@ import { PremiumLockIcon } from '@/components/shared/SubscriptionGate';
 import { useAuth } from '@/shared/hooks/use-auth';
 import { logger } from '@/shared/lib/logger';
 
-// Modern Target Card Component with ThingsBoard integration
+// Framer Motion variants for staggered target card grids
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.08, delayChildren: 0.1 },
+  },
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: 'easeOut' } },
+};
+
+// StatCard — copied from Dashboard's Strava-style data-first hierarchy pattern
+const StatCard: React.FC<{
+  title: string;
+  value: string | number;
+  subtitle?: React.ReactNode;
+  icon: React.ReactNode;
+  isLoading?: boolean;
+}> = ({ title, value, subtitle, icon, isLoading = false }) => (
+  <Card className="shadow-card hover:shadow-card-hover transition-all duration-200 bg-gradient-to-br from-white via-white to-brand-primary/[0.04]">
+    <CardContent className="p-3 md:p-5 lg:p-6">
+      <div className="flex items-center justify-center gap-1.5 md:gap-2 mb-0.5 md:mb-1">
+        <div className="text-brand-primary w-3.5 h-3.5 md:w-4 md:h-4">{icon}</div>
+        <span className="text-[10px] md:text-label text-brand-secondary font-body uppercase tracking-wide">
+          {title}
+        </span>
+      </div>
+      {isLoading ? (
+        <div className="h-7 md:h-10 w-12 md:w-24 bg-gray-200 rounded animate-pulse mx-auto" />
+      ) : (
+        <p className="text-stat-sm md:text-stat-lg font-bold text-brand-dark font-body tabular-nums text-center">
+          {value}
+        </p>
+      )}
+      {subtitle && (
+        <div className="text-[10px] md:text-xs text-brand-dark/40 font-body mt-0.5 md:mt-1 flex justify-center">{subtitle}</div>
+      )}
+    </CardContent>
+  </Card>
+);
+
+// TargetCard — Design Gospel Phase 10 compliant
 const TargetCard: React.FC<{
   target: Target & { displayName?: string };
   room?: Room;
@@ -71,10 +113,7 @@ const TargetCard: React.FC<{
   totalHitCount?: number;
   isHitTotalsLoading?: boolean;
 }> = ({ target, room, onEdit, onDelete, onCustomize, onRename, totalHitCount, isHitTotalsLoading }) => {
-  const isMobile = useIsMobile();
   const { isPremium } = useSubscription();
-  const batteryLevel = target.battery; // Real battery data or null
-  const wifiStrength = target.wifiStrength; // Real WiFi strength or null
 
   const displayName = target.displayName || target.name;
 
@@ -86,212 +125,103 @@ const TargetCard: React.FC<{
     : null;
   const lastShotTime = target.lastShotTime ?? target.lastActivityTime ?? null;
 
-  // Use backend status only: online / standby / offline. No re-derivation in UI.
   const status = target.status;
-  const activityStatus = target.activityStatus ?? null;
-  const isOnline = status === 'online' || status === 'standby';
-  const ConnectionIcon = isOnline ? Wifi : WifiOff;
-  const connectionColor =
-    status === 'offline'
-      ? 'text-gray-400'
-      : status === 'standby'
-        ? 'text-yellow-500'
-        : 'text-green-600';
+  const isConnected = status === 'online' || status === 'standby';
+  const ConnectionIcon = isConnected ? Wifi : WifiOff;
+  // User-friendly status: "Active" = in game, "Ready" = powered on & idle, "Offline" = disconnected
   const connectionLabel =
-    status === 'offline' ? 'Offline' : status === 'standby' ? 'Standby' : 'Online';
+    status === 'online' ? 'Active' : status === 'standby' ? 'Ready' : 'Offline';
 
   return (
-    <Card className="bg-white border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 rounded-sm md:rounded-lg">
-      <CardContent className="p-2 md:p-6">
-        <div className="flex items-start justify-between mb-2 md:mb-4 gap-2">
-          <div className="flex-1 flex flex-col items-center min-w-0">
-            <div className="flex items-center gap-1 md:gap-2 mb-1 w-full max-w-full">
-              <div className={`w-2 h-2 md:w-4 md:h-4 rounded-full flex-shrink-0 ${
-                status === 'online'
-                  ? 'bg-green-500'
-                  : status === 'standby'
-                    ? 'bg-yellow-500'
-                    : 'bg-gray-400'
-              }`}></div>
-              <h3 className="font-heading font-semibold text-brand-dark text-xs md:text-base text-center break-words overflow-hidden text-ellipsis flex-1 min-w-0" title={displayName}>{displayName}</h3>
-            </div>
+    <Card className="shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 bg-gradient-to-br from-white via-white to-brand-primary/[0.04]">
+      <CardContent className="p-3 md:p-5">
+        {/* Row 1 — Status dot + Name + Action menu */}
+        <div className="flex items-center justify-between gap-1.5 md:gap-2 mb-2 md:mb-3">
+          <div className="flex items-center gap-1.5 md:gap-2 min-w-0 flex-1">
+            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+              status === 'online'
+                ? 'bg-green-500'
+                : status === 'standby'
+                  ? 'bg-amber-500'
+                  : 'bg-gray-400'
+            }`} />
+            <h3 className="text-sm md:text-base font-heading font-semibold text-brand-dark truncate" title={displayName}>
+              {displayName}
+            </h3>
           </div>
-          
-          <div className="flex-shrink-0">
-            <DropdownMenu>
+          <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-5 w-5 md:h-8 md:w-8 p-0 flex-shrink-0">
-                <MoreVertical className="h-2.5 w-2.5 md:h-4 md:w-4" />
+              <Button variant="ghost" size="icon-sm" className="flex-shrink-0 h-7 w-7 md:h-8 md:w-8">
+                <MoreVertical className="h-3.5 w-3.5 md:h-4 md:w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-white border border-gray-200 shadow-lg">
+            <DropdownMenuContent align="end" className="bg-white shadow-lg border-0">
               <DropdownMenuItem onClick={onRename || onEdit}>
-                <Settings className="h-3 w-3 md:h-4 md:w-4 mr-2" />
-                <span className="text-xs md:text-sm">{onRename ? 'Rename' : 'Edit'}</span>
+                <Settings className="h-4 w-4 mr-2" />
+                <span className="text-sm">{onRename ? 'Rename' : 'Edit'}</span>
               </DropdownMenuItem>
               {isPremium && onCustomize && (
-                <DropdownMenuItem 
+                <DropdownMenuItem
                   onClick={onCustomize}
                   className="relative overflow-hidden premium-customize-item"
                 >
-                  <Sparkles className="h-3 w-3 md:h-4 md:w-4 mr-2 text-white relative z-10 premium-sparkle-icon" />
-                  <span className="text-xs md:text-sm relative z-10 font-medium text-white">
+                  <Sparkles className="h-4 w-4 mr-2 text-white relative z-10 premium-sparkle-icon" />
+                  <span className="text-sm relative z-10 font-medium text-white">
                     Customize
                   </span>
                 </DropdownMenuItem>
               )}
               {!isPremium && onCustomize && (
-                <DropdownMenuItem 
+                <DropdownMenuItem
                   onClick={() => toast.info('Upgrade to Premium to customize targets')}
                   className="opacity-60"
                 >
-                  <PremiumLockIcon className="h-3 w-3 md:h-4 md:w-4 mr-2" />
-                  <span className="text-xs md:text-sm">Customize (Premium)</span>
+                  <PremiumLockIcon className="h-4 w-4 mr-2" />
+                  <span className="text-sm">Customize (Premium)</span>
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onClick={onDelete} className="text-red-600">
-                <Trash2 className="h-3 w-3 md:h-4 md:w-4 mr-2" />
-                <span className="text-xs md:text-sm">Delete</span>
+                <Trash2 className="h-4 w-4 mr-2" />
+                <span className="text-sm">Delete</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+        </div>
+
+        {/* Row 2 — Hit Count (hero stat, data-first) */}
+        <div className="text-center mb-2 md:mb-3">
+          <span className="text-[10px] md:text-label text-brand-secondary font-body uppercase tracking-wide">Hit Count</span>
+          <p className="text-stat-sm md:text-stat-md font-bold text-brand-dark font-body tabular-nums">
+            {isHitTotalsLoading && !hasGameHistory
+              ? '…'
+              : totalShots !== null ? totalShots.toLocaleString() : '—'}
+          </p>
+        </div>
+
+        {/* Row 3 — Secondary info strip */}
+        <div className="flex items-center justify-center gap-2 md:gap-4 mb-1.5 md:mb-2">
+          <div className="flex items-center gap-1">
+            <ConnectionIcon className="h-3 w-3 md:h-3.5 md:w-3.5 text-brand-dark/50" />
+            <span className="text-[10px] md:text-xs text-brand-dark/50 font-body">{connectionLabel}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <MapPin className="h-3 w-3 md:h-3.5 md:w-3.5 text-brand-dark/50" />
+            <span className="text-[10px] md:text-xs text-brand-dark/50 font-body truncate max-w-[80px] md:max-w-none">
+              {room ? room.name : 'Unassigned'}
+            </span>
           </div>
         </div>
 
-        <div className="space-y-1 md:space-y-3">
-          {/* Status Indicators */}
-          <div className="flex items-center justify-center gap-2 md:gap-4">
-            <div className="flex items-center gap-1 md:gap-2">
-              <ConnectionIcon className={`h-2.5 w-2.5 md:h-4 md:w-4 ${connectionColor}`} />
-              <span className="text-xs md:text-sm text-brand-dark/70">
-                {connectionLabel}
-              </span>
-            </div>
-            
-            {isOnline && batteryLevel !== null && (
-              <div className="flex items-center gap-1 md:gap-2">
-                <Battery className="h-2.5 w-2.5 md:h-4 md:w-4 text-brand-secondary" />
-                <span className="text-xs md:text-sm text-brand-dark/70">{batteryLevel}%</span>
-              </div>
-            )}
-          </div>
-
-          {/* Room Assignment and Shooting Activity - Same Line */}
-          <div className="flex justify-center gap-4">
-            <div className="flex items-center justify-center gap-1">
-              {room ? (
-                <>
-                  <MapPin className="h-2.5 w-2.5 md:h-4 md:w-4 text-brand-primary" />
-                  <span className="text-xs md:text-sm font-medium text-brand-dark">{room.name}</span>
-                </>
-              ) : (
-                <span className="text-xs md:text-sm text-brand-dark/50">No Room</span>
-              )}
-            </div>
-            
-          </div>
-
-          {/* Target Statistics */}
-          <div className="space-y-1 md:space-y-2 pt-1 md:pt-2 border-t border-gray-100">
-            <div className="text-center">
-              <div className="text-sm md:text-2xl font-bold text-brand-primary font-heading">
-                {isHitTotalsLoading && !hasGameHistory
-                  ? '…'
-                  : totalShots !== null ? totalShots : '—'}
-              </div>
-              <div className="text-xs md:text-sm text-brand-dark/70 font-body">Total Shots{!isMobile && ' Recorded'}</div>
-            </div>
-            
-            {/* Last Activity */}
-            {lastShotTime ? (
-              <div className="text-center pt-0.5 md:pt-2">
-                <div className="text-xs text-brand-dark/50 font-body">
-                  Last: {new Date(lastShotTime).toLocaleDateString()}{!isMobile && ` at ${new Date(lastShotTime).toLocaleTimeString()}`}
-                </div>
-              </div>
-            ) : (
-              <div className="text-center pt-0.5 md:pt-2">
-                <div className="text-xs text-brand-dark/50 font-body">
-                  No activity{!isMobile && ' recorded'}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Status Badges */}
-          <div className="pt-1 md:pt-2 flex justify-center gap-1 md:gap-2">
-            <Badge 
-              variant={isOnline ? 'default' : 'secondary'}
-              className={`text-xs rounded-sm md:rounded ${
-                !isOnline
-                  ? 'bg-gray-100 text-gray-600 border-gray-200'
-                  : activityStatus === 'active'
-                    ? 'bg-green-100 text-green-700 border-green-200'
-                    : activityStatus === 'recent'
-                      ? 'bg-blue-100 text-blue-700 border-blue-200'
-                      : 'bg-yellow-50 text-yellow-700 border-yellow-200'
-              }`}
-            >
-              {connectionLabel}
-            </Badge>
-            {activityStatus && (
-              <Badge
-                variant="outline"
-                className={`text-xs rounded-sm md:rounded ${
-                  activityStatus === 'active'
-                    ? 'border-green-200 text-green-700'
-                    : activityStatus === 'recent'
-                      ? 'border-blue-200 text-blue-700'
-                      : 'border-gray-200 text-gray-600'
-                }`}
-              >
-                {activityStatus === 'active'
-                  ? 'Active'
-                  : activityStatus === 'recent'
-                    ? 'Recently Active'
-                    : 'Standby'}
-              </Badge>
-            )}
-          </div>
+        {/* Row 4 — Last activity */}
+        <div className="text-center">
+          <span className="text-[10px] md:text-[11px] text-brand-dark/40 font-body">
+            {lastShotTime
+              ? `Last: ${new Date(lastShotTime).toLocaleDateString()}`
+              : 'No activity'}
+          </span>
         </div>
       </CardContent>
     </Card>
-  );
-};
-
-// Stats Summary – uses backend target.status only (online=green, standby=yellow, offline=gray)
-const TargetsSummary: React.FC<{
-  targets: Target[];
-  rooms: Room[];
-}> = ({ targets, rooms }) => {
-  const onlineTargets = targets.filter(t => t.status === 'online').length;
-  const standbyTargets = targets.filter(t => t.status === 'standby').length;
-  const offlineTargets = targets.filter(t => t.status === 'offline').length;
-  const unassignedTargets = targets.filter(t => !t.roomId).length;
-
-  const stats = [
-    { label: 'Total Targets', value: targets.length, color: 'text-brand-dark' },
-    { label: 'Online', value: onlineTargets, color: 'text-green-600' },
-    { label: 'Standby', value: standbyTargets, color: 'text-yellow-600' },
-    { label: 'Offline', value: offlineTargets, color: 'text-gray-600' },
-    { label: 'Unassigned', value: unassignedTargets, color: 'text-yellow-600' },
-  ];
-
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2 md:gap-4 mb-3 md:mb-6">
-      {stats.map((stat, index) => (
-        <Card key={`stat-${stat.label}-${index}`} className="bg-white border-gray-200 shadow-sm rounded-sm md:rounded-lg">
-          <CardContent className="p-2 md:p-4 text-center">
-            <div className={`text-sm md:text-2xl font-bold ${stat.color} font-heading`}>
-              {stat.value}
-            </div>
-            <div className="text-xs md:text-sm text-brand-dark/70 font-body">
-              {stat.label}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
   );
 };
 
@@ -957,210 +887,249 @@ const Targets: React.FC = () => {
 
   // Remove simple loading spinner - use inline conditional rendering instead
 
+  // Compute stat card counts
+  // "Active" = online (in game), "Ready" = standby (powered on, idle), "Offline" = disconnected
+  const activeCount = targets.filter(t => t.status === 'online').length;
+  const readyCount = targets.filter(t => t.status === 'standby').length;
+  const offlineCount = targets.filter(t => t.status === 'offline').length;
+  const unassignedCount = targets.filter(t => !t.roomId).length;
+
+  const targetStatCards = [
+    {
+      title: 'Total Targets',
+      value: targets.length,
+      subtitle: 'Registered devices',
+      icon: <TargetIcon className="w-4 h-4" />,
+    },
+    {
+      title: 'Ready',
+      value: readyCount + activeCount,
+      subtitle: activeCount > 0 ? `${activeCount} in game` : 'Powered on & idle',
+      icon: <Wifi className="w-4 h-4" />,
+    },
+    {
+      title: 'Offline',
+      value: offlineCount,
+      subtitle: offlineCount > 0 ? 'Not reachable' : 'All devices connected',
+      icon: <WifiOff className="w-4 h-4" />,
+    },
+    {
+      title: 'Unassigned',
+      value: unassignedCount,
+      subtitle: 'No room assigned',
+      icon: <MapPin className="w-4 h-4" />,
+    },
+  ];
+
   return (
-    <div className="min-h-screen flex flex-col bg-brand-light pt-[116px] lg:pt-16">
+    <div className="min-h-screen flex flex-col bg-brand-light responsive-container pt-[116px] lg:pt-16">
       <Header />
       {isMobile && <MobileDrawer />}
-
       {!isMobile && <Sidebar />}
-      <div className="flex flex-1 lg:pl-64">
-        <main className="flex-1 overflow-y-auto">
-          <div className="p-3 md:p-4 lg:p-6 max-w-7xl mx-auto space-y-3 md:space-y-4 lg:space-y-6">
-            
-            
+      <div className="flex flex-1 no-overflow lg:pl-64">
+        <main className="flex-1 overflow-y-auto responsive-container">
+          <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
 
             {/* Page Header */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-4">
-                <h1 className="text-3xl font-heading font-semibold text-brand-dark">Targets</h1>
-                <div className="flex items-center gap-2">
-                  <Button 
+            <div>
+              <div className="flex items-center justify-between gap-2 md:gap-4">
+                <h1 className="text-xl md:text-3xl font-heading font-semibold text-brand-dark text-left">Targets</h1>
+                <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => setIsCreateGroupModalOpen(true)}
-                    className="bg-brand-secondary hover:bg-brand-secondary/90 text-white"
+                    className="md:h-10 md:px-5 md:text-sm"
                   >
-                    <Users className="h-4 w-4 mr-2" />
-                    Create Group
+                    <Users className="h-4 w-4 md:mr-2" />
+                    <span className="hidden md:inline">Create Group</span>
                   </Button>
                   <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button className="bg-brand-primary hover:bg-brand-primary/90 text-white">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Target
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-[425px]">
-                    <DialogHeader>
-                      <DialogTitle className="font-heading">Add New Target</DialogTitle>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                      <div className="grid gap-2">
-                        <Label htmlFor="target-name" className="text-brand-dark font-body">Target Name</Label>
-                        <Input
-                          id="target-name"
-                          value={newTargetName}
-                          onChange={(e) => setNewTargetName(e.target.value)}
-                          placeholder="Enter target name"
-                          className="bg-white border-gray-200 text-brand-dark"
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="target-room" className="text-brand-dark font-body">Room (Optional)</Label>
-                        <Select value={newTargetRoomId} onValueChange={setNewTargetRoomId}>
-                          <SelectTrigger className="bg-white border-gray-200 text-brand-dark">
-                            <SelectValue placeholder="Select a room" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-white border border-gray-200 text-brand-dark shadow-md">
-                            <SelectItem value="none">No Room</SelectItem>
-                            {rooms.map(room => (
-                              <SelectItem key={room.id} value={room.id.toString()}>
-                                {room.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <Button 
-                        onClick={handleCreateTarget}
-                        className="bg-brand-primary hover:bg-brand-primary/90 text-white"
-                      >
-                        Create Target
+                    <DialogTrigger asChild>
+                      <Button size="sm" className="bg-brand-primary hover:bg-brand-primary/90 text-white md:h-10 md:px-5 md:text-sm">
+                        <Plus className="h-4 w-4 md:mr-2" />
+                        <span className="hidden md:inline">Add Target</span>
                       </Button>
-                    </div>
-                  </DialogContent>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                      <DialogHeader>
+                        <DialogTitle className="font-heading">Add New Target</DialogTitle>
+                      </DialogHeader>
+                      <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                          <Label htmlFor="target-name" className="text-label text-brand-secondary font-body uppercase tracking-wide">Target Name</Label>
+                          <Input
+                            id="target-name"
+                            value={newTargetName}
+                            onChange={(e) => setNewTargetName(e.target.value)}
+                            placeholder="Enter target name"
+                            className="bg-white border border-[rgba(28,25,43,0.1)] rounded-[var(--radius)] text-brand-dark placeholder:text-brand-dark/40 focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/30 font-body h-10"
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="target-room" className="text-label text-brand-secondary font-body uppercase tracking-wide">Room (Optional)</Label>
+                          <Select value={newTargetRoomId} onValueChange={setNewTargetRoomId}>
+                            <SelectTrigger className="bg-white border border-[rgba(28,25,43,0.1)] rounded-[var(--radius)] text-brand-dark">
+                              <SelectValue placeholder="Select a room" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-white shadow-lg border-0">
+                              <SelectItem value="none">No Room</SelectItem>
+                              {rooms.map(room => (
+                                <SelectItem key={room.id} value={room.id.toString()}>
+                                  {room.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button
+                          onClick={handleCreateTarget}
+                          className="bg-brand-primary hover:bg-brand-primary/90 text-white"
+                        >
+                          Create Target
+                        </Button>
+                      </div>
+                    </DialogContent>
                   </Dialog>
                 </div>
               </div>
-              <p className="text-brand-dark/70 font-body">Manage your shooting targets and monitor their status</p>
+              <p className="text-sm text-brand-dark/55 font-body mt-0.5 text-left">Manage your shooting targets and monitor their status</p>
+              {/* Status Legend */}
+              <div className="flex items-center gap-3 md:gap-4 pt-0.5">
+                <div className="flex items-center gap-1 md:gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  <span className="text-[10px] md:text-xs text-brand-dark/50 font-body">Active — in game</span>
+                </div>
+                <div className="flex items-center gap-1 md:gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-amber-500" />
+                  <span className="text-[10px] md:text-xs text-brand-dark/50 font-body">Ready — powered on</span>
+                </div>
+                <div className="flex items-center gap-1 md:gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-gray-400" />
+                  <span className="text-[10px] md:text-xs text-brand-dark/50 font-body">Offline</span>
+                </div>
+              </div>
             </div>
 
-            {/* Stats Summary */}
+            {/* Stat Cards Row */}
             {isLoading ? (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 mb-3 md:mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
                 {[...Array(4)].map((_, i) => (
-                  <Card key={i} className="bg-white border-gray-200 shadow-sm rounded-sm md:rounded-lg animate-pulse">
-                    <CardContent className="p-2 md:p-4 text-center">
-                      <div className="h-6 md:h-8 w-12 md:w-16 bg-gray-200 rounded mx-auto mb-2"></div>
-                      <div className="h-3 md:h-4 w-16 md:w-20 bg-gray-200 rounded mx-auto"></div>
+                  <Card key={i} className="shadow-card bg-gradient-to-br from-white via-white to-brand-primary/[0.04]">
+                    <CardContent className="p-3 md:p-5 lg:p-6 animate-pulse">
+                      <div className="flex items-center justify-center gap-1.5 md:gap-2 mb-0.5 md:mb-1">
+                        <div className="w-3.5 h-3.5 md:w-4 md:h-4 bg-gray-200 rounded" />
+                        <div className="h-3 w-16 md:w-20 bg-gray-200 rounded" />
+                      </div>
+                      <div className="h-6 md:h-10 w-10 md:w-24 bg-gray-200 rounded mt-1 mx-auto" />
+                      <div className="h-2.5 md:h-3 w-20 md:w-28 bg-gray-200 rounded mt-1.5 md:mt-2 mx-auto" />
                     </CardContent>
                   </Card>
                 ))}
               </div>
             ) : (
-              <TargetsSummary targets={targets} rooms={rooms} />
+              <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
+                {targetStatCards.map((card) => (
+                  <StatCard
+                    key={card.title}
+                    title={card.title}
+                    value={card.value}
+                    subtitle={card.subtitle}
+                    icon={card.icon}
+                    isLoading={false}
+                  />
+                ))}
+              </div>
             )}
 
             {/* Search and Filters */}
             {isLoading ? (
-              <div className="flex flex-col md:flex-row gap-4">
-                <div className="flex-1 h-10 bg-gray-200 rounded animate-pulse"></div>
-                <div className="w-full md:w-48 h-10 bg-gray-200 rounded animate-pulse"></div>
-                <div className="w-full md:w-48 h-10 bg-gray-200 rounded animate-pulse"></div>
+              <div className="space-y-2 md:space-y-0 md:flex md:flex-row md:gap-4">
+                <div className="flex-1 h-10 bg-gray-200 rounded-full animate-pulse" />
+                <div className="grid grid-cols-2 gap-2 md:flex md:gap-4">
+                  <div className="h-10 bg-gray-200 rounded animate-pulse md:w-48" />
+                  <div className="h-10 bg-gray-200 rounded animate-pulse md:w-48" />
+                </div>
               </div>
             ) : (
-              <div className="flex flex-col md:flex-row gap-4">
+              <div className="space-y-2 md:space-y-0 md:flex md:flex-row md:gap-4">
                 <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-brand-dark/50" />
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-brand-dark/30" />
                   <Input
                     placeholder="Search targets..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 bg-white border-gray-200 text-brand-dark placeholder:text-brand-dark/50"
+                    className="pl-11 bg-white border border-[rgba(28,25,43,0.1)] rounded-full text-brand-dark placeholder:text-brand-dark/40 focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/30 font-body h-10"
                   />
                 </div>
-                
-                <Select value={roomFilter} onValueChange={setRoomFilter}>
-                  <SelectTrigger className="w-full md:w-48 bg-white border-gray-200 text-brand-dark">
-                    <SelectValue placeholder="Filter by room" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border border-gray-200 text-brand-dark shadow-md">
-                    <SelectItem value="all">All Rooms</SelectItem>
-                    <SelectItem value="unassigned">Unassigned</SelectItem>
-                    {rooms.map(room => (
-                      <SelectItem key={room.id} value={room.id.toString()}>
-                        {room.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
 
-                <Select value={groupFilter} onValueChange={setGroupFilter}>
-                  <SelectTrigger className="w-full md:w-48 bg-white border-gray-200 text-brand-dark">
-                    <SelectValue placeholder="Filter by group" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border border-gray-200 text-brand-dark shadow-md">
-                    <SelectItem value="all">All Groups</SelectItem>
-                    <SelectItem value="ungrouped">Ungrouped</SelectItem>
-                    <SelectItem value="grouped">Grouped</SelectItem>
-                    {groupsWithCustomNames.map(group => (
-                      <SelectItem key={group.id} value={group.id}>
-                        {group.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="grid grid-cols-2 gap-2 md:flex md:gap-4">
+                  <Select value={roomFilter} onValueChange={setRoomFilter}>
+                    <SelectTrigger className="w-full md:w-48 bg-white border border-[rgba(28,25,43,0.1)] rounded-[var(--radius)] text-brand-dark text-xs md:text-sm h-9 md:h-10">
+                      <SelectValue placeholder="Room" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white shadow-lg border-0">
+                      <SelectItem value="all">All Rooms</SelectItem>
+                      <SelectItem value="unassigned">Unassigned</SelectItem>
+                      {rooms.map(room => (
+                        <SelectItem key={room.id} value={room.id.toString()}>
+                          {room.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={groupFilter} onValueChange={setGroupFilter}>
+                    <SelectTrigger className="w-full md:w-48 bg-white border border-[rgba(28,25,43,0.1)] rounded-[var(--radius)] text-brand-dark text-xs md:text-sm h-9 md:h-10">
+                      <SelectValue placeholder="Group" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white shadow-lg border-0">
+                      <SelectItem value="all">All Groups</SelectItem>
+                      <SelectItem value="ungrouped">Ungrouped</SelectItem>
+                      <SelectItem value="grouped">Grouped</SelectItem>
+                      {groupsWithCustomNames.map(group => (
+                        <SelectItem key={group.id} value={group.id}>
+                          {group.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             )}
 
-
             {/* Targets Grid */}
             {isLoading ? (
-              <div className="space-y-8">
-                {/* Skeleton for 2 room sections */}
+              <div className="space-y-4 md:space-y-8">
                 {[...Array(2)].map((_, sectionIndex) => (
                   <div key={sectionIndex}>
-                    {/* Room section header skeleton */}
-                    <div className="flex items-center gap-2 mb-2 md:mb-4">
-                      <div className="h-5 md:h-6 w-32 md:w-40 bg-gray-200 rounded animate-pulse"></div>
-                      <div className="h-6 w-16 bg-gray-200 rounded-full animate-pulse"></div>
+                    <div className="flex items-center justify-between mb-2 md:mb-4">
+                      <div className="flex items-center gap-1.5 md:gap-3">
+                        <div className="h-4 md:h-5 w-24 md:w-40 bg-gray-200 rounded animate-pulse" />
+                        <div className="h-3 md:h-4 w-8 md:w-16 bg-gray-200 rounded animate-pulse" />
+                      </div>
+                      <div className="flex items-center gap-1.5 md:gap-2">
+                        <div className="h-2.5 md:h-3 w-14 md:w-20 bg-gray-200 rounded animate-pulse" />
+                      </div>
                     </div>
-                    
-                    {/* Target cards skeleton - 3 cards per row */}
-                    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 lg:gap-5">
                       {[...Array(3)].map((_, cardIndex) => (
-                        <Card key={cardIndex} className="bg-white border-gray-200 shadow-sm rounded-sm md:rounded-lg animate-pulse">
-                          <CardContent className="p-2 md:p-6">
-                            {/* Target name with status dot */}
-                            <div className="flex items-center justify-between mb-2 md:mb-4">
-                              <div className="flex-1 flex flex-col items-center">
-                                <div className="flex items-center gap-1 md:gap-2 mb-1">
-                                  <div className="w-2 h-2 md:w-4 md:h-4 rounded-full bg-gray-200"></div>
-                                  <div className="h-3 md:h-4 w-24 md:w-32 bg-gray-200 rounded"></div>
-                                </div>
-                              </div>
-                              <div className="h-5 w-5 md:h-8 md:w-8 bg-gray-200 rounded"></div>
+                        <Card key={cardIndex} className="shadow-card bg-gradient-to-br from-white via-white to-brand-primary/[0.04]">
+                          <CardContent className="p-3 md:p-5 animate-pulse">
+                            <div className="flex items-center gap-1.5 md:gap-2 mb-2 md:mb-3">
+                              <div className="w-2 h-2 rounded-full bg-gray-200" />
+                              <div className="h-3.5 md:h-4 w-20 md:w-28 bg-gray-200 rounded" />
+                              <div className="ml-auto h-5 w-5 md:h-6 md:w-6 bg-gray-200 rounded" />
                             </div>
-
-                            <div className="space-y-1 md:space-y-3">
-                              {/* Status indicators */}
-                              <div className="flex items-center justify-center gap-2 md:gap-4">
-                                <div className="h-3 md:h-4 w-20 md:w-24 bg-gray-200 rounded"></div>
-                                <div className="h-3 md:h-4 w-16 md:w-20 bg-gray-200 rounded"></div>
-                              </div>
-
-                              {/* Room and activity */}
-                              <div className="flex justify-center gap-4">
-                                <div className="h-3 md:h-4 w-16 md:w-20 bg-gray-200 rounded"></div>
-                                <div className="h-3 md:h-4 w-16 md:w-20 bg-gray-200 rounded"></div>
-                              </div>
-
-                              {/* Stats section */}
-                              <div className="space-y-1 md:space-y-2 pt-1 md:pt-2 border-t border-gray-100">
-                                <div className="text-center">
-                                  <div className="h-6 md:h-8 w-12 bg-gray-200 rounded mx-auto mb-1"></div>
-                                  <div className="h-3 w-20 md:w-28 bg-gray-200 rounded mx-auto"></div>
-                                </div>
-                                
-                                <div className="text-center pt-0.5 md:pt-2">
-                                  <div className="h-3 w-32 md:w-40 bg-gray-200 rounded mx-auto"></div>
-                                </div>
-                              </div>
-
-                              {/* Status badges */}
-                              <div className="pt-1 md:pt-2 flex justify-center gap-1 md:gap-2">
-                                <div className="h-5 w-14 md:w-16 bg-gray-200 rounded"></div>
-                                <div className="h-5 w-14 md:w-16 bg-gray-200 rounded"></div>
-                              </div>
+                            <div className="text-center mb-2 md:mb-3">
+                              <div className="h-2.5 md:h-3 w-14 md:w-16 bg-gray-200 rounded mx-auto mb-1" />
+                              <div className="h-5 md:h-7 w-14 md:w-20 bg-gray-200 rounded mx-auto" />
                             </div>
+                            <div className="flex items-center justify-center gap-2 md:gap-4 mb-1.5 md:mb-2">
+                              <div className="h-2.5 md:h-3 w-12 md:w-16 bg-gray-200 rounded" />
+                              <div className="h-2.5 md:h-3 w-14 md:w-20 bg-gray-200 rounded" />
+                            </div>
+                            <div className="h-2.5 md:h-3 w-24 md:w-32 bg-gray-200 rounded mx-auto" />
                           </CardContent>
                         </Card>
                       ))}
@@ -1169,24 +1138,21 @@ const Targets: React.FC = () => {
                 ))}
               </div>
             ) : Object.keys(groupedTargets).length === 0 ? (
-              <Card className="bg-white border-gray-200 shadow-sm">
-                <CardContent className="p-12 text-center">
-                  <div className="text-brand-dark/50 mb-4">
-                    <Zap className="h-12 w-12 mx-auto mb-4" />
-                  </div>
-                  <h3 className="text-lg font-heading text-brand-dark mb-2">No targets found</h3>
-                  <p className="text-brand-dark/70 font-body mb-6">
-                    {searchTerm || roomFilter !== 'all' 
+              <Card className="shadow-card">
+                <CardContent className="p-8 md:p-12 text-center">
+                  <TargetIcon className="h-10 w-10 md:h-12 md:w-12 mx-auto mb-3 md:mb-4 text-brand-dark/40" />
+                  <h3 className="text-base md:text-lg font-heading text-brand-dark mb-1.5 md:mb-2">No targets found</h3>
+                  <p className="text-xs md:text-sm text-brand-dark/40 font-body mb-4 md:mb-6">
+                    {searchTerm || roomFilter !== 'all'
                       ? 'Try adjusting your search or filter criteria.'
                       : 'Get started by adding your first target device.'
                     }
                   </p>
-                  
-                  
                   {!searchTerm && roomFilter === 'all' && (
-                    <Button 
+                    <Button
+                      size="sm"
                       onClick={() => setIsAddDialogOpen(true)}
-                      className="bg-brand-primary hover:bg-brand-primary/90 text-white mt-4"
+                      className="bg-brand-primary hover:bg-brand-primary/90 text-white md:h-10 md:px-5 md:text-sm"
                     >
                       <Plus className="h-4 w-4 mr-2" />
                       Add First Target
@@ -1195,8 +1161,7 @@ const Targets: React.FC = () => {
                 </CardContent>
               </Card>
             ) : (
-              <div className="space-y-8">
-                {/* Display rooms with their groups and targets */}
+              <div className="space-y-4 md:space-y-8">
                 {Object.entries(sortedGroupedTargets).map(([roomId, roomTargets]: [string, Target[]]) => {
                   const room = roomId !== 'unassigned' ? getRoom(roomId) : null;
 
@@ -1204,57 +1169,68 @@ const Targets: React.FC = () => {
                     <div key={roomId}>
                       {/* Room Section Header */}
                       <div className="flex items-center justify-between mb-2 md:mb-4">
-                        <div className="flex items-center gap-2">
-                          <h2 className="text-sm md:text-xl font-heading font-semibold text-brand-dark">
-                            {room ? room.name : 'Unassigned Targets'}
+                        <div className="flex items-center gap-1.5 md:gap-3 min-w-0">
+                          <h2 className="text-sm md:text-base font-heading font-semibold text-brand-dark truncate">
+                            {room ? room.name : 'Unassigned'}
                           </h2>
-                          <Badge className="bg-red-50 border-red-500 text-red-700 text-xs rounded-lg md:rounded-xl">
-                            {roomTargets.length} target{roomTargets.length !== 1 ? 's' : ''}
-                          </Badge>
+                          <span className="text-[10px] md:text-label text-brand-secondary font-body uppercase tracking-wide shrink-0">
+                            {roomTargets.length}
+                          </span>
                         </div>
 
-                        {/* Status Summary */}
-                        <div className="flex items-center gap-2 text-xs text-brand-dark/70">
+                        <div className="flex items-center gap-1.5 md:gap-2 text-[10px] md:text-[11px] text-brand-dark font-body shrink-0">
+                          {roomTargets.some(t => t.status === 'online') && (
+                            <div className="flex items-center gap-1">
+                              <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-green-500 rounded-full" />
+                              <span>{roomTargets.filter(t => t.status === 'online').length} active</span>
+                            </div>
+                          )}
                           <div className="flex items-center gap-1">
-                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span>{roomTargets.filter(t => t.status === 'online' || t.status === 'standby').length} online</span>
+                            <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-amber-500 rounded-full" />
+                            <span>{roomTargets.filter(t => t.status === 'online' || t.status === 'standby').length} ready</span>
                           </div>
                           <div className="flex items-center gap-1">
-                            <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                            <span>{roomTargets.filter(t => t.status !== 'online').length} offline</span>
+                            <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-gray-400 rounded-full" />
+                            <span>{roomTargets.filter(t => t.status === 'offline').length} off</span>
                           </div>
                         </div>
                       </div>
 
-                      {/* All targets in this room as full cards */}
-                      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
+                      {/* Staggered target card grid */}
+                      <motion.div
+                        className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 lg:gap-5"
+                        variants={containerVariants}
+                        initial="hidden"
+                        animate="visible"
+                      >
                         {roomTargets.map((target, index) => {
                           const targetKey = target.id || `target-${index}`;
                           const aggregatedHits = targetHitTotals[target.id];
 
                           return (
-                            <TargetCard
-                              key={targetKey}
-                              target={target}
-                              room={room}
-                              onEdit={() => {
-                                toast.info('Edit functionality coming soon');
-                              }}
-                              onRename={() => {
-                                setRenamingTargetId(target.id);
-                              }}
-                              onDelete={() => {
-                                toast.info('Delete functionality coming soon');
-                              }}
-                              onCustomize={() => {
-                                setCustomizingTargetId(target.id);
-                              }}
-                              totalHitCount={aggregatedHits}
-                              isHitTotalsLoading={hitTotalsLoading}
-                            />
+                            <motion.div key={targetKey} variants={itemVariants}>
+                              <TargetCard
+                                target={target}
+                                room={room}
+                                onEdit={() => {
+                                  toast.info('Edit functionality coming soon');
+                                }}
+                                onRename={() => {
+                                  setRenamingTargetId(target.id);
+                                }}
+                                onDelete={() => {
+                                  toast.info('Delete functionality coming soon');
+                                }}
+                                onCustomize={() => {
+                                  setCustomizingTargetId(target.id);
+                                }}
+                                totalHitCount={aggregatedHits}
+                                isHitTotalsLoading={hitTotalsLoading}
+                              />
+                            </motion.div>
                           );
                         })}
-                      </div>
+                      </motion.div>
                     </div>
                   );
                 })}

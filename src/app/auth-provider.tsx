@@ -129,22 +129,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setUser(authUser);
       setSession(authSession);
 
-      // Trigger ThingsBoard authentication in background
-      try {
-        const { unifiedDataService } = await import('@/features/profile/lib/unified-data');
-        await unifiedDataService.getThingsBoardData(authUser.id, authUser.email);
-        // Sync WiFi credentials after ThingsBoard authentication
-        try {
-          const { syncWifiCredentialsOnLogin } = await import('@/features/profile/lib/wifi-credentials');
-          await syncWifiCredentialsOnLogin(authUser.id);
-        } catch (wifiError) {
-          console.warn('[AuthProvider] WiFi sync failed (non-blocking):', wifiError);
-          // Don't block login if WiFi sync fails
-        }
-      } catch (tbError) {
-        console.warn('[AuthProvider] ThingsBoard authentication failed (non-blocking):', tbError);
-        // Don't block login if ThingsBoard fails
-      }
+      // Fire-and-forget: ThingsBoard auth + WiFi sync in background (never block login)
+      void import('@/features/profile/lib/unified-data').then(({ unifiedDataService }) =>
+        unifiedDataService.getThingsBoardData(authUser.id, authUser.email).then(() =>
+          import('@/features/profile/lib/wifi-credentials').then(({ syncWifiCredentialsOnLogin }) =>
+            syncWifiCredentialsOnLogin(authUser.id)
+          )
+        )
+      ).catch((err) => console.warn('[AuthProvider] Background sync failed (non-blocking):', err));
 
       void ensureThingsboardSession().catch((tbError) => {
         console.warn('[AuthProvider] Unable to obtain ThingsBoard session token after login (non-blocking):', tbError);

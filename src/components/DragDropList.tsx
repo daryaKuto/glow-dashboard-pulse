@@ -1,7 +1,7 @@
-
 import React, { useState } from 'react';
-import { 
-  DndContext, 
+import { motion } from 'framer-motion';
+import {
+  DndContext,
   closestCenter,
   KeyboardSensor,
   PointerSensor,
@@ -10,30 +10,42 @@ import {
   useSensors,
   DragEndEvent,
   DragStartEvent,
-  UniqueIdentifier
+  UniqueIdentifier,
 } from '@dnd-kit/core';
-import { 
+import {
   arrayMove,
-  SortableContext, 
-  sortableKeyboardCoordinates, 
-  verticalListSortingStrategy 
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
-import { Grip } from 'lucide-react';
 
-interface SortableItemProps<T extends { id: number }> {
-  id: number;
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.08, delayChildren: 0.1 },
+  },
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: 'easeOut' } },
+};
+
+interface SortableItemProps<T extends { id: string | number }> {
+  id: string | number;
   item: T;
   renderItem: (item: T, isDragging: boolean) => React.ReactNode;
 }
 
 // Component for each sortable item
-const SortableItem = <T extends { id: number }>({ 
-  id, 
-  item, 
-  renderItem 
+const SortableItem = <T extends { id: string | number }>({
+  id,
+  item,
+  renderItem,
 }: SortableItemProps<T>) => {
   const {
     attributes,
@@ -51,69 +63,64 @@ const SortableItem = <T extends { id: number }>({
   };
 
   return (
-    <div 
+    <motion.div
       ref={setNodeRef}
       style={style}
-      className={cn(
-        "relative",
-        isDragging && "opacity-75"
-      )}
+      className={cn('relative', isDragging && 'opacity-75')}
+      variants={itemVariants}
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.2, ease: 'easeOut' }}
+      {...attributes}
+      {...listeners}
     >
-      <div 
-        {...attributes}
-        {...listeners}
-        className="absolute top-1/2 left-2 -translate-y-1/2 cursor-move touch-none"
-      >
-        <Grip className="h-4 w-4 text-brand-lavender/70" />
-      </div>
       {renderItem(item, isDragging)}
-    </div>
+    </motion.div>
   );
 };
 
-interface DragDropListProps<T extends { id: number }> {
+interface DragDropListProps<T extends { id: string | number }> {
   items: T[];
   renderItem: (item: T, isDragging: boolean) => React.ReactNode;
   onReorder: (items: T[]) => void;
-  activationConstraint?: { delay: number; tolerance: number };
+  activationConstraint?: { delay?: number; tolerance?: number; distance?: number };
 }
 
 // Main drag and drop list component
-export default function DragDropList<T extends { id: number }>({ 
-  items, 
-  renderItem, 
+export default function DragDropList<T extends { id: string | number }>({
+  items,
+  renderItem,
   onReorder,
-  activationConstraint
+  activationConstraint,
 }: DragDropListProps<T>) {
-  const [activeId, setActiveId] = useState<number | null>(null);
+  const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { 
-      activationConstraint 
+    useSensor(PointerSensor, {
+      activationConstraint,
     }),
-    useSensor(TouchSensor, { 
-      activationConstraint 
+    useSensor(TouchSensor, {
+      activationConstraint,
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   );
 
   function handleDragStart(event: DragStartEvent) {
-    setActiveId(event.active.id as number);
+    setActiveId(event.active.id);
   }
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
-    
+
     if (over && active.id !== over.id) {
-      const oldIndex = items.findIndex(item => item.id === active.id);
-      const newIndex = items.findIndex(item => item.id === over.id);
-      
+      const oldIndex = items.findIndex((item) => item.id === active.id);
+      const newIndex = items.findIndex((item) => item.id === over.id);
+
       const reordered = arrayMove(items, oldIndex, newIndex);
       onReorder(reordered);
     }
-    
+
     setActiveId(null);
   }
 
@@ -125,10 +132,15 @@ export default function DragDropList<T extends { id: number }>({
       onDragEnd={handleDragEnd}
     >
       <SortableContext
-        items={items.map(item => ({ id: item.id }))}
+        items={items.map((item) => ({ id: item.id }))}
         strategy={verticalListSortingStrategy}
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <motion.div
+          className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4 lg:gap-5"
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+        >
           {items.map((item) => (
             <SortableItem
               key={item.id}
@@ -137,7 +149,7 @@ export default function DragDropList<T extends { id: number }>({
               renderItem={renderItem}
             />
           ))}
-        </div>
+        </motion.div>
       </SortableContext>
     </DndContext>
   );

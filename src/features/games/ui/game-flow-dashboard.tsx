@@ -147,7 +147,7 @@ export const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
     toast.success('Game completed');
   };
 
-  // Get device status badge
+  // Get device status badge — Active (in-game), Ready (idle/connected), Stopped, Offline
   const getDeviceStatusBadge = (device: DeviceStatus) => {
     if (!device.isOnline) {
       return <Badge variant="destructive" className="text-xs">Offline</Badge>;
@@ -159,9 +159,9 @@ export const GameFlowDashboard: React.FC<GameFlowDashboardProps> = ({
       case 'stop':
         return <Badge variant="secondary" className="text-xs">Stopped</Badge>;
       case 'idle':
-        return <Badge variant="outline" className="text-xs">Idle</Badge>;
+        return <Badge variant="outline" className="text-xs border-amber-200 text-amber-700 bg-amber-50">Ready</Badge>;
       default:
-        return <Badge variant="outline" className="text-xs">Unknown</Badge>;
+        return <Badge variant="outline" className="text-xs border-amber-200 text-amber-700 bg-amber-50">Ready</Badge>;
     }
   };
 

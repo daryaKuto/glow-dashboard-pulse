@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Target as TargetIcon, Users, TrendingUp, Activity, Play, X, BarChart, Award, CheckCircle, Gamepad2, Trophy, Info } from 'lucide-react';
+import { Target as TargetIcon, Users, Activity, Play, X, BarChart, Award, CheckCircle, Gamepad2, Trophy } from 'lucide-react';
 import { useRooms } from '@/features/rooms';
 import { useDashboardMetrics, useDashboardSessions } from '@/features/dashboard';
 import { useGameHistory } from '@/features/games';
@@ -13,7 +13,6 @@ import type { TargetsSummary } from '@/lib/edge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import dayjs from 'dayjs';
 import TargetActivityCard, {
   RANGE_CONFIG,
@@ -25,89 +24,12 @@ import RecentSessionsCard from '@/features/dashboard/ui/RecentSessionsCard';
 import { HitDistributionSkeleton } from '@/features/games/ui/components';
 import { formatScoreValue } from '@/utils/dashboard';
 import RoomBubblesCard from '@/features/dashboard/ui/RoomBubblesCard';
+import StatCard from '@/components/shared/StatCard';
 
 // Lazy-load chart components to defer ~200KB recharts
 const HitDistributionCardWrapper = React.lazy(() => import('@/features/dashboard/ui/HitDistributionCardWrapper'));
 import { throttledLogOnChange } from '@/utils/log-throttle';
 import { FeatureErrorBoundary } from '@/shared/ui/FeatureErrorBoundary';
-
-// Modern Stat Card Component — Strava-style data-first hierarchy
-const StatCard: React.FC<{
-  title: string;
-  value: string | number;
-  subtitle?: React.ReactNode;
-  icon: React.ReactNode;
-  trend?: { value: number; isPositive: boolean };
-  isLoading?: boolean;
-  infoTitle?: string;
-  infoContent?: string;
-}> = ({ title, value, subtitle, icon, trend, isLoading = false, infoTitle, infoContent }) => (
-  <Card className="shadow-card hover:shadow-card-hover transition-all duration-200 bg-gradient-to-br from-white via-white to-brand-primary/[0.04]">
-    <CardContent className="p-5 md:p-6">
-      {/* Label row with bare icon */}
-      <div className="flex items-center justify-center gap-2 mb-1">
-        <div className="text-brand-primary w-4 h-4">{icon}</div>
-        <span className="text-label text-brand-secondary font-body uppercase tracking-wide">
-          {title}
-        </span>
-        {infoContent && (
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-full hover:bg-brand-dark/10 p-0.5 -m-0.5 transition-colors"
-                aria-label={`Info about ${title}`}
-              >
-                <Info className="h-3 w-3 text-brand-dark/40" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              side="bottom"
-              align="start"
-              className="w-64 bg-white shadow-lg p-3 border-0 z-30"
-            >
-              {infoTitle && (
-                <p className="text-xs font-medium text-brand-dark mb-1">{infoTitle}</p>
-              )}
-              <p className="text-xs text-brand-dark/70">{infoContent}</p>
-            </PopoverContent>
-          </Popover>
-        )}
-      </div>
-
-      {/* Hero number */}
-      {isLoading ? (
-        <div className="h-8 md:h-10 w-16 md:w-24 bg-gray-200 rounded animate-pulse" />
-      ) : (
-        <p className="text-stat-md md:text-stat-lg font-bold text-brand-dark font-body tabular-nums text-center">
-          {value}
-        </p>
-      )}
-
-      {/* Optional subtitle */}
-      {subtitle && (
-        <div className="text-xs text-brand-dark/40 font-body mt-1 flex justify-center">{subtitle}</div>
-      )}
-
-      {/* Optional trend */}
-      {trend && !isLoading && (
-        <div className="mt-2 flex items-center gap-1">
-          <div
-            className={`flex items-center gap-0.5 text-xs ${
-              trend.isPositive ? 'text-green-600' : 'text-red-600'
-            }`}
-          >
-            <TrendingUp
-              className={`w-3 h-3 ${!trend.isPositive && 'rotate-180'}`}
-            />
-            <span className="font-medium">{trend.value}%</span>
-          </div>
-          <span className="text-xs text-brand-dark/40 font-body">vs last week</span>
-        </div>
-      )}
-    </CardContent>
-  </Card>
-);
 
  
 
@@ -498,38 +420,7 @@ const Dashboard: React.FC = () => {
                   <StatCard
                     title="Total Registered Targets"
                     value={summaryReady ? totalTargets : '—'}
-                    subtitle={
-                      summaryReady
-                        ? (
-                          <span className="flex items-center gap-2">
-                            {onlineTargets > 0 && (
-                              <span className="flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-                                {onlineTargets} online
-                              </span>
-                            )}
-                            {standbyTargets > 0 && (
-                              <span className="flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
-                                {standbyTargets} standby
-                              </span>
-                            )}
-                            {totalTargets - onlineTargets - standbyTargets > 0 && (
-                              <span className="flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" />
-                                {totalTargets - onlineTargets - standbyTargets} offline
-                              </span>
-                            )}
-                            {onlineTargets === 0 && standbyTargets === 0 && totalTargets === 0 && (
-                              <span className="flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-                                0 online
-                              </span>
-                            )}
-                          </span>
-                        )
-                        : ''
-                    }
+                    subtitle={summaryReady ? 'Registered devices' : ''}
                     icon={<TargetIcon className="w-4 h-4" />}
                     isLoading={summaryPending || !summaryReady}
                   />

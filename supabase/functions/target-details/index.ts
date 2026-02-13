@@ -305,31 +305,28 @@ Deno.serve(async (req) => {
           : numLastActivity
         : null;
 
-    // Determine status using ThingsBoard's actual 'active' attribute (most reliable)
+    // Determine status: only gameStatus drives "online" (in-game).
+    // ThingsBoard's active attribute and lastActivityTime drive standby/offline.
+    // This now matches _shared/deviceStatus.ts determineStatus().
+    const gameStatusEntries_ = Array.isArray((telemetry as Record<string, unknown>).gameStatus)
+      ? (telemetry as { gameStatus: Array<{ value?: unknown }> }).gameStatus
+      : [];
+    const gameStatusVal = gameStatusEntries_.length > 0 ? gameStatusEntries_[gameStatusEntries_.length - 1]?.value ?? null : null;
+    const hasRecentActivity = lastActivityTimeFromTb !== null && now - lastActivityTimeFromTb <= RECENT_THRESHOLD_MS;
     let status: "online" | "standby" | "offline" = "offline";
 
-    if (isActiveFromTb === true) {
-      if (activityStatus === "active") {
-        status = "online";
-      } else {
-        status = "standby";
-      }
+    // STEP 1: gameStatus is the ONLY reliable indicator of an active game session.
+    if (gameStatusVal && ["start", "busy", "active"].includes(String(gameStatusVal).toLowerCase())) {
+      status = "online";
+    } else if (isActiveFromTb === true) {
+      // STEP 2: Connected but not in a game → standby if recent, else offline.
+      status = hasRecentActivity ? "standby" : "offline";
     } else if (isActiveFromTb === false) {
-      // Script only uses server lastActivityTime for standby – not telemetry timeSinceLastShot.
-      if (lastActivityTimeFromTb !== null && now - lastActivityTimeFromTb <= RECENT_THRESHOLD_MS) {
-        status = "standby";
-      } else {
-        status = "offline";
-      }
+      // STEP 3: Disconnected → standby if recent, else offline.
+      status = hasRecentActivity ? "standby" : "offline";
     } else {
-      // When active is null: only standby if server lastActivityTime is recent (matches script).
-      if (activityStatus === "active" || activityStatus === "recent") {
-        status = "online";
-      } else if (lastActivityTimeFromTb !== null && now - lastActivityTimeFromTb <= RECENT_THRESHOLD_MS) {
-        status = "standby";
-      } else {
-        status = "offline";
-      }
+      // STEP 4: active is null → fall back to lastActivityTime.
+      status = hasRecentActivity ? "standby" : "offline";
     }
 
     // Debug logging for connection status

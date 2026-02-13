@@ -1,6 +1,7 @@
 import React, { useState, useMemo, startTransition } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,14 +17,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Plus, Users, Target, RefreshCw, Eye, X, Check, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Plus, Users, Target, RefreshCw, Eye, X, Check, ArrowRight, ArrowLeft, PenTool } from 'lucide-react';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
+import StatCard from '@/components/shared/StatCard';
 import { useIsMobile } from '@/shared/hooks/use-mobile';
 import RoomCard from '@/components/RoomCard';
-import DragDropList from '@/components/DragDropList';
 import { toast } from '@/components/ui/sonner';
 import CreateRoomModal from '@/components/CreateRoomModal';
 import { logger } from '@/shared/lib/logger';
@@ -32,28 +33,28 @@ import {
   useCreateRoom,
   useUpdateRoom,
   useDeleteRoom,
-  useUpdateRoomOrder,
   useAssignTargetToRoom,
   useAssignTargetsToRoom,
   type Room,
   type EdgeRoom,
 } from '../index';
+import { useTargets } from '@/features/targets';
 
 const RoomsPage: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const isMobile = useIsMobile();
 
-  
+
   // React Query hooks
   const { data: roomsData, isLoading, refetch: refetchRooms } = useRooms(true);
   const createRoomMutation = useCreateRoom();
   const updateRoomMutation = useUpdateRoom();
   const deleteRoomMutation = useDeleteRoom();
-  const updateRoomOrderMutation = useUpdateRoomOrder();
   const assignTargetMutation = useAssignTargetToRoom();
   const assignTargetsMutation = useAssignTargetsToRoom();
   const queryClient = useQueryClient();
-  
+
   // Local state
   const [createRoomModalOpen, setCreateRoomModalOpen] = useState(false);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
@@ -66,9 +67,22 @@ const RoomsPage: React.FC = () => {
   const [roomPendingDelete, setRoomPendingDelete] = useState<Room | null>(null);
   const [isDeletingRoom, setIsDeletingRoom] = useState(false);
 
+  // Fetch accurate target statuses (rooms edge function returns stale status)
+  const { data: targetsData } = useTargets();
+
   // Extract rooms and unassigned targets from React Query data
   const rooms = roomsData?.rooms || [];
   const unassignedTargetsFromQuery = roomsData?.unassignedTargets || [];
+
+  // Build a lookup map for accurate target status from targets-with-telemetry
+  const targetStatusMap = useMemo(() => {
+    const map = new Map<string, 'online' | 'standby' | 'offline'>();
+    for (const t of targetsData?.targets ?? []) {
+      const id = typeof t.id === 'string' ? t.id : (t.id as any)?.id;
+      if (id) map.set(id, t.status);
+    }
+    return map;
+  }, [targetsData]);
 
   // Helper function to safely get target ID
   const getTargetId = (target: any) => {
@@ -92,7 +106,7 @@ const RoomsPage: React.FC = () => {
     try {
       // Get next order index
       const nextOrder = rooms.length > 0 ? Math.max(...rooms.map(r => r.order)) + 1 : 0;
-      
+
       await createRoomMutation.mutateAsync({
         name: roomData.name,
         room_type: roomData.type,
@@ -100,7 +114,7 @@ const RoomsPage: React.FC = () => {
         order_index: nextOrder,
         assignedTargets: roomData.assignedTargets,
       });
-      
+
       setCreateRoomModalOpen(false);
     } catch (error) {
       // Error handled by mutation hook
@@ -139,26 +153,18 @@ const RoomsPage: React.FC = () => {
     }
   };
 
-  const handleReorder = (reorderedRooms: typeof rooms) => {
-    const orderedIds = reorderedRooms.map((room, index) => ({
-      id: room.id,
-      order_index: index + 1,
-    }));
-    
-    updateRoomOrderMutation.mutate(orderedIds);
-  };
 
   const handleAssignTarget = async () => {
     if (!selectedTarget || !selectedRoom) {
       return;
     }
-    
+
     try {
       await assignTargetMutation.mutateAsync({
         targetId: selectedTarget,
         roomId: selectedRoom.id,
       });
-      
+
       setAssignDialogOpen(false);
       setSelectedTarget('');
       setSelectedRoom(null);
@@ -176,7 +182,7 @@ const RoomsPage: React.FC = () => {
     if (pendingAssignments.size > 0) {
       await savePendingAssignments();
     }
-    
+
     setRoomForDetails(room);
     setRoomDetailsOpen(true);
     setSelectedTargets([]);
@@ -195,19 +201,19 @@ const RoomsPage: React.FC = () => {
     if (selectedTargets.length === 0 || !roomForDetails) {
       return;
     }
-    
+
     // Capture target IDs before clearing state
     const targetIdsToAssign = [...selectedTargets];
     const roomId = roomForDetails.id;
-    
+
     try {
       updateTargetsOptimistically(targetIdsToAssign, roomId);
-      
+
       await assignTargetsMutation.mutateAsync({
         targetIds: targetIdsToAssign,
         roomId,
       });
-      
+
       // Clear selection only after successful mutation
       setSelectedTargets([]);
       await refetchRooms();
@@ -226,24 +232,24 @@ const RoomsPage: React.FC = () => {
     if (pendingAssignments.size === 0) {
       return;
     }
-    
+
     try {
       const assignmentsByRoom = new Map<string | null, string[]>();
-      
+
       for (const [targetId, roomId] of pendingAssignments.entries()) {
         if (!assignmentsByRoom.has(roomId)) {
           assignmentsByRoom.set(roomId, []);
         }
         assignmentsByRoom.get(roomId)!.push(targetId);
       }
-      
+
       for (const [roomId, targetIds] of assignmentsByRoom.entries()) {
         await assignTargetsMutation.mutateAsync({
           targetIds,
           roomId,
         });
       }
-      
+
       setPendingAssignments(new Map());
       await refetchRooms();
     } catch (error) {
@@ -292,6 +298,34 @@ const RoomsPage: React.FC = () => {
     [rooms],
   );
 
+  // StatCard data for the 4 room stats
+  const roomStatCards = [
+    {
+      title: 'Rooms',
+      value: rooms.length,
+      subtitle: rooms.length === 1 ? '1 room configured' : `${rooms.length} rooms configured`,
+      icon: <Users className="w-4 h-4" />,
+    },
+    {
+      title: 'Total Targets',
+      value: rooms.reduce((sum, r) => sum + r.targetCount, 0) + unassignedTargets.length,
+      subtitle: 'Registered devices',
+      icon: <Target className="w-4 h-4" />,
+    },
+    {
+      title: 'Assigned',
+      value: assignedTargetCount,
+      subtitle: 'Targets in rooms',
+      icon: <Check className="w-4 h-4" />,
+    },
+    {
+      title: 'Unassigned',
+      value: unassignedTargets.length,
+      subtitle: unassignedTargets.length > 0 ? 'Need room assignment' : 'All targets assigned',
+      icon: <Target className="w-4 h-4" />,
+    },
+  ];
+
   return (
     <div className="min-h-screen flex flex-col bg-brand-light responsive-container pt-[116px] lg:pt-16">
       <Header />
@@ -300,128 +334,111 @@ const RoomsPage: React.FC = () => {
       {!isMobile && <Sidebar />}
       <div className="flex flex-1 no-overflow lg:pl-64">
         <main className="flex-1 overflow-y-auto responsive-container">
-          <div className="w-full px-4 py-2 md:container md:mx-auto md:p-4 lg:p-6 responsive-transition h-full">
-            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
-              <h2 className="text-h1 font-heading text-brand-dark">Rooms</h2>
-            </div>
-            
-            {/* Stats Overview */}
-            <div className="responsive-grid grid-cols-2 md:grid-cols-4 mb-6">
-              {isLoading ? (
-                <>
-                  {[...Array(4)].map((_, i) => (
-                    <div key={i} className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200 animate-pulse">
-                      <div className="flex flex-col items-center text-center">
-                        <div className="p-2 bg-gray-200 rounded-lg mb-2 w-8 h-8 md:w-10 md:h-10"></div>
-                        <div className="h-3 w-12 bg-gray-200 rounded mb-1"></div>
-                        <div className="h-6 w-8 bg-gray-200 rounded"></div>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              ) : (
-                <>
-                  <div className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200">
-                    <div className="flex flex-col items-center text-center">
-                      <div className="p-2 bg-brand-secondary/10 rounded-lg mb-2">
-                        <Users className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
-                      </div>
-                      <p className="text-xs md:text-sm text-brand-dark/70 font-body">Rooms</p>
-                      <p className="text-lg md:text-h2 font-heading text-brand-dark">{rooms.length}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200">
-                    <div className="flex flex-col items-center text-center">
-                      <div className="p-2 bg-brand-secondary/10 rounded-lg mb-2">
-                        <Target className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
-                      </div>
-                      <p className="text-xs md:text-sm text-brand-dark/70 font-body">Targets</p>
-                      <p className="text-lg md:text-h2 font-heading text-brand-dark">
-                        {rooms.reduce((sum, r) => sum + r.targetCount, 0) + unassignedTargets.length}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200">
-                    <div className="flex flex-col items-center text-center">
-                      <div className="p-2 bg-brand-secondary/10 rounded-lg mb-2">
-                        <Check className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
-                      </div>
-                      <p className="text-xs md:text-sm text-brand-dark/70 font-body">Assigned</p>
-                      <p className="text-lg md:text-h2 font-heading text-brand-dark">{assignedTargetCount}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-white rounded-lg p-3 md:p-4 shadow-sm border border-gray-200">
-                    <div className="flex flex-col items-center text-center">
-                      <div className="p-2 bg-brand-secondary/10 rounded-lg mb-2">
-                        <Target className="h-4 w-4 md:h-5 md:w-5 text-brand-primary" />
-                      </div>
-                      <p className="text-xs md:text-sm text-brand-dark/70 font-body">Unassigned</p>
-                      <p className="text-lg md:text-h2 font-heading text-brand-dark">{unassignedTargets.length}</p>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-            
-            <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="text-sm text-brand-dark/70 font-body">
-                <span className="hidden sm:inline">Create a room and assign targets to organize your shooting practice</span>
-                <span className="sm:hidden">Create rooms and assign targets</span>
-              </div>
-              <Button 
-                onClick={() => setCreateRoomModalOpen(true)}
-                className="bg-brand-secondary hover:bg-brand-secondary/90 text-white w-full sm:w-auto"
-              >
-                <Plus className="h-4 w-4 mr-2" /> Add Room
-              </Button>
-            </div>
-            
-            {isLoading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="bg-white border border-gray-200 rounded-lg p-4 md:p-5 animate-pulse">
-                    <div className="flex items-start justify-between gap-3 md:gap-4">
-                      <div className="flex items-start gap-3 md:gap-4">
-                        <div className="w-10 h-10 md:w-12 md:h-12 bg-gray-200 rounded-lg" />
-                        <div className="space-y-2">
-                          <div className="h-4 w-32 bg-gray-200 rounded" />
-                          <div className="flex items-center gap-2">
-                            <div className="h-5 w-12 bg-gray-200 rounded-full" />
-                            <div className="h-4 w-16 bg-gray-200 rounded" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : rooms.length === 0 ? (
-              <div className="text-center py-8">
-                <div className="bg-white rounded-lg p-8 mx-auto max-w-md shadow-sm border border-gray-200">
-                  <div className="text-brand-primary mb-4 text-h3 font-heading">No rooms yet</div>
-                  <p className="text-brand-dark mb-6 font-body">
-                    Create your first room to get started
-                  </p>
-                  <Button 
+          <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
+            {/* Page Header */}
+            <div>
+              <div className="flex items-center justify-between gap-2 md:gap-4">
+                <h1 className="text-xl md:text-3xl font-heading font-semibold text-brand-dark text-left">Rooms</h1>
+                <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+                  <Button
                     onClick={() => setCreateRoomModalOpen(true)}
-                    className="bg-brand-secondary hover:bg-dark text-white"
+                    size="sm"
+                    className="bg-brand-primary hover:bg-brand-primary/90 text-white md:h-10 md:px-5 md:text-sm"
                   >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Room
+                    <Plus className="h-4 w-4 md:mr-2" />
+                    <span className="hidden md:inline">Add Room</span>
+                  </Button>
+                  {/* Desktop-only Room Layout button */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate('/dashboard/rooms/layout/new')}
+                    className="hidden lg:inline-flex md:h-10 md:px-5 md:text-sm"
+                  >
+                    <PenTool className="h-4 w-4 md:mr-2" />
+                    <span className="hidden md:inline">Create a Custom Room Layout</span>
                   </Button>
                 </div>
               </div>
+              <p className="text-xs md:text-sm text-brand-dark/55 font-body mt-0.5 text-left">Manage your rooms and target assignments</p>
+            </div>
+
+            {/* Stats Overview — NO stagger animation (matches Dashboard pattern) */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
+              {roomStatCards.map((card) => (
+                <StatCard
+                  key={card.title}
+                  title={card.title}
+                  value={card.value}
+                  subtitle={card.subtitle}
+                  icon={card.icon}
+                  isLoading={isLoading}
+                />
+              ))}
+            </div>
+
+            {/* Room Cards */}
+            {isLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4 lg:gap-5">
+                {[...Array(4)].map((_, i) => (
+                  <Card key={i} className="shadow-card bg-gradient-to-br from-white to-brand-secondary/[0.04]">
+                    <CardContent className="p-3 md:p-4 lg:p-5 animate-pulse">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 md:gap-3">
+                          <div className="w-4 h-4 bg-gray-200 rounded" />
+                          <div>
+                            <div className="h-3.5 md:h-4 w-24 md:w-32 bg-gray-200 rounded" />
+                            <div className="h-2.5 w-16 bg-gray-200 rounded mt-1" />
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <div className="w-7 h-7 md:w-8 md:h-8 bg-gray-200 rounded-full" />
+                          <div className="w-7 h-7 md:w-8 md:h-8 bg-gray-200 rounded-full" />
+                        </div>
+                      </div>
+                      <div className="mt-2 md:mt-3 pt-2 md:pt-2.5 border-t border-[rgba(28,25,43,0.06)]">
+                        <div className="flex justify-between">
+                          <div className="h-6 md:h-8 w-20 md:w-24 bg-gray-200 rounded-full" />
+                          <div className="h-6 md:h-8 w-16 md:w-20 bg-gray-200 rounded-full" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : rooms.length === 0 ? (
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, ease: 'easeOut' }}
+                className="text-center py-6 md:py-8"
+              >
+                <Card className="shadow-card mx-auto max-w-sm md:max-w-md">
+                  <CardContent className="p-6 md:p-8">
+                    <Users className="w-6 h-6 md:w-8 md:h-8 text-brand-dark/30 mx-auto mb-3 md:mb-4" />
+                    <h3 className="text-base md:text-lg font-heading font-semibold text-brand-dark mb-1.5 md:mb-2">No rooms yet</h3>
+                    <p className="text-xs md:text-sm text-brand-dark/55 font-body mb-4 md:mb-6">
+                      Create your first room to get started
+                    </p>
+                    <Button
+                      onClick={() => setCreateRoomModalOpen(true)}
+                      className="bg-brand-primary hover:bg-brand-primary/90 text-white w-full sm:w-auto"
+                    >
+                      <Plus className="h-4 w-4 mr-2" /> Create Room
+                    </Button>
+                  </CardContent>
+                </Card>
+              </motion.div>
             ) : (
-              <DragDropList
-                items={sortedRooms}
-                onReorder={handleReorder}
-                renderItem={(room) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4 lg:gap-5">
+                {sortedRooms.map((room) => (
                   <RoomCard
                     key={room.id}
                     room={room}
+                    targets={rooms.find(r => r.id === room.id)?.targets?.map(t => {
+                      const id = typeof t.id === 'string' ? t.id : (t.id as any)?.id;
+                      return { name: t.name, status: targetStatusMap.get(id) ?? t.status };
+                    }) ?? []}
                     onRename={handleRename}
                     onDelete={handleDeleteRequest}
                     onAssignTargets={() => {
@@ -433,8 +450,8 @@ const RoomsPage: React.FC = () => {
                       if (edgeRoom) openRoomDetails(edgeRoom);
                     }}
                   />
-                )}
-              />
+                ))}
+              </div>
             )}
           </div>
         </main>
@@ -449,17 +466,17 @@ const RoomsPage: React.FC = () => {
           }
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md mx-auto">
           <AlertDialogHeader>
-            <AlertDialogTitle>
+            <AlertDialogTitle className="text-base md:text-lg font-heading text-brand-dark">
               Delete room {roomPendingDelete ? `"${roomPendingDelete.name}"` : ''}
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className="text-xs md:text-sm text-brand-dark/70">
               This will remove the room and unassign any targets currently linked to it.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingRoom}>
+            <AlertDialogCancel disabled={isDeletingRoom} className="w-full sm:w-auto">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction asChild>
@@ -467,6 +484,7 @@ const RoomsPage: React.FC = () => {
                 variant="destructive"
                 onClick={handleConfirmDelete}
                 disabled={isDeletingRoom}
+                className="w-full sm:w-auto"
               >
                 {isDeletingRoom ? 'Deleting…' : 'Delete Room'}
               </Button>
@@ -477,52 +495,53 @@ const RoomsPage: React.FC = () => {
 
       {/* Target Assignment Dialog */}
       <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md mx-auto">
           <DialogHeader>
-            <DialogTitle>Assign Targets to {selectedRoom?.name}</DialogTitle>
+            <DialogTitle className="text-base md:text-lg font-heading text-brand-dark">
+              Assign Targets to {selectedRoom?.name}
+            </DialogTitle>
           </DialogHeader>
-          
-          <div className="space-y-4">
+
+          <div className="space-y-3 md:space-y-4">
             <div>
-              <label className="text-sm font-medium text-brand-dark mb-2 block">
+              <label className="text-[10px] md:text-label text-brand-dark/55 font-body uppercase tracking-wide mb-1.5 md:mb-2 block">
                 Select Target
               </label>
               <Select value={selectedTarget} onValueChange={setSelectedTarget}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full h-10 bg-white border border-[rgba(28,25,43,0.1)] rounded-[var(--radius)] text-brand-dark text-sm">
                   <SelectValue placeholder="Choose a target to assign" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-white shadow-lg border-0">
                   {unassignedTargets.map((target) => (
                     <SelectItem key={getTargetId(target)} value={getTargetId(target)}>
                       <div className="flex items-center gap-2">
-                        <span>{target.name}</span>
-                        <Badge variant="outline" className="text-xs">
-                          {target.status}
-                        </Badge>
+                        <span className="text-sm font-body">{target.name}</span>
+                        <span className="text-[10px] text-brand-dark/55 font-body">{target.status}</span>
                       </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            
+
             {unassignedTargets.length === 0 && (
-              <div className="text-center py-4 text-brand-dark/70">
-                <p>No unassigned targets available</p>
+              <div className="text-center py-4 text-brand-dark/55 font-body">
+                <p className="text-sm">No unassigned targets available</p>
               </div>
             )}
-            
-            <div className="flex justify-end gap-2">
+
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
               <Button
-                variant="outline"
+                variant="secondary"
                 onClick={() => setAssignDialogOpen(false)}
+                className="w-full sm:w-auto"
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleAssignTarget}
                 disabled={!selectedTarget || unassignedTargets.length === 0}
-                className="bg-brand-secondary hover:bg-brand-secondary/90 text-white"
+                className="w-full sm:w-auto"
               >
                 Assign Target
               </Button>
@@ -531,7 +550,7 @@ const RoomsPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Room Details Modal - Simplified for now */}
+      {/* Room Details Modal */}
       <Dialog open={roomDetailsOpen} onOpenChange={(open) => {
         setRoomDetailsOpen(open);
         if (!open && pendingAssignments.size > 0) {
@@ -540,27 +559,95 @@ const RoomsPage: React.FC = () => {
           }, 100);
         }
       }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-2xl mx-auto max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {roomForDetails?.name} - Room Details
-            </DialogTitle>
-          </DialogHeader>
-          
-          {roomForDetails && (
-            <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 md:w-12 md:h-12 rounded-[var(--radius-lg)] bg-brand-primary/10 flex items-center justify-center shrink-0">
+                <Users className="w-5 h-5 md:w-6 md:h-6 text-brand-primary" />
+              </div>
               <div>
-                <h3 className="font-heading text-brand-dark mb-2">Assigned Targets</h3>
+                <DialogTitle className="text-lg md:text-xl font-heading text-brand-dark">
+                  {roomForDetails?.name}
+                </DialogTitle>
+                <p className="text-[11px] text-brand-dark/45 font-body mt-0.5">
+                  {getRoomTargets(roomForDetails?.id ?? '').length} assigned target{getRoomTargets(roomForDetails?.id ?? '').length !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {roomForDetails && (
+            <div className="space-y-4 md:space-y-5">
+              {/* Assigned Targets Section */}
+              <div>
+                <div className="flex items-center gap-2.5 mb-3 md:mb-4">
+                  <div className="w-7 h-7 rounded-[var(--radius)] bg-brand-primary/10 flex items-center justify-center shrink-0">
+                    <Target className="w-4 h-4 text-brand-primary" />
+                  </div>
+                  <h3 className="text-label text-brand-primary font-body uppercase tracking-wide">
+                    Assigned Targets
+                  </h3>
+                  <span className="ml-auto bg-brand-primary/10 text-brand-primary text-[10px] font-bold font-body tabular-nums px-2 py-0.5 rounded-full">
+                    {getRoomTargets(roomForDetails.id).length}
+                  </span>
+                </div>
                 {getRoomTargets(roomForDetails.id).length === 0 ? (
-                  <p className="text-sm text-brand-dark/70">No targets assigned</p>
+                  <div className="rounded-[var(--radius-lg)] bg-brand-primary/[0.03] border border-dashed border-brand-primary/15 py-8 text-center">
+                    <Target className="w-6 h-6 text-brand-dark/15 mx-auto mb-2" />
+                    <p className="text-sm text-brand-dark/40 font-body">No targets assigned yet</p>
+                    <p className="text-[10px] text-brand-dark/25 font-body mt-0.5">Use the section below to assign targets</p>
+                  </div>
                 ) : (
-                  <div className="space-y-2">
-                    {getRoomTargets(roomForDetails.id).map((target) => (
-                      <div key={getTargetId(target)} className="flex items-center justify-between p-2 bg-white border rounded-lg">
-                        <span>{target.name}</span>
+                  <div className="space-y-2 md:space-y-2.5">
+                    {getRoomTargets(roomForDetails.id).map((target, i) => {
+                      const tid = getTargetId(target);
+                      const status = targetStatusMap.get(tid) ?? target.status;
+                      const statusDot = status === 'online' ? 'bg-green-500'
+                        : status === 'standby' ? 'bg-amber-400'
+                        : 'bg-gray-400';
+                      const statusLabel = status === 'online' ? 'Online'
+                        : status === 'standby' ? 'Standby'
+                        : 'Offline';
+                      const statusTextColor = status === 'online' ? 'text-green-600'
+                        : status === 'standby' ? 'text-amber-600'
+                        : 'text-brand-dark/40';
+                      const rowBg = status === 'online'
+                        ? 'bg-gradient-to-r from-green-500/[0.06] via-green-500/[0.02] to-white'
+                        : status === 'standby'
+                        ? 'bg-gradient-to-r from-amber-400/[0.06] via-amber-400/[0.02] to-white'
+                        : 'bg-gradient-to-r from-gray-200/[0.35] via-gray-100/[0.15] to-white';
+                      const badgeBg = status === 'online'
+                        ? 'bg-green-500/10'
+                        : status === 'standby'
+                        ? 'bg-amber-400/10'
+                        : 'bg-brand-dark/[0.06]';
+                      return (
+                      <div
+                        key={tid}
+                        className={`flex items-center justify-between p-3 md:p-3.5 ${rowBg} shadow-subtle rounded-[var(--radius-lg)] group hover:shadow-card transition-all duration-200`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`relative w-9 h-9 rounded-[var(--radius)] ${badgeBg} flex items-center justify-center shrink-0`}>
+                            <span className="text-xs font-bold text-brand-dark/60 font-body tabular-nums">{i + 1}</span>
+                            <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-white ${statusDot}`} />
+                          </div>
+                          <div className="min-w-0">
+                            <span className="text-sm md:text-[15px] font-medium font-body text-brand-dark truncate block">{target.name}</span>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className={`text-[10px] font-medium font-body ${statusTextColor}`}>
+                                {statusLabel}
+                              </span>
+                              <span className="text-[10px] text-brand-dark/20">&middot;</span>
+                              <span className="text-[10px] text-brand-dark/30 font-body">
+                                {getTargetDisplayId(target)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                         <Button
-                          variant="outline"
+                          variant="ghost"
                           size="sm"
+                          className="shrink-0 h-8 text-[11px] px-3 text-brand-dark/40 hover:text-red-600 hover:bg-red-600/[0.08] opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                           onClick={() => {
                             const targetId = getTargetId(target);
                             startTransition(() => {
@@ -570,35 +657,104 @@ const RoomsPage: React.FC = () => {
                             });
                           }}
                         >
+                          <X className="w-3 h-3 mr-1" />
                           Unassign
                         </Button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
+              {/* Divider */}
+              {unassignedTargets.length > 0 && (
+                <div className="border-t border-[rgba(28,25,43,0.06)]" />
+              )}
+
+              {/* Available Targets Section */}
               {unassignedTargets.length > 0 && (
                 <div>
-                  <h3 className="font-heading text-brand-dark mb-2">Available Targets</h3>
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {unassignedTargets.map((target) => (
-                      <div key={getTargetId(target)} className="flex items-center justify-between p-2 bg-gray-50 border rounded-lg">
-                        <div className="flex items-center gap-2">
-                          <Checkbox
-                            checked={selectedTargets.includes(getTargetId(target))}
-                            onCheckedChange={(checked) => handleTargetSelection(getTargetId(target), checked as boolean)}
-                          />
-                          <span>{target.name}</span>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="flex items-center gap-2.5 mb-3 md:mb-4">
+                    <div className="w-7 h-7 rounded-[var(--radius)] bg-brand-secondary/10 flex items-center justify-center shrink-0">
+                      <ArrowRight className="w-4 h-4 text-brand-secondary" />
+                    </div>
+                    <h3 className="text-label text-brand-secondary font-body uppercase tracking-wide">
+                      Available Targets
+                    </h3>
+                    <span className="ml-auto bg-brand-secondary/10 text-brand-secondary text-[10px] font-bold font-body tabular-nums px-2 py-0.5 rounded-full">
+                      {unassignedTargets.length}
+                    </span>
                   </div>
-                  
+                  <div className="space-y-2 md:space-y-2.5 max-h-52 md:max-h-64 overflow-y-auto">
+                    {[...unassignedTargets].sort((a, b) => {
+                      const order: Record<string, number> = { online: 0, standby: 1, offline: 2 };
+                      const aStatus = targetStatusMap.get(getTargetId(a)) ?? a.status ?? 'offline';
+                      const bStatus = targetStatusMap.get(getTargetId(b)) ?? b.status ?? 'offline';
+                      return (order[aStatus] ?? 2) - (order[bStatus] ?? 2);
+                    }).map((target) => {
+                      const isSelected = selectedTargets.includes(getTargetId(target));
+                      const accurateStatus = targetStatusMap.get(getTargetId(target)) ?? target.status;
+                      const statusDotColor = accurateStatus === 'online' ? 'bg-green-500'
+                        : accurateStatus === 'standby' ? 'bg-amber-400'
+                        : 'bg-gray-400';
+                      const statusTextColor = accurateStatus === 'online' ? 'text-green-600'
+                        : accurateStatus === 'standby' ? 'text-amber-600'
+                        : 'text-brand-dark/40';
+                      const statusLabelText = accurateStatus === 'online' ? 'Online'
+                        : accurateStatus === 'standby' ? 'Standby'
+                        : 'Offline';
+                      const rowBg = isSelected
+                        ? 'bg-brand-primary/[0.06] ring-1 ring-brand-primary/20 shadow-subtle'
+                        : accurateStatus === 'online'
+                        ? 'bg-gradient-to-r from-green-500/[0.04] to-white hover:from-green-500/[0.07]'
+                        : accurateStatus === 'standby'
+                        ? 'bg-gradient-to-r from-amber-400/[0.04] to-white hover:from-amber-400/[0.07]'
+                        : 'bg-gradient-to-r from-gray-200/[0.2] to-white hover:from-gray-200/[0.35]';
+                      return (
+                        <div
+                          key={getTargetId(target)}
+                          className={`flex items-center justify-between p-3 md:p-3.5 rounded-[var(--radius-lg)] transition-all duration-200 cursor-pointer ${rowBg}`}
+                          onClick={() => handleTargetSelection(getTargetId(target), !isSelected)}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="relative w-9 h-9 rounded-[var(--radius)] bg-brand-dark/[0.04] flex items-center justify-center shrink-0">
+                              <Target className="w-4 h-4 text-brand-primary" />
+                              <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-white ${statusDotColor}`} />
+                            </div>
+                            <div className="min-w-0">
+                              <span className="text-sm md:text-[15px] font-medium font-body text-brand-dark truncate block">{target.name}</span>
+                              <span className={`text-[10px] font-medium font-body ${statusTextColor}`}>
+                                {statusLabelText}
+                              </span>
+                            </div>
+                          </div>
+                          <div
+                            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ml-2 transition-all duration-200 ${
+                              isSelected
+                                ? 'border-brand-primary bg-brand-primary'
+                                : 'border-brand-dark/20'
+                            }`}
+                          >
+                            {isSelected && (
+                              <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none">
+                                <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
                   {selectedTargets.length > 0 && (
-                    <div className="mt-4 flex justify-end">
-                      <Button onClick={handleBulkAssign}>
-                        Assign Selected ({selectedTargets.length})
+                    <div className="mt-3 md:mt-4 flex items-center justify-between bg-brand-primary/[0.06] rounded-[var(--radius-lg)] p-3.5 shadow-subtle">
+                      <span className="text-xs font-medium text-brand-dark/60 font-body">
+                        {selectedTargets.length} target{selectedTargets.length !== 1 ? 's' : ''} selected
+                      </span>
+                      <Button onClick={handleBulkAssign} size="sm" className="h-8 shadow-sm">
+                        <ArrowRight className="w-3.5 h-3.5 mr-1.5" />
+                        Assign Selected
                       </Button>
                     </div>
                   )}
@@ -626,4 +782,3 @@ const RoomsPage: React.FC = () => {
 };
 
 export default RoomsPage;
-

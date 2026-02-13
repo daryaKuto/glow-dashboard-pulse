@@ -4,7 +4,8 @@ import { requireUser } from "../_shared/auth.ts";
 import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { getCache, setCache } from "../_shared/cache.ts";
 import { errorResponse, jsonResponse, preflightResponse } from "../_shared/response.ts";
-import { getTenantDevices, getDeviceTelemetry } from "../_shared/thingsboard.ts";
+import { getTenantDevices, getDeviceTelemetry, getBatchServerAttributes } from "../_shared/thingsboard.ts";
+import { determineStatus, parseActiveAttribute, parseLastActivityTime } from "../_shared/deviceStatus.ts";
 
 type RoomPayload = {
   id: string;
@@ -144,6 +145,13 @@ Deno.serve(async (req) => {
       })
     );
 
+    // Fetch server attributes (active, lastActivityTime) for correct status derivation
+    const allDeviceIds = telemetryResults.map(({ deviceId }) => deviceId);
+    const serverAttrsMap = await getBatchServerAttributes(
+      allDeviceIds,
+      ["active", "lastActivityTime"],
+    );
+
     const roomMap = new Map<string, RoomPayload>();
 
     roomsRes.data?.forEach((room) => {
@@ -164,17 +172,31 @@ Deno.serve(async (req) => {
 
     telemetryResults.forEach(({ device, deviceId, telemetry }) => {
       const roomId = assignmentByTarget.get(deviceId) ?? null;
+
+      // Derive canonical status using shared logic (matches targets-with-telemetry)
+      const serverAttrs = serverAttrsMap.get(deviceId) ?? {};
+      const isActive = parseActiveAttribute(serverAttrs.active);
+      const lastActivityTime = parseLastActivityTime(serverAttrs.lastActivityTime);
+      const gameStatus = telemetry?.gameStatus?.[0]?.value as string | null ?? null;
+      const derivedStatus = determineStatus(
+        device.status ?? null,
+        gameStatus,
+        null, // lastShotTime — not used by determineStatus
+        isActive,
+        lastActivityTime,
+      );
+
       const target: TargetWithTelemetry = {
         id: deviceId,
         name: device.name,
         type: device.type,
-        status: device.status,
+        status: derivedStatus,
         roomId,
         telemetry,
         battery: telemetry?.battery?.[0]?.value ?? null,
         wifiStrength: telemetry?.wifiStrength?.[0]?.value ?? null,
         lastEvent: telemetry?.event?.[0]?.value ?? null,
-        lastActivityTime: telemetry?.hit_ts?.[0]?.ts ?? telemetry?.hits?.[0]?.ts ?? null,
+        lastActivityTime: lastActivityTime ?? telemetry?.hit_ts?.[0]?.ts ?? telemetry?.hits?.[0]?.ts ?? null,
       };
 
       if (roomId && roomMap.has(roomId)) {

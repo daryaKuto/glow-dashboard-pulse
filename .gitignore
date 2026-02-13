@@ -61,3 +61,5 @@ coverage/
 # One-off API tests and collections
 tests/api/
 postman/
+
+.claude/

@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 import { Plus, Target } from 'lucide-react';
 import type { Target as TargetType } from '@/features/targets/schema';
 
@@ -83,7 +84,9 @@ const AddTargetsToGroupModal: React.FC<AddTargetsToGroupModalProps> = ({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3 text-brand-dark font-heading">
-            <Plus className="h-5 w-5 text-brand-primary" />
+            <div className="p-2 bg-brand-primary/10 rounded-lg">
+              <Plus className="h-5 w-5 text-brand-primary" />
+            </div>
             Add Targets to {groupName}
           </DialogTitle>
           <DialogDescription className="text-brand-dark/70">
@@ -94,37 +97,42 @@ const AddTargetsToGroupModal: React.FC<AddTargetsToGroupModalProps> = ({
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Target Selection */}
           <div className="space-y-3">
-            <Label className="text-label text-brand-secondary font-body uppercase tracking-wide">
+            <Label className="text-sm font-medium text-brand-dark">
               Select Targets
             </Label>
             
             {availableTargets.length === 0 ? (
-              <div className="text-center py-6 rounded-[var(--radius)] shadow-subtle">
-                <Target className="h-8 w-8 text-brand-dark/40 mx-auto mb-2" />
-                <p className="text-sm text-brand-dark/40 font-body">No targets available</p>
-                <p className="text-xs text-brand-dark/40 font-body">All targets are already in this group</p>
+              <div className="text-center py-6 bg-brand-secondary/5 rounded-lg border border-gray-200">
+                <Target className="h-8 w-8 text-brand-primary/50 mx-auto mb-2" />
+                <p className="text-sm text-brand-dark/70">No targets available</p>
+                <p className="text-xs text-brand-dark/50">All targets are already in this group</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto rounded-[var(--radius)] p-3 bg-white shadow-subtle">
+              <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-3 bg-white">
                 {availableTargets.map((target) => {
                   const statusDisplay = resolveStatusDisplay(target.status, target.activityStatus);
                   return (
                     <div
                       key={target.id}
-                      className={`flex items-center justify-between p-3 rounded-[var(--radius)] cursor-pointer transition-all duration-200 ${
+                      className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
                         selectedTargets.includes(target.id)
-                          ? 'bg-brand-primary/5 shadow-subtle'
-                          : 'hover:bg-brand-primary/5'
+                          ? 'border-brand-primary bg-brand-primary/5'
+                          : 'border-gray-200 hover:border-brand-primary/50 hover:bg-brand-primary/5'
                       }`}
                       onClick={() => handleTargetToggle(target.id)}
                     >
                       <div className="flex items-center gap-3">
-                        <Target className="h-4 w-4 text-brand-primary flex-shrink-0" />
+                        <div className="p-1.5 bg-brand-secondary/10 rounded-lg">
+                          <Target className="h-4 w-4 text-brand-primary" />
+                        </div>
                         <div>
-                          <p className="font-medium text-brand-dark text-sm font-body">{target.name}</p>
-                          <span className={`text-xs font-body ${statusDisplay.className}`}>
+                          <p className="font-medium text-brand-dark text-sm">{target.name}</p>
+                          <Badge 
+                            variant="outline"
+                            className={`text-xs ${statusDisplay.className}`}
+                          >
                             {statusDisplay.label}
-                          </span>
+                          </Badge>
                         </div>
                       </div>
                       <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
@@ -152,15 +160,16 @@ const AddTargetsToGroupModal: React.FC<AddTargetsToGroupModalProps> = ({
           <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2">
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               onClick={onClose}
+              className="border-gray-200 text-brand-dark hover:bg-gray-50"
             >
               Cancel
             </Button>
             <Button
               type="submit"
               disabled={selectedTargets.length === 0}
-              className="bg-brand-primary hover:bg-brand-primary/90 text-white"
+              className="bg-brand-primary hover:bg-brand-primary/90 text-white shadow-lg"
             >
               <Plus className="h-4 w-4 mr-2" />
               Add {selectedTargets.length > 0 ? `${selectedTargets.length} ` : ''}Target{selectedTargets.length !== 1 ? 's' : ''}

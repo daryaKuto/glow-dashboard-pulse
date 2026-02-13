@@ -156,8 +156,18 @@ interface RoomsFunctionResponse {
 const RECENT_THRESHOLD_MS = 43200_000;
 
 /**
- * Derive display status from raw ThingsBoard data. Matches script/edge: when active is null,
- * only standby if tbLastActivityTime is recent; do not trust rawStatus "idle"/"standby" alone.
+ * Derive display status from raw ThingsBoard data.
+ *
+ * Status semantics:
+ *   - **online**  = device is in an active game session (gameStatus is start/busy/active)
+ *   - **standby** = device is powered on / recently active, but NOT in a game
+ *   - **offline** = device hasn't been seen for >12 hours
+ *
+ * IMPORTANT: ThingsBoard's `rawStatus` ("ACTIVE"/"INACTIVE") indicates *connection*
+ * state, NOT game state. Only `gameStatus` determines true "online" status.
+ *
+ * Mirrors `determineStatus` in _shared/deviceStatus.ts (edge) and
+ * `compute_status` in scripts/check-online-targets-thingsboard.sh.
  */
 export function deriveStatusFromRaw(
   raw: {
@@ -167,36 +177,40 @@ export function deriveStatusFromRaw(
     gameStatus?: string | null;
   }
 ): 'online' | 'standby' | 'offline' | null {
-  const { rawStatus, active, tbLastActivityTime, gameStatus } = raw;
+  const { active, tbLastActivityTime, gameStatus } = raw;
   const hasRaw = active !== undefined && active !== null;
   const now = Date.now();
+  const hasRecentActivity =
+    tbLastActivityTime != null && now - tbLastActivityTime <= RECENT_THRESHOLD_MS;
 
+  // STEP 1: gameStatus is the ONLY reliable indicator of an active game session.
   if (gameStatus && ['start', 'busy', 'active'].includes(String(gameStatus).toLowerCase())) {
     return 'online';
   }
+
+  // STEP 2: Device is explicitly disconnected (active === false).
   if (hasRaw && active === false) {
-    if (tbLastActivityTime != null && now - tbLastActivityTime <= RECENT_THRESHOLD_MS) return 'standby';
+    if (hasRecentActivity) return 'standby';
     return 'offline';
   }
+
+  // STEP 3: Device is connected (active === true).
+  // Connected but not in a game → standby (if recently active) or offline.
   if (hasRaw && active === true) {
-    const norm = (rawStatus ?? '').toLowerCase();
-    if (['online', 'active', 'active_online', 'busy'].includes(norm)) return 'online';
-    // Only standby when server lastActivityTime is recent; else offline (avoids all-standby when edge/TB wrongly sends active: true).
-    if (tbLastActivityTime != null && now - tbLastActivityTime <= RECENT_THRESHOLD_MS) return 'standby';
+    if (hasRecentActivity) return 'standby';
     return 'offline';
   }
-  // When active is null: only standby if server lastActivityTime is recent (match script – no rawStatus idle/standby alone).
-  const norm = (rawStatus ?? '').toLowerCase();
-  if (['online', 'active', 'active_online', 'busy'].includes(norm)) return 'online';
-  if (tbLastActivityTime != null && now - tbLastActivityTime <= RECENT_THRESHOLD_MS) return 'standby';
-  // Do not use rawStatus 'standby'/'idle' alone when active is null – would show offline devices as standby.
+
+  // STEP 4: active is null/unknown — fall back to lastActivityTime.
+  if (hasRecentActivity) return 'standby';
   return 'offline';
 }
 
 const sanitizeStatus = (status: unknown): 'online' | 'standby' | 'offline' => {
   const statusText = typeof status === 'string' ? status.toLowerCase() : '';
-  if (statusText === 'online' || statusText === 'active_online') return 'online';
-  if (statusText === 'active') return 'online';
+  if (statusText === 'online') return 'online';
+  // "active" from ThingsBoard means connected, NOT in a game — treat as standby.
+  if (statusText === 'active' || statusText === 'active_online') return 'standby';
   if (statusText === 'standby' || statusText === 'idle') return 'standby';
   return 'offline';
 };
@@ -225,18 +239,33 @@ function coerceActive(value: unknown): boolean | null {
   return null;
 }
 
+/**
+ * If the server already derived a valid display status (online/standby/offline),
+ * trust it directly. Returns null if the value is not a recognized display status.
+ */
+function sanitizeActivityStatusToDisplayStatus(value: unknown): 'online' | 'standby' | 'offline' | null {
+  if (typeof value !== 'string') return null;
+  const v = value.toLowerCase();
+  if (v === 'online' || v === 'standby' || v === 'offline') return v;
+  return null;
+}
+
 export const mapEdgeTarget = (record: Record<string, any>): Target => {
-  const rawStatus = record.rawStatus ?? record.status ?? null;
+  const rawStatus = record.rawStatus ?? null;
   const active = coerceActive(record.active);
   const tbLastActivityTime = record.tbLastActivityTime ?? null;
   const gameStatus = record.gameStatus ?? null;
-  const derived = deriveStatusFromRaw({
+
+  // Trust the server-derived status when it's a valid value (online/standby/offline).
+  // The edge function already runs determineStatus() with the full ThingsBoard context.
+  // Only fall back to client-side re-derivation when the server doesn't provide a status.
+  const serverStatus = sanitizeActivityStatusToDisplayStatus(record.status);
+  const status = serverStatus ?? deriveStatusFromRaw({
     rawStatus,
     active,
     tbLastActivityTime,
     gameStatus,
-  });
-  const status = derived ?? sanitizeStatus(record.status);
+  }) ?? sanitizeStatus(record.status);
   const activityStatus = sanitizeActivityStatus(record.activityStatus)
     ?? (status === 'standby' ? 'standby' : status === 'online' ? 'active' : undefined);
 

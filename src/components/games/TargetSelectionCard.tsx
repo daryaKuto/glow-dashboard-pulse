@@ -150,24 +150,24 @@ export const TargetSelectionCard: React.FC<TargetSelectionCardProps> = ({
                   (typeof targetRecord?.lastActivityTime === 'number' ? targetRecord.lastActivityTime : null) ??
                   (typeof device.raw?.lastActivityTime === 'number' ? device.raw.lastActivityTime : null) ??
                   (typeof device.lastSeen === 'number' ? device.lastSeen : 0);
-                // Same status differentiation as Targets page: Active (green), Ready (amber), Offline (gray).
+                // Same status differentiation as Targets page: online (green), standby (yellow), offline (gray).
                 const connectionLabel =
                   connectionStatus === 'online'
-                    ? 'Active'
+                    ? 'Online'
                     : connectionStatus === 'standby'
-                      ? 'Ready'
+                      ? 'Standby'
                       : 'Offline';
                 const connectionColor =
                   connectionStatus === 'offline'
                     ? 'text-gray-400'
                     : connectionStatus === 'standby'
-                      ? 'text-amber-500'
+                      ? 'text-yellow-500'
                       : 'text-green-600';
                 const connectionDotBg =
                   connectionStatus === 'online'
                     ? 'bg-green-500'
                     : connectionStatus === 'standby'
-                      ? 'bg-amber-500'
+                      ? 'bg-yellow-500'
                       : 'bg-gray-400';
                 const hits = hitCounts[device.deviceId] ?? device.hitCount ?? 0;
                 const isChecked = selectedDeviceIds.includes(device.deviceId);

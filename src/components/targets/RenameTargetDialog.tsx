@@ -103,18 +103,18 @@ const RenameTargetDialog: React.FC<RenameTargetDialogProps> = ({
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="original-name" className="text-label text-brand-secondary font-body uppercase tracking-wide">
+            <Label htmlFor="original-name" className="text-sm font-medium text-brand-dark">
               Original Name
             </Label>
             <Input
               id="original-name"
               value={originalName}
               disabled
-              className="bg-gray-50 border border-[rgba(28,25,43,0.1)] rounded-[var(--radius)] text-brand-dark/70 font-body h-10"
+              className="bg-gray-50 border-gray-200 text-brand-dark/70"
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="custom-name" className="text-label text-brand-secondary font-body uppercase tracking-wide">
+            <Label htmlFor="custom-name" className="text-sm font-medium text-brand-dark">
               Custom Name *
             </Label>
             <Input
@@ -122,7 +122,7 @@ const RenameTargetDialog: React.FC<RenameTargetDialogProps> = ({
               placeholder="Enter custom name"
               value={customName}
               onChange={(e) => setCustomName(e.target.value)}
-              className="bg-white border border-[rgba(28,25,43,0.1)] rounded-[var(--radius)] text-brand-dark placeholder:text-brand-dark/40 focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/30 font-body h-10"
+              className="bg-white border-gray-200 text-brand-dark"
               required
               autoFocus
             />
@@ -134,15 +134,17 @@ const RenameTargetDialog: React.FC<RenameTargetDialogProps> = ({
                 variant="outline"
                 onClick={handleReset}
                 disabled={isSaving}
+                className="border-gray-200 text-brand-dark hover:bg-gray-50"
               >
                 Reset to Original
               </Button>
             )}
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               onClick={onClose}
               disabled={isSaving}
+              className="border-gray-200 text-brand-dark hover:bg-gray-50"
             >
               Cancel
             </Button>

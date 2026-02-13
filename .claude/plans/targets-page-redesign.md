@@ -30,6 +30,32 @@ The Targets page is the **oldest page in the app** and predates the Design Gospe
 
 ## Steps
 
+### Step 0: Page Layout Shell
+
+The targets page must use the standard page layout pattern from Phase 6D, including all utility classes.
+
+**Outer wrapper:**
+```tsx
+<div className="min-h-screen flex flex-col bg-brand-light responsive-container pt-[116px] lg:pt-16">
+  <Header />
+  {isMobile && <MobileDrawer />}
+  {!isMobile && <Sidebar />}
+  <div className="flex flex-1 no-overflow lg:pl-64">
+    <main className="flex-1 overflow-y-auto responsive-container">
+      {/* Content wrapper with standard padding + spacing */}
+      <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
+        {/* Stat cards, target cards grid, etc. — each as a direct child for space-y spacing */}
+      </div>
+    </main>
+  </div>
+</div>
+```
+
+**Key points:**
+- `responsive-container`, `no-overflow`, `responsive-transition` are custom utility classes defined in `src/index.css`
+- Section vertical spacing is handled by `space-y-2 md:space-y-4 lg:space-y-6` on the content wrapper — individual sections do NOT add their own margin-bottom
+- Content width: `md:max-w-7xl md:mx-auto` for centered max-width layout
+
 ### Step 1: TargetsSummary → StatCards Row
 
 Replace the current `TargetsSummary` component (5 generic cards in a grid) with the Dashboard's `StatCard` pattern.
@@ -70,7 +96,7 @@ const TargetsSummary: React.FC<{ targets: Target[]; rooms: Room[] }> = ({ target
 - 5 cards in grid → awkward `lg:grid-cols-5` (uneven at smaller widths)
 - `border-gray-200 shadow-sm rounded-sm` — violates Phase 4 (no borders, use shadow-card, use --radius-lg)
 - `text-sm md:text-2xl font-bold font-heading` — violates Phase 2 (stat numbers use Raleway/font-body, not Merriweather/font-heading)
-- `text-center` — violates data-first hierarchy (should be left-aligned like Dashboard)
+- `text-center` layout without proper hierarchy — numbers should be hero-sized and centered per Dashboard StatCard pattern
 - Uses ad-hoc `text-green-600` / `text-yellow-600` — violates single-accent discipline
 - No icons on any card
 - Labels are same size or larger than numbers at mobile (`text-xs` label vs `text-sm` number)
@@ -80,6 +106,8 @@ const TargetsSummary: React.FC<{ targets: Target[]; rooms: Room[] }> = ({ target
 Drop the `TargetsSummary` component entirely and replace with the Dashboard `StatCard` component. Import `StatCard` from the dashboard or extract it to a shared location.
 
 **Data derivation (keep in `targets-page.tsx`, pass as props):**
+
+All counts derive from the `storeTargets` array (merged `useTargets()` + `useTargetDetails()` via `mergeTargetDetails()`). Status is already derived by `deriveStatusFromRaw()` in `edge.ts`. Room assignment normalization: `roomId` can be `null`, `""`, `"null"` (string), or `"unassigned"` — all mean unassigned.
 
 ```tsx
 const onlineCount = targets.filter(t => t.status === 'online').length;
@@ -97,7 +125,28 @@ const targetStatCards = [
   {
     title: 'Total Targets',
     value: targets.length,
-    subtitle: `${onlineCount} online, ${standbyCount} standby`,
+    subtitle: (
+      <span className="flex items-center gap-2">
+        {onlineCount > 0 && (
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+            {onlineCount} online
+          </span>
+        )}
+        {standbyCount > 0 && (
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
+            {standbyCount} standby
+          </span>
+        )}
+        {offlineCount > 0 && (
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" />
+            {offlineCount} offline
+          </span>
+        )}
+      </span>
+    ),
     icon: <Target className="w-4 h-4" />,
   },
   {
@@ -121,62 +170,43 @@ const targetStatCards = [
 ];
 ```
 
-**Rendered grid with Framer Motion stagger:**
+**Rendered grid (plain `<div>`, no stagger — matches Dashboard StatCards which do NOT use Framer Motion stagger):**
 
 ```tsx
-import { motion } from 'framer-motion';
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.08, delayChildren: 0.1 },
-  },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 12 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: 'easeOut' } },
-};
-
-<motion.div
-  className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 mb-3 md:mb-6"
-  variants={containerVariants}
-  initial="hidden"
-  animate="visible"
->
+<div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
   {targetStatCards.map((card) => (
-    <motion.div key={card.title} variants={itemVariants}>
-      <StatCard
-        title={card.title}
-        value={card.value}
-        subtitle={card.subtitle}
-        icon={card.icon}
-        isLoading={false}
-      />
-    </motion.div>
+    <StatCard
+      key={card.title}
+      title={card.title}
+      value={card.value}
+      subtitle={card.subtitle}
+      icon={card.icon}
+      isLoading={false}
+    />
   ))}
-</motion.div>
+</div>
 ```
+
+**Note:** Dashboard StatCards use a plain `<div>` grid, not `motion.div`. Stagger is reserved for animated list/chart components (RoomBubblesCard rows use `staggerChildren: 0.07`, HitDistributionCard legend uses `staggerChildren: 0.08`).
 
 **Each rendered StatCard produces this DOM (from Dashboard's StatCard):**
 
 ```tsx
 <Card className="shadow-card hover:shadow-card-hover transition-all duration-200 bg-gradient-to-br from-white via-white to-brand-primary/[0.04]">
   <CardContent className="p-5 md:p-6">
-    {/* Label row: bare icon + uppercase label */}
-    <div className="flex items-center gap-2 mb-1">
+    {/* Label row: bare icon + uppercase label — centered */}
+    <div className="flex items-center justify-center gap-2 mb-1">
       <div className="text-brand-primary w-4 h-4">{icon}</div>
       <span className="text-label text-brand-secondary font-body uppercase tracking-wide">
         {title}
       </span>
     </div>
-    {/* Hero number — largest element on the card */}
-    <p className="text-stat-md md:text-stat-lg font-bold text-brand-dark font-body tabular-nums">
+    {/* Hero number — largest element on the card, centered */}
+    <p className="text-stat-md md:text-stat-lg font-bold text-brand-dark font-body tabular-nums text-center">
       {value}
     </p>
-    {/* Subtitle — small, muted */}
-    <p className="text-xs text-brand-dark/40 font-body mt-1">{subtitle}</p>
+    {/* Subtitle — small, muted, centered, accepts ReactNode */}
+    <div className="text-xs text-brand-dark/40 font-body mt-1 flex justify-center">{subtitle}</div>
   </CardContent>
 </Card>
 ```
@@ -197,21 +227,21 @@ const itemVariants = {
 </div>
 ```
 
-**New skeleton — mirrors the StatCard structure (left-aligned, 3 placeholder rows):**
+**New skeleton — mirrors the StatCard structure (centered, 3 placeholder rows):**
 ```tsx
-<div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 mb-3 md:mb-6">
+<div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
   {[...Array(4)].map((_, i) => (
     <Card key={i} className="shadow-card bg-gradient-to-br from-white via-white to-brand-primary/[0.04]">
       <CardContent className="p-5 md:p-6 animate-pulse">
-        {/* Icon + label row placeholder */}
-        <div className="flex items-center gap-2 mb-1">
+        {/* Icon + label row placeholder — centered */}
+        <div className="flex items-center justify-center gap-2 mb-1">
           <div className="w-4 h-4 bg-gray-200 rounded" />
           <div className="h-3 w-20 bg-gray-200 rounded" />
         </div>
-        {/* Hero number placeholder */}
-        <div className="h-8 md:h-10 w-16 md:w-24 bg-gray-200 rounded mt-1" />
-        {/* Subtitle placeholder */}
-        <div className="h-3 w-28 bg-gray-200 rounded mt-2" />
+        {/* Hero number placeholder — centered */}
+        <div className="h-8 md:h-10 w-16 md:w-24 bg-gray-200 rounded mt-1 mx-auto" />
+        {/* Subtitle placeholder — centered */}
+        <div className="h-3 w-28 bg-gray-200 rounded mt-2 mx-auto" />
       </CardContent>
     </Card>
   ))}
@@ -221,7 +251,9 @@ const itemVariants = {
 **Key skeleton changes:**
 - Card uses `shadow-card` + gradient tint (matches loaded card appearance)
 - No `border-gray-200` or `rounded-sm`
-- Left-aligned placeholders (no `mx-auto` or `text-center`)
+- No per-section `mb-*` — vertical spacing handled by parent `space-y-*` wrapper (Step 0)
+- Grid uses `md:grid-cols-2` matching loaded state
+- Centered placeholders (`justify-center`, `mx-auto`) — mirrors StatCard's centered layout
 - 3 rows: icon+label (top), hero number (middle, tallest), subtitle (bottom) — mirrors StatCard DOM
 - Padding matches loaded card: `p-5 md:p-6`
 
@@ -239,10 +271,10 @@ The Dashboard's `StatCard` is currently defined inline in `dashboard-page.tsx` (
 - [ ] Add `StatCard` component (copy from Dashboard or import from shared)
 - [ ] Compute `onlineCount`, `standbyCount`, `offlineCount`, `unassignedCount` from `targets` array
 - [ ] Build `targetStatCards` array with 4 entries (Total, Online, Offline, Unassigned)
-- [ ] Replace `<TargetsSummary targets={targets} rooms={rooms} />` (line 1049) with `motion.div` grid
+- [ ] Replace `<TargetsSummary targets={targets} rooms={rooms} />` (line 1049) with plain `<div>` grid (no stagger — matches Dashboard)
 - [ ] Replace skeleton block (lines 1037-1047) with new skeleton matching StatCard structure
-- [ ] Import `motion` from `framer-motion`, define `containerVariants` / `itemVariants`
 - [ ] Import `Target`, `Wifi`, `WifiOff`, `MapPin` from `lucide-react`
+- [ ] Import `motion` from `framer-motion` for target card grids (Step 9), NOT for stat cards
 - [ ] Verify: no `border-gray-200`, no `font-heading` on numbers, no `text-center`, no 5th card
 - [ ] Verify: numbers use `text-stat-md md:text-stat-lg font-body tabular-nums`
 - [ ] Verify: labels use `text-label text-brand-secondary uppercase tracking-wide`
@@ -250,51 +282,65 @@ The Dashboard's `StatCard` is currently defined inline in `dashboard-page.tsx` (
 
 ### Step 2: TargetCard Redesign
 
-Completely restyle the `TargetCard` to match the Design Gospel card system.
+Completely restyle the `TargetCard` to match the Design Gospel Phase 10 spec.
 
 **Card wrapper:**
-- `shadow-card hover:shadow-card-hover transition-all duration-200`
+
+- `shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200`
 - `rounded-[var(--radius-lg)] bg-white` (no border)
-- Card tint: `bg-gradient-to-br from-white via-white to-brand-primary/[0.04]` for online targets, plain white for offline
-- Wrap in `motion.div` with `whileHover={{ y: -2 }}` for hover lift
+- Card tint: `bg-gradient-to-br from-white via-white to-brand-primary/[0.04]` for all TargetCards (consistent with Phase 4 rule: tint is per card type, not per data state)
 
-**Layout (top to bottom):**
-1. **Row 1 — Name + status dot + action menu:**
-   - Status dot: `w-2.5 h-2.5 rounded-full` (green-500 / yellow-500 / gray-400) — left-aligned
-   - Name: `text-sm font-medium text-brand-dark font-body truncate` (NOT font-heading, NOT centered)
-   - DropdownMenu trigger: `ghost` button, right-aligned
-   - Left-aligned, single row — NOT centered as it currently is
+**Layout (per Phase 10 spec):**
 
-2. **Row 2 — Hero stat (Total Shots):**
-   - `text-stat-md font-bold text-brand-dark font-body tabular-nums`
-   - Label below: `text-label text-brand-secondary uppercase tracking-wide` — "Total Shots"
-   - This is the dominant visual element on the card
+1. **Row 1 — Status dot + Name + action menu:**
+   - Status dot: `w-2 h-2 rounded-full` (8px per Phase 10 spec)
+     - Online: `bg-green-500`, Standby: `bg-amber-500`, Offline: `bg-red-500` (per Phase 10)
+   - Name: `text-base font-heading font-semibold text-brand-dark truncate` (Merriweather 600 per Phase 10: "Target name: `Merriweather 600, text-base`")
+   - DropdownMenu trigger: `...` ghost icon button, right-aligned (per Phase 10: "Action menu: `...` ghost icon button → dropdown")
+
+2. **Row 2 — Hit Count (prominent, right-aligned per Phase 10):**
+   - Label above: `text-label text-brand-secondary uppercase tracking-wide` — "Hit Count" (per Phase 10: "Hit count label: `text-label text-brand-secondary` above the number")
+   - Number: `text-stat-md font-bold text-brand-dark font-body tabular-nums` (per Phase 10: "`text-stat-md font-bold text-brand-dark`")
+   - **Data source**: `Math.max(totalHitCount ?? 0, target.totalShots ?? 0)` — takes the higher of game history aggregation (`totalHitCount` from `fetchAllGameHistory`, capped at 50 entries / 500 total) vs live telemetry (`target.totalShots`). Falls back to `"—"` if both are 0/null. Adding `font-body tabular-nums` per Phase 2 rules (not explicit in Phase 10 but required by typography spec).
+   - This is the dominant visual element on the card — data-first hierarchy (P1)
 
 3. **Row 3 — Secondary info strip:**
-   - Horizontal row with icon + value pairs, tiny text
-   - Room: `MapPin` icon + room name (or "Unassigned")
-   - Battery: `Battery` icon + percentage (if online)
-   - Status: connection label text
+   - Connection: `Wifi` / `WifiOff` icon + status label text — all `text-brand-dark/50` (per Phase 10: "Battery/WiFi: small inline icons, `text-xs text-brand-dark/50`"). Status is already communicated by the dot in Row 1; WiFi icons do NOT need color-coding.
+   - Room: `MapPin` icon + room name (or "Unassigned"). Room is resolved by joining `target.roomId` with rooms array. Note: `roomId` can be `null`, `""`, `"null"` (string), or `"unassigned"` — all normalize to unassigned.
    - All `text-xs text-brand-dark/50 font-body`
 
 4. **Row 4 — Last activity:**
-   - `text-[11px] text-brand-dark/30 font-body`
+   - `text-[11px] text-brand-dark/40 font-body`
    - "Last active: {date}" or "No activity recorded"
+   - **Data source**: `target.lastShotTime` (preferred) or `target.lastActivityTime` (fallback), both in epoch ms
 
 **Remove:**
-- Centered text layout (everything should be left-aligned)
+
 - Status badges (Badge component with colored backgrounds) — status is already shown by the dot
 - The separate "Status Indicators" section (redundant with dot)
 - The `border-t border-gray-100` divider (use spacing instead)
+- Icon badge backgrounds — bare icons only (Phase 5)
 
 ### Step 3: Search Bar + Filters Redesign
 
-**Search input:**
+**Search input (full Phase 11 SearchInput spec):**
+```tsx
+<div className="relative">
+  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-brand-dark/30" />
+  <Input
+    className="pl-11 bg-white border border-[rgba(28,25,43,0.1)] rounded-full
+               text-brand-dark placeholder:text-brand-dark/40
+               focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/30
+               font-body h-10"
+    placeholder={placeholder}
+  />
+</div>
+```
 - Pill shape: `rounded-full`
-- `bg-white border border-[rgba(28,25,43,0.1)]`
-- Search icon: `text-brand-dark/30` (was `/50`)
-- Focus: `ring-2 ring-brand-primary/20 border-brand-primary/30`
-- Match Phase 11 spec exactly
+- Icon padding: `pl-11` to accommodate search icon
+- Text color: `text-brand-dark`, placeholder: `placeholder:text-brand-dark/40`
+- Height: `h-10` (40px standard)
+- Font: `font-body` (Raleway)
 
 **Filter selects:**
 - Keep Select components but update trigger styling:
@@ -306,7 +352,7 @@ Completely restyle the `TargetCard` to match the Design Gospel card system.
 
 **Title:** Keep `h1` with Merriweather — that's correct per the Gospel.
 
-**Subtitle:** `text-sm text-brand-dark/50 font-body` (was `/70`)
+**Subtitle:** `text-sm text-brand-dark/55 font-body` (was `/70` — now matches `--text-secondary: rgba(28,25,43,0.55)` token from Phase 1)
 
 **Buttons:**
 - "Create Group": Change from `bg-brand-secondary` to `variant="secondary"` (dark outline pill) per Phase 3. This uses `border-2 border-brand-dark text-brand-dark hover:bg-brand-dark hover:text-white`.
@@ -317,9 +363,9 @@ Completely restyle the `TargetCard` to match the Design Gospel card system.
 **Current:** `text-sm md:text-xl font-heading font-semibold` with a red badge.
 
 **New:**
-- Room name: `text-base md:text-lg font-heading font-semibold text-brand-dark` (consistent heading size)
+- Room name: `text-base font-heading font-semibold text-brand-dark` (matches Phase 2 Card Title: Merriweather 600, 1rem/16px)
 - Target count: `text-label text-brand-secondary font-body uppercase tracking-wide` inline (NOT a red badge)
-- Status summary dots: keep, but use `text-[11px] text-brand-dark/40 font-body` text (was text-xs text-brand-dark/70)
+- Status summary dots: keep, but use `text-[11px] text-brand-dark font-body` text (was text-xs text-brand-dark/70) — matches TargetActivityCard/RecentSessionsCard inner subtitle pattern (no opacity modifier)
 - Remove the `Badge` component with `bg-red-50 border-red-500` — replace with plain text
 
 ### Step 6: Targets Grid Layout
@@ -334,7 +380,7 @@ Completely restyle the `TargetCard` to match the Design Gospel card system.
 
 **New:**
 - `shadow-card rounded-[var(--radius-lg)]` (no border)
-- Icon: `Target` instead of `Zap`, `text-brand-dark/30` (was brand-dark/50)
+- Icon: `Target` instead of `Zap`, `text-brand-dark/40` (matches dashboard empty state patterns and Phase 5 icon rules)
 - Text: `text-sm text-brand-dark/40 font-body` (was text-brand-dark/70)
 - CTA: already correct (bg-brand-primary pill)
 
@@ -352,24 +398,30 @@ Replace the current generic skeleton blocks with skeletons that mirror the final
 
 ### Step 9: Framer Motion Entrance Animations
 
-Add staggered entrance animations matching the Dashboard pattern:
+Add staggered entrance animations for target card grids per room section. **Note:** StatCards use a plain `<div>` grid (no stagger), matching the Dashboard. Stagger is for target card lists only.
 
 ```tsx
-// Stat cards grid
-<motion.div
-  className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4"
-  variants={containerVariants}
-  initial="hidden"
-  animate="visible"
->
-  {statCards.map((card) => (
-    <motion.div key={card.id} variants={itemVariants}>
-      <StatCard {...card} />
-    </motion.div>
-  ))}
-</motion.div>
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.08, delayChildren: 0.1 },
+  },
+};
 
-// Target cards per room section
+const itemVariants = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: 'easeOut' } },
+};
+
+// Stat cards grid — plain <div>, NO stagger (matches Dashboard)
+<div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
+  {statCards.map((card) => (
+    <StatCard key={card.title} {...card} />
+  ))}
+</div>
+
+// Target cards per room section — staggered entrance
 <motion.div className="grid ..." variants={containerVariants} initial="hidden" animate="visible">
   {roomTargets.map((target) => (
     <motion.div key={target.id} variants={itemVariants}>
@@ -379,7 +431,7 @@ Add staggered entrance animations matching the Dashboard pattern:
 </motion.div>
 ```
 
-Use the same `containerVariants` / `itemVariants` from the Dashboard (staggerChildren: 0.08, y: 12 → 0).
+Stagger parameters: `staggerChildren: 0.08` from Phase 7.0B generic template, `y: 12 → 0` slide-up. Used by target card grids and room sections only.
 
 ### Step 10: Modal Dialogs Cleanup
 
@@ -407,6 +459,54 @@ The inline "Add Target" dialog (inside the page):
 
 ---
 
+## Data Flow Reference
+
+### Hooks Called by targets-page.tsx
+
+| Hook | Query Key | Returns | Notes |
+|------|-----------|---------|-------|
+| `useTargets(force?)` | `['targets', 'list', force]` | `{ targets: Target[], summary, cached }` | Base target data from ThingsBoard via `targets-with-telemetry` edge function |
+| `useTargetDetails(deviceIds[])` | `['targets', 'details', deviceIds]` | `TargetDetail[]` | Enriched telemetry per device; merged with base via `mergeTargetDetails()` |
+| `useRooms(force?)` | `['rooms', 'list', force]` | `{ rooms: Room[] }` | Room list for target→room lookup |
+| `useTargetGroups(force?)` | `['target-groups', 'list']` | `TargetGroup[]` | Custom target groupings |
+| `useTargetCustomNames()` | `['targets', 'custom-names']` | `Map<targetId, customName>` | Display name overrides from `user_target_custom_names` |
+| `fetchAllGameHistory()` | (imperative, not a hook) | `GameHistory[]` | Called in `useEffect` to aggregate total shots per device |
+
+### Data Assembly for TargetCard
+
+```
+useTargets() ──────────┐
+                        ├── mergeTargetDetails() ──→ storeTargets[] (Target with merged telemetry)
+useTargetDetails() ────┘                                │
+                                                        ├── TargetCard receives:
+fetchAllGameHistory() ──→ targetHitTotals{} ───────────┘     target, room, totalHitCount
+                          (deviceId → aggregated hits)
+useRooms() ──→ rooms lookup by roomId ─────────────────┘
+useTargetCustomNames() ──→ displayName override ───────┘
+```
+
+### Key Target Fields Used by TargetCard
+
+| Field | Source | Availability | Display Purpose |
+|-------|--------|-------------|-----------------|
+| `name` / `customName` | Edge: `targets-with-telemetry` + Supabase: `user_target_custom_names` | Always | Card title |
+| `status` | Derived by `deriveStatusFromRaw()` in `edge.ts` | Always | Status dot color |
+| `totalShots` | Edge: live telemetry | Optional | Hero stat (fallback) |
+| `totalHitCount` (prop) | Aggregated from `fetchAllGameHistory()` — checks `targetStats[]` then `deviceResults[]`, capped at 50 entries | Optional | Hero stat (primary) |
+| `status` (for wifi icon) | Derived by `deriveStatusFromRaw()` in `edge.ts` | Always | Wifi icon color: green=online, yellow=standby, gray=offline |
+| `roomId` | Edge: room assignment | Optional | Room name lookup |
+| `lastShotTime` | Edge: telemetry | Optional | Last activity display |
+| `lastActivityTime` | Edge: TB server attribute (already converted to ms) | Optional | Last activity fallback |
+
+### Data Caveats
+
+- **Total shots aggregation is capped**: `fetchAllGameHistory()` fetches max 50 entries × 10 pages = 500 game history records. Targets with extensive history may show underestimated totals.
+- **`roomId` normalization**: Can be `null`, `""`, `"null"` (string), or `"unassigned"` — all must normalize to the unassigned bucket.
+- **Hero stat resolution**: `Math.max(totalHitCount ?? 0, target.totalShots ?? 0)` — takes whichever is higher between game history aggregate and live telemetry. Shows `"—"` if both are 0/null.
+- **Status is pre-derived**: `target.status` is already `'online' | 'standby' | 'offline'` — do NOT re-derive from raw fields.
+
+---
+
 ## File Checklist
 
 | File | Changes |
@@ -422,8 +522,11 @@ The inline "Add Target" dialog (inside the page):
 
 ## Validation Checklist (post-implementation)
 
+- [ ] Page uses Phase 6D layout shell with `responsive-container`, `no-overflow`, `responsive-transition` utility classes
+- [ ] Content wrapper uses `space-y-2 md:space-y-4 lg:space-y-6` for section spacing (no per-section `mb-*`)
 - [ ] No `border-gray-200` on any card
-- [ ] All stat numbers use `text-stat-*` + `font-body` (not `font-heading`)
+- [ ] All stat numbers use `text-stat-*` + `font-body` (not `font-heading`) — Raleway 700 for numbers
+- [ ] Target names use `font-heading font-semibold text-base` (Merriweather 600 per Phase 10)
 - [ ] All buttons are `rounded-full` (pill shape)
 - [ ] No `bg-brand-secondary` as primary button color
 - [ ] No icon badge backgrounds (`bg-*/10 rounded-lg p-2`)
@@ -432,8 +535,13 @@ The inline "Add Target" dialog (inside the page):
 - [ ] Search input is pill-shaped with subtle border
 - [ ] Labels are uppercase, small, muted (`text-label`)
 - [ ] Numbers are larger than their labels
-- [ ] Framer Motion entrance animations on card grids
-- [ ] Skeletons match final card structure
-- [ ] Data-first hierarchy: hero number is dominant on every TargetCard
-- [ ] No centered text on TargetCard (left-aligned)
+- [ ] Framer Motion staggered entrance on target card grids (NOT on StatCards — StatCards use plain `<div>`)
+- [ ] TargetCard WiFi/connection icons use `text-brand-dark/50` (not color-coded per status)
+- [ ] Skeletons match final card structure (centered placeholders for StatCards)
+- [ ] StatCard icons all inherit `text-brand-primary` from wrapper (no `text-green-500`, `text-gray-400`, etc.)
+- [ ] Data-first hierarchy: hit count is dominant on every TargetCard
+- [ ] Status dots use correct Phase 10 colors: green-500 (online), amber-500 (standby), red-500 (offline)
+- [ ] TargetCard status dots are 8px (`w-2 h-2`). StatCard subtitle dots are 6px (`w-1.5 h-1.5`) for compact inline display.
+- [ ] Hit count label text says "Hit Count" (per Phase 10), positioned above the number
+- [ ] TargetCard hover: `shadow-card-hover -translate-y-0.5` (per Phase 10)
 - [ ] Room section headers use plain text count (no red Badge)

@@ -11,6 +11,15 @@ export const RECENT_THRESHOLD_MS = 43_200_000;
 /**
  * Derive a 3-state display status from raw ThingsBoard data.
  *
+ * Status semantics:
+ *   - **online**  = device is in an active game session (gameStatus is start/busy/active)
+ *   - **standby** = device is powered on / recently active, but NOT in a game
+ *   - **offline** = device hasn't been seen for >12 hours
+ *
+ * IMPORTANT: ThingsBoard's device `rawStatus` ("ACTIVE"/"INACTIVE") indicates
+ * *connection* state, NOT game state. A connected device that is idle should be
+ * "standby", not "online". Only `gameStatus` determines true "online" status.
+ *
  * Logic mirrors `deriveStatusFromRaw` on the frontend and
  * `compute_status` in the shell diagnostic script.
  */
@@ -25,28 +34,26 @@ export function determineStatus(
   const hasRecentActivity =
     lastActivityTimeFromTb != null && now - lastActivityTimeFromTb <= RECENT_THRESHOLD_MS;
 
+  // STEP 1: gameStatus is the ONLY reliable indicator of an active game session.
   if (gameStatus && ["start", "busy", "active"].includes(String(gameStatus).toLowerCase())) {
     return "online";
   }
+
+  // STEP 2: Device is explicitly disconnected (active === false).
   if (isActiveFromTb === false) {
     if (hasRecentActivity) return "standby";
     return "offline";
   }
+
+  // STEP 3: Device is connected (active === true).
+  // Connected but not in a game → standby (if recently active) or offline.
   if (isActiveFromTb === true) {
-    const normalized = (rawStatus ?? "").toLowerCase();
-    if (["online", "active", "active_online", "busy"].includes(normalized)) {
-      return "online";
-    }
-    // Connected but idle: only standby if we have recent server activity
-    // (avoids all-standby when TB wrongly reports active).
+    // Connected device with recent activity is standby (powered on & idle).
     if (hasRecentActivity) return "standby";
     return "offline";
   }
-  // When active is null: only standby if server lastActivityTime is recent (matches script).
-  const normalized = (rawStatus ?? "").toLowerCase();
-  if (["online", "active", "active_online", "busy"].includes(normalized)) {
-    return "online";
-  }
+
+  // STEP 4: active is null/unknown — fall back to lastActivityTime.
   if (hasRecentActivity) return "standby";
   return "offline";
 }

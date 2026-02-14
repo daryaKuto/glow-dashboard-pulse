@@ -6,7 +6,16 @@
  * Returns ApiResponse<T>.
  */
 
-import { roomsRepository, type RoomsWithTargets } from './repo';
+import {
+  roomsRepository,
+  type RoomsWithTargets,
+  type RoomLayoutRow,
+  getRoomLayout,
+  saveRoomLayout,
+  createRoomWithLayout,
+  deleteRoomLayout,
+  updateTargetPositions,
+} from './repo';
 import type { RoomRepository } from '@/domain/rooms/ports';
 import type { Target } from '@/features/targets';
 import type {
@@ -383,5 +392,94 @@ export function checkCanViewRoom(
   return apiOk(true);
 }
 
+// ============================================================================
+// Layout Services
+// ============================================================================
+
+/**
+ * Get room layout
+ */
+export async function getRoomLayoutService(
+  roomId: string
+): Promise<ApiResponse<RoomLayoutRow | null>> {
+  const validation = validateRoomId(roomId);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid room ID');
+  }
+
+  return getRoomLayout(roomId);
+}
+
+/**
+ * Save room layout
+ */
+export async function saveRoomLayoutService(
+  roomId: string,
+  layoutData: Record<string, unknown>,
+  viewport: { scale: number; x: number; y: number },
+  canvasWidth: number,
+  canvasHeight: number
+): Promise<ApiResponse<void>> {
+  const validation = validateRoomId(roomId);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid room ID');
+  }
+
+  return saveRoomLayout(roomId, layoutData, viewport, canvasWidth, canvasHeight);
+}
+
+/**
+ * Create a new room with layout
+ */
+export async function createRoomWithLayoutService(
+  roomData: CreateRoomData,
+  layoutData: Record<string, unknown>,
+  viewport: { scale: number; x: number; y: number },
+  canvasWidth: number,
+  canvasHeight: number
+): Promise<ApiResponse<Room>> {
+  const validation = validateCreateRoomInput(roomData);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid room data');
+  }
+
+  return createRoomWithLayout(roomData, layoutData, viewport, canvasWidth, canvasHeight);
+}
+
+/**
+ * Delete room layout
+ */
+export async function deleteRoomLayoutService(
+  roomId: string
+): Promise<ApiResponse<void>> {
+  const validation = validateRoomId(roomId);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid room ID');
+  }
+
+  return deleteRoomLayout(roomId);
+}
+
+/**
+ * Update target positions from canvas
+ */
+export async function updateTargetPositionsService(
+  roomId: string,
+  positions: Array<{ targetId: string; x: number; y: number }>
+): Promise<ApiResponse<void>> {
+  const validation = validateRoomId(roomId);
+  if (!validation.success) {
+    const firstError = validation.errors[0];
+    return apiErr('VALIDATION_ERROR', firstError?.message || 'Invalid room ID');
+  }
+
+  return updateTargetPositions(roomId, positions);
+}
+
 // Re-export types for consumers
 export type { UserContext, RoomContext } from '@/domain/rooms/permissions';
+export type { RoomLayoutRow } from './repo';

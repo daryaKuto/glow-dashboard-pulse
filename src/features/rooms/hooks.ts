@@ -13,8 +13,13 @@ import {
   assignTargetToRoomService,
   assignTargetsToRoomService,
   assignTargetsToRoomWithPermissionService,
+  getRoomLayoutService,
+  saveRoomLayoutService,
+  createRoomWithLayoutService,
+  updateTargetPositionsService,
   type UserContext,
   type RoomContext,
+  type RoomLayoutRow,
 } from './service';
 import type {
   Room,
@@ -380,6 +385,137 @@ export function useAssignTargetsToRoomWithPermission() {
     },
     onError: (error: Error) => {
       toast.error(`Failed to assign targets: ${error.message}`);
+    },
+  });
+}
+
+// ============================================================================
+// Layout Hooks
+// ============================================================================
+
+/**
+ * Get room layout for a specific room
+ */
+export function useRoomLayout(roomId: string | undefined) {
+  return useQuery({
+    queryKey: [...roomsKeys.all, 'layout', roomId],
+    queryFn: async () => {
+      if (!roomId) return null;
+      const result = await getRoomLayoutService(roomId);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    enabled: !!roomId,
+    staleTime: 60 * 1000,
+  });
+}
+
+/**
+ * Save room layout
+ */
+export function useSaveRoomLayout() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      roomId,
+      layoutData,
+      viewport,
+      canvasWidth,
+      canvasHeight,
+    }: {
+      roomId: string;
+      layoutData: Record<string, unknown>;
+      viewport: { scale: number; x: number; y: number };
+      canvasWidth: number;
+      canvasHeight: number;
+    }) => {
+      const result = await saveRoomLayoutService(
+        roomId,
+        layoutData,
+        viewport,
+        canvasWidth,
+        canvasHeight
+      );
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: [...roomsKeys.all, 'layout', variables.roomId],
+      });
+      queryClient.invalidateQueries({ queryKey: roomsKeys.lists() });
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to save layout: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Create a new room with layout
+ */
+export function useCreateRoomWithLayout() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      roomData,
+      layoutData,
+      viewport,
+      canvasWidth,
+      canvasHeight,
+    }: {
+      roomData: CreateRoomData;
+      layoutData: Record<string, unknown>;
+      viewport: { scale: number; x: number; y: number };
+      canvasWidth: number;
+      canvasHeight: number;
+    }) => {
+      const result = await createRoomWithLayoutService(
+        roomData,
+        layoutData,
+        viewport,
+        canvasWidth,
+        canvasHeight
+      );
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: roomsKeys.lists() });
+      toast.success('Room created with layout');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to create room: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Update target positions from canvas
+ */
+export function useUpdateTargetPositions() {
+  return useMutation({
+    mutationFn: async ({
+      roomId,
+      positions,
+    }: {
+      roomId: string;
+      positions: Array<{ targetId: string; x: number; y: number }>;
+    }) => {
+      const result = await updateTargetPositionsService(roomId, positions);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to update positions: ${error.message}`);
     },
   });
 }

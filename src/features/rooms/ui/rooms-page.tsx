@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { Plus, Users, Target, RefreshCw, Eye, X, Check, ArrowRight, ArrowLeft, PenTool } from 'lucide-react';
+import { Plus, Users, Target, RefreshCw, Eye, X, Check, ArrowRight, ArrowLeft, PenTool, Monitor } from 'lucide-react';
 import Header from '@/components/shared/Header';
 import Sidebar from '@/components/shared/Sidebar';
 import MobileDrawer from '@/components/shared/MobileDrawer';
@@ -375,6 +375,14 @@ const RoomsPage: React.FC = () => {
                   isLoading={isLoading}
                 />
               ))}
+            </div>
+
+            {/* Mobile banner — room layout requires desktop */}
+            <div className="lg:hidden flex items-center gap-3 rounded-[var(--radius-lg)] bg-brand-secondary px-4 py-3">
+              <Monitor className="w-5 h-5 text-white shrink-0" />
+              <p className="text-xs text-white font-body">
+                Use a desktop or laptop to design and customize your room layouts
+              </p>
             </div>
 
             {/* Room Cards */}

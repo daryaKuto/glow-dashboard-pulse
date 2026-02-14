@@ -19,6 +19,11 @@ export {
   useUpdateRoomWithPermission,
   useDeleteRoomWithPermission,
   useAssignTargetsToRoomWithPermission,
+  // Layout hooks
+  useRoomLayout,
+  useSaveRoomLayout,
+  useCreateRoomWithLayout,
+  useUpdateTargetPositions,
   roomsKeys,
 } from './hooks';
 

@@ -18,6 +18,7 @@ const GamesPage = React.lazy(() => import('./features/games/ui/games-page'));
 const LeaderboardPage = React.lazy(() => import('./features/leaderboard/ui/leaderboard-page'));
 const ProfilePage = React.lazy(() => import('./features/profile/ui/profile-page'));
 const SettingsPage = React.lazy(() => import('./features/settings/ui/settings-page'));
+const RoomEditorPage = React.lazy(() => import('./features/rooms/ui/room-editor/RoomEditorPage'));
 import NotFound from './pages/NotFound';
 
 // Loading fallback for lazy-loaded pages
@@ -73,6 +74,8 @@ function App() {
         <Route path="/dashboard" element={user ? <Suspense fallback={<PageLoading />}><DashboardPage /></Suspense> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/targets" element={user ? <Suspense fallback={<PageLoading />}><TargetsPage /></Suspense> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/rooms" element={user ? <Suspense fallback={<PageLoading />}><RoomsPage /></Suspense> : <Navigate to="/login" replace />} />
+        <Route path="/dashboard/rooms/layout/new" element={user ? <Suspense fallback={<PageLoading />}><RoomEditorPage /></Suspense> : <Navigate to="/login" replace />} />
+        <Route path="/dashboard/rooms/:roomId/layout" element={user ? <Suspense fallback={<PageLoading />}><RoomEditorPage /></Suspense> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/games" element={user ? <Suspense fallback={<PageLoading />}><GamesPage /></Suspense> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/leaderboard" element={user ? <Suspense fallback={<PageLoading />}><LeaderboardPage /></Suspense> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/profile" element={user ? <Suspense fallback={<PageLoading />}><ProfilePage /></Suspense> : <Navigate to="/login" replace />} />

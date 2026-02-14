@@ -373,6 +373,211 @@ async function unassignTargetsFromRoom(roomId: string): Promise<ApiResponse<void
   }
 }
 
+// ============================================================================
+// Layout CRUD
+// ============================================================================
+
+export interface RoomLayoutRow {
+  id: string;
+  user_id: string;
+  room_id: string;
+  layout_data: Record<string, unknown>;
+  canvas_width: number;
+  canvas_height: number;
+  viewport_scale: number;
+  viewport_x: number;
+  viewport_y: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Get room layout data
+ */
+export async function getRoomLayout(roomId: string): Promise<ApiResponse<RoomLayoutRow | null>> {
+  try {
+    const userId = await getCurrentUserId();
+
+    const { data, error } = await (supabase as any)
+      .from('user_room_layouts')
+      .select('*')
+      .eq('room_id', roomId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      return apiErr('GET_LAYOUT_ERROR', error.message, error);
+    }
+
+    return apiOk(data as RoomLayoutRow | null);
+  } catch (error) {
+    console.error('[Rooms Repo] Error fetching room layout:', error);
+    return apiErr(
+      'GET_LAYOUT_ERROR',
+      error instanceof Error ? error.message : 'Failed to fetch room layout',
+      error
+    );
+  }
+}
+
+/**
+ * Save (upsert) room layout data
+ */
+export async function saveRoomLayout(
+  roomId: string,
+  layoutData: Record<string, unknown>,
+  viewport: { scale: number; x: number; y: number },
+  canvasWidth: number,
+  canvasHeight: number
+): Promise<ApiResponse<void>> {
+  try {
+    const userId = await getCurrentUserId();
+
+    // Check if layout already exists
+    const { data: existing } = await (supabase as any)
+      .from('user_room_layouts')
+      .select('id')
+      .eq('room_id', roomId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (existing) {
+      const { error } = await (supabase as any)
+        .from('user_room_layouts')
+        .update({
+          layout_data: layoutData,
+          canvas_width: canvasWidth,
+          canvas_height: canvasHeight,
+          viewport_scale: viewport.scale,
+          viewport_x: viewport.x,
+          viewport_y: viewport.y,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id)
+        .eq('user_id', userId);
+
+      if (error) {
+        return apiErr('SAVE_LAYOUT_ERROR', error.message, error);
+      }
+    } else {
+      const { error } = await (supabase as any)
+        .from('user_room_layouts')
+        .insert({
+          user_id: userId,
+          room_id: roomId,
+          layout_data: layoutData,
+          canvas_width: canvasWidth,
+          canvas_height: canvasHeight,
+          viewport_scale: viewport.scale,
+          viewport_x: viewport.x,
+          viewport_y: viewport.y,
+        });
+
+      if (error) {
+        return apiErr('SAVE_LAYOUT_ERROR', error.message, error);
+      }
+    }
+
+    return apiOk(undefined);
+  } catch (error) {
+    console.error('[Rooms Repo] Error saving room layout:', error);
+    return apiErr(
+      'SAVE_LAYOUT_ERROR',
+      error instanceof Error ? error.message : 'Failed to save room layout',
+      error
+    );
+  }
+}
+
+/**
+ * Create a new room AND its layout in one operation
+ */
+export async function createRoomWithLayout(
+  roomData: CreateRoomData,
+  layoutData: Record<string, unknown>,
+  viewport: { scale: number; x: number; y: number },
+  canvasWidth: number,
+  canvasHeight: number
+): Promise<ApiResponse<Room>> {
+  const roomResult = await createRoom(roomData);
+  if (!roomResult.ok) return roomResult;
+
+  const layoutResult = await saveRoomLayout(
+    roomResult.data.id,
+    layoutData,
+    viewport,
+    canvasWidth,
+    canvasHeight
+  );
+
+  if (!layoutResult.ok) {
+    console.warn('[Rooms Repo] Room created but layout save failed:', layoutResult.error);
+  }
+
+  return roomResult;
+}
+
+/**
+ * Delete a room layout
+ */
+export async function deleteRoomLayout(roomId: string): Promise<ApiResponse<void>> {
+  try {
+    const userId = await getCurrentUserId();
+
+    const { error } = await (supabase as any)
+      .from('user_room_layouts')
+      .delete()
+      .eq('room_id', roomId)
+      .eq('user_id', userId);
+
+    if (error) {
+      return apiErr('DELETE_LAYOUT_ERROR', error.message, error);
+    }
+
+    return apiOk(undefined);
+  } catch (error) {
+    console.error('[Rooms Repo] Error deleting room layout:', error);
+    return apiErr(
+      'DELETE_LAYOUT_ERROR',
+      error instanceof Error ? error.message : 'Failed to delete room layout',
+      error
+    );
+  }
+}
+
+/**
+ * Update target positions in user_room_targets from canvas placement
+ */
+export async function updateTargetPositions(
+  roomId: string,
+  positions: Array<{ targetId: string; x: number; y: number }>
+): Promise<ApiResponse<void>> {
+  try {
+    const userId = await getCurrentUserId();
+
+    for (const pos of positions) {
+      await (supabase as any)
+        .from('user_room_targets')
+        .update({
+          position_x: pos.x,
+          position_y: pos.y,
+        })
+        .eq('room_id', roomId)
+        .eq('target_id', pos.targetId)
+        .eq('user_id', userId);
+    }
+
+    return apiOk(undefined);
+  } catch (error) {
+    console.error('[Rooms Repo] Error updating target positions:', error);
+    return apiErr(
+      'UPDATE_POSITIONS_ERROR',
+      error instanceof Error ? error.message : 'Failed to update target positions',
+      error
+    );
+  }
+}
+
 /**
  * Get targets assigned to a specific room
  */

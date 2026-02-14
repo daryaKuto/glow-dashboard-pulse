@@ -111,9 +111,23 @@ const RoomCard: React.FC<RoomCardProps> = ({
               <span className="text-[13px] md:text-sm font-semibold text-brand-dark font-body truncate block">
                 {room.name}
               </span>
-              <span className="text-[10px] md:text-label text-brand-dark/55 font-body uppercase tracking-wide mt-0.5">
-                {targetCount} target{targetCount !== 1 ? 's' : ''}
-              </span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-[10px] md:text-label text-brand-dark/55 font-body uppercase tracking-wide">
+                  {targetCount} target{targetCount !== 1 ? 's' : ''}
+                </span>
+                {room.room_type === 'custom' && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/dashboard/rooms/${room.id}/layout`);
+                    }}
+                    className="hidden lg:inline-flex items-center gap-1 rounded-full bg-brand-secondary/10 hover:bg-brand-secondary hover:text-white px-2 py-0.5 text-[10px] font-medium font-body text-brand-secondary transition-all duration-200"
+                  >
+                    <PenTool className="w-2.5 h-2.5" />
+                    Custom
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -127,17 +141,6 @@ const RoomCard: React.FC<RoomCardProps> = ({
             >
               <Edit className="w-3 h-3 md:w-3.5 md:h-3.5" />
             </Button>
-            {(room as any).hasLayout && (
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                className="hidden lg:inline-flex text-brand-dark/50 hover:text-brand-dark hover:bg-brand-dark/[0.06]"
-                onClick={() => navigate(`/dashboard/rooms/${room.id}/layout`)}
-                title="Edit layout"
-              >
-                <PenTool className="w-3.5 h-3.5" />
-              </Button>
-            )}
             <Button
               variant="ghost"
               size="icon-sm"

@@ -66,9 +66,11 @@ const _SavePresetDialog: React.FC<SavePresetDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[calc(100vw-30px)] sm:max-w-lg mx-auto px-4 py-4 sm:px-6 sm:py-6 rounded-lg sm:rounded-lg">
+      <DialogContent className="max-w-[calc(100vw-30px)] sm:max-w-lg mx-auto px-4 py-4 sm:px-6 sm:py-6 shadow-elevated rounded-[var(--radius-lg)] border-0">
         <DialogHeader className="space-y-1 sm:space-y-1.5">
-          <DialogTitle className="text-lg sm:text-xl font-heading">Save Session As Preset</DialogTitle>
+          <DialogTitle className="text-lg sm:text-xl font-heading">
+            Save Session As Preset
+          </DialogTitle>
           <DialogDescription className="text-xs sm:text-sm">
             Capture the current target selection so operators can reapply it from the presets list.
           </DialogDescription>
@@ -76,7 +78,7 @@ const _SavePresetDialog: React.FC<SavePresetDialogProps> = ({
 
         <div className="space-y-3 sm:space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="preset-name" className="text-sm font-medium text-brand-dark">
+            <Label htmlFor="preset-name" className="text-label text-brand-secondary uppercase tracking-wide font-body">
               Preset name
             </Label>
             <Input
@@ -91,7 +93,7 @@ const _SavePresetDialog: React.FC<SavePresetDialogProps> = ({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="preset-description" className="text-sm font-medium text-brand-dark">
+            <Label htmlFor="preset-description" className="text-label text-brand-secondary uppercase tracking-wide font-body">
               Description (optional)
             </Label>
             <Textarea
@@ -105,14 +107,14 @@ const _SavePresetDialog: React.FC<SavePresetDialogProps> = ({
             />
           </div>
 
-          <div className="rounded-md border border-dashed border-brand-secondary/40 bg-brand-secondary/10 px-3 py-2 text-xs sm:text-sm text-brand-dark/70">
+          <div className="rounded-[var(--radius)] bg-brand-primary/[0.05] px-3 py-2 text-xs sm:text-sm text-brand-dark/70 font-body">
             {targetCount > 0 ? `${targetCount} target${targetCount === 1 ? '' : 's'} will be included in this preset.` : 'Select targets before saving the preset.'}
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-md border border-gray-200 bg-white px-3 py-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-[var(--radius)] bg-brand-primary/[0.03] px-3 py-3">
             <div className="space-y-1 text-sm text-brand-dark/80 flex-1">
-              <p className="font-medium">Attach room to preset</p>
-              <p className="text-xs text-brand-dark/60">
+              <p className="font-medium font-body">Attach room to preset</p>
+              <p className="text-xs text-brand-dark/60 font-body">
                 {roomName ? `Current room: ${roomName}` : 'No room assigned to this selection yet.'}
               </p>
             </div>
@@ -125,9 +127,9 @@ const _SavePresetDialog: React.FC<SavePresetDialogProps> = ({
             />
           </div>
 
-          <div className="space-y-2 rounded-md border border-gray-200 bg-white px-3 py-3">
+          <div className="space-y-2 rounded-[var(--radius)] bg-brand-primary/[0.03] px-3 py-3">
             <div className="space-y-1 text-sm text-brand-dark/80">
-              <p className="font-medium">Duration (seconds)</p>
+              <p className="font-medium font-body">Duration (seconds)</p>
             </div>
             <Input
               id={durationInputId}

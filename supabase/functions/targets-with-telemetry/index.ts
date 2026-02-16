@@ -4,7 +4,7 @@ import { requireUser } from "../_shared/auth.ts";
 import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { getCache, setCache } from "../_shared/cache.ts";
 import { errorResponse, jsonResponse, preflightResponse } from "../_shared/response.ts";
-import { getTenantDevices, getDeviceTelemetry, getBatchServerAttributes } from "../_shared/thingsboard.ts";
+import { getTenantDevices, getBatchTelemetry, getBatchServerAttributes } from "../_shared/thingsboard.ts";
 import { determineStatus, parseActiveAttribute, parseLastActivityTime } from "../_shared/deviceStatus.ts";
 
 type TargetWithTelemetry = {
@@ -160,14 +160,15 @@ Deno.serve(async (req) => {
     const totalRooms = roomsResponse.data?.length ?? 0;
 
     const deviceIds = allDevices.map((d) => d.id?.id ?? String(d.id));
-    const serverAttributesById = await getBatchServerAttributes(deviceIds, [
-      "active",
-      "lastActivityTime",
-      "lastConnectTime",
-      "lastDisconnectTime",
-    ]);
 
     if (summaryOnly) {
+      // Summary mode only needs attributes, not telemetry
+      const serverAttributesById = await getBatchServerAttributes(deviceIds, [
+        "active",
+        "lastActivityTime",
+        "lastConnectTime",
+        "lastDisconnectTime",
+      ]);
       const summary = allDevices.reduce(
         (acc, device) => {
           const deviceId = device.id?.id ?? String(device.id);
@@ -207,18 +208,28 @@ Deno.serve(async (req) => {
       return jsonResponse({ ...summaryPayload, cached: false });
     }
 
-    const telemetryResults = await Promise.all(
-      allDevices.map(async (device) => {
-        const deviceId = device.id?.id ?? String(device.id);
-        try {
-          const telemetry = await getDeviceTelemetry(deviceId, TELEMETRY_KEYS);
-          return { device, deviceId, telemetry };
-        } catch (telemetryError) {
-          console.warn(`Telemetry fetch failed for ${deviceId}:`, telemetryError);
-          return { device, deviceId, telemetry: {} as Record<string, unknown> };
-        }
-      })
-    );
+    // Full mode: fetch telemetry and attributes in parallel using chunked batch helper
+    const [batchTelemetryResults, serverAttributesById] = await Promise.all([
+      getBatchTelemetry(deviceIds, TELEMETRY_KEYS),
+      getBatchServerAttributes(deviceIds, [
+        "active",
+        "lastActivityTime",
+        "lastConnectTime",
+        "lastDisconnectTime",
+      ]),
+    ]);
+
+    // Build a lookup map from batch telemetry results
+    const telemetryById = new Map<string, Record<string, any>>();
+    for (const result of batchTelemetryResults) {
+      telemetryById.set(result.deviceId, result.telemetry);
+    }
+
+    const telemetryResults = allDevices.map((device) => {
+      const deviceId = device.id?.id ?? String(device.id);
+      const telemetry = telemetryById.get(deviceId) ?? {};
+      return { device, deviceId, telemetry };
+    });
 
     let summary = {
       totalTargets: 0,

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Group, Circle, Line, Text } from 'react-konva';
+import type Konva from 'konva';
 import type { PlacedTargetData } from '../lib/types';
 import { TARGET_RADIUS, TARGET_LABEL_OFFSET, EDITOR_COLORS } from '../lib/constants';
 import { snapToGrid } from '../lib/geometry';
@@ -8,7 +9,7 @@ interface TargetShapeProps {
   target: PlacedTargetData;
   isSelected: boolean;
   gridSize: number;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, e: Konva.KonvaEventObject<MouseEvent>) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
 }
 
@@ -27,8 +28,8 @@ const TargetShape: React.FC<TargetShapeProps> = ({
       y={target.y}
       rotation={target.rotation}
       draggable
-      onClick={() => onSelect(target.id)}
-      onTap={() => onSelect(target.id)}
+      onClick={(e) => onSelect(target.id, e)}
+      onTap={(e) => onSelect(target.id, e as unknown as Konva.KonvaEventObject<MouseEvent>)}
       onDragEnd={(e) => {
         const pos = e.target.position();
         const snappedX = snapToGrid(pos.x, gridSize);

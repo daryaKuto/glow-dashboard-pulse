@@ -1,4 +1,5 @@
 import React, { useState, useMemo, startTransition } from 'react';
+import { getStatusDisplay, TARGET_STATUS_SORT_ORDER } from '@/shared/constants/target-status';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
@@ -353,7 +354,7 @@ const RoomsPage: React.FC = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => navigate('/dashboard/rooms/layout/new')}
-                    className="hidden lg:inline-flex md:h-10 md:px-5 md:text-sm"
+                    className="hidden lg:inline-flex md:h-10 md:px-5 md:text-sm bg-brand-secondary text-white border-brand-secondary hover:bg-transparent hover:text-brand-secondary"
                   >
                     <PenTool className="h-4 w-4 md:mr-2" />
                     <span className="hidden md:inline">Create a Custom Room Layout</span>
@@ -524,7 +525,7 @@ const RoomsPage: React.FC = () => {
                     <SelectItem key={getTargetId(target)} value={getTargetId(target)}>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-body">{target.name}</span>
-                        <span className="text-[10px] text-brand-dark/55 font-body">{target.status}</span>
+                        <span className="text-[10px] text-brand-dark/55 font-body">{getStatusDisplay(target.status).label}</span>
                       </div>
                     </SelectItem>
                   ))}
@@ -610,24 +611,15 @@ const RoomsPage: React.FC = () => {
                     {getRoomTargets(roomForDetails.id).map((target, i) => {
                       const tid = getTargetId(target);
                       const status = targetStatusMap.get(tid) ?? target.status;
-                      const statusDot = status === 'online' ? 'bg-green-500'
-                        : status === 'standby' ? 'bg-amber-400'
-                        : 'bg-gray-400';
-                      const statusLabel = status === 'online' ? 'Online'
-                        : status === 'standby' ? 'Standby'
-                        : 'Offline';
-                      const statusTextColor = status === 'online' ? 'text-green-600'
-                        : status === 'standby' ? 'text-amber-600'
-                        : 'text-brand-dark/40';
-                      const rowBg = status === 'online'
-                        ? 'bg-gradient-to-r from-green-500/[0.06] via-green-500/[0.02] to-white'
-                        : status === 'standby'
-                        ? 'bg-gradient-to-r from-amber-400/[0.06] via-amber-400/[0.02] to-white'
-                        : 'bg-gradient-to-r from-gray-200/[0.35] via-gray-100/[0.15] to-white';
+                      const cfg = getStatusDisplay(status);
+                      const statusDot = cfg.dotColor;
+                      const statusLabel = cfg.label;
+                      const statusTextColor = cfg.textColor;
+                      const rowBg = cfg.rowBgClassName;
                       const badgeBg = status === 'online'
                         ? 'bg-green-500/10'
                         : status === 'standby'
-                        ? 'bg-amber-400/10'
+                        ? 'bg-amber-500/10'
                         : 'bg-brand-dark/[0.06]';
                       return (
                       <div
@@ -696,29 +688,19 @@ const RoomsPage: React.FC = () => {
                   </div>
                   <div className="space-y-2 md:space-y-2.5 max-h-52 md:max-h-64 overflow-y-auto">
                     {[...unassignedTargets].sort((a, b) => {
-                      const order: Record<string, number> = { online: 0, standby: 1, offline: 2 };
                       const aStatus = targetStatusMap.get(getTargetId(a)) ?? a.status ?? 'offline';
                       const bStatus = targetStatusMap.get(getTargetId(b)) ?? b.status ?? 'offline';
-                      return (order[aStatus] ?? 2) - (order[bStatus] ?? 2);
+                      return (TARGET_STATUS_SORT_ORDER[aStatus] ?? 2) - (TARGET_STATUS_SORT_ORDER[bStatus] ?? 2);
                     }).map((target) => {
                       const isSelected = selectedTargets.includes(getTargetId(target));
                       const accurateStatus = targetStatusMap.get(getTargetId(target)) ?? target.status;
-                      const statusDotColor = accurateStatus === 'online' ? 'bg-green-500'
-                        : accurateStatus === 'standby' ? 'bg-amber-400'
-                        : 'bg-gray-400';
-                      const statusTextColor = accurateStatus === 'online' ? 'text-green-600'
-                        : accurateStatus === 'standby' ? 'text-amber-600'
-                        : 'text-brand-dark/40';
-                      const statusLabelText = accurateStatus === 'online' ? 'Online'
-                        : accurateStatus === 'standby' ? 'Standby'
-                        : 'Offline';
+                      const cfg = getStatusDisplay(accurateStatus);
+                      const statusDotColor = cfg.dotColor;
+                      const statusTextColor = cfg.textColor;
+                      const statusLabelText = cfg.label;
                       const rowBg = isSelected
                         ? 'bg-brand-primary/[0.06] ring-1 ring-brand-primary/20 shadow-subtle'
-                        : accurateStatus === 'online'
-                        ? 'bg-gradient-to-r from-green-500/[0.04] to-white hover:from-green-500/[0.07]'
-                        : accurateStatus === 'standby'
-                        ? 'bg-gradient-to-r from-amber-400/[0.04] to-white hover:from-amber-400/[0.07]'
-                        : 'bg-gradient-to-r from-gray-200/[0.2] to-white hover:from-gray-200/[0.35]';
+                        : cfg.rowBgClassName;
                       return (
                         <div
                           key={getTargetId(target)}

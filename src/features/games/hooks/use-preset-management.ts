@@ -15,6 +15,7 @@ export interface UsePresetManagementOptions {
   deletePresetMutation: { mutateAsync: (id: string) => Promise<unknown> };
   savePresetMutation: {
     mutateAsync: (params: {
+      id?: string;
       name: string;
       description: string | null;
       roomId: string | null;
@@ -39,9 +40,11 @@ export interface UsePresetManagementOptions {
   availableDevices: NormalizedGameDevice[];
 
   // Setters for cross-hook state
+  setSelectedDeviceIds: React.Dispatch<React.SetStateAction<string[]>>;
   setSessionRoomId: React.Dispatch<React.SetStateAction<string | null>>;
   setSessionDurationSeconds: React.Dispatch<React.SetStateAction<number | null>>;
   setGoalShotsPerTarget: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  setIsDurationUnlimited: React.Dispatch<React.SetStateAction<boolean>>;
 
   // Callback registry (replaces bridge refs)
   registry: SessionRegistry;
@@ -76,7 +79,8 @@ export interface UsePresetManagementReturn {
   handleSavePresetIncludeRoomChange: (value: boolean) => void;
   handleSavePresetDurationChange: (value: string) => void;
   handleSavePresetSubmit: () => Promise<void>;
-  handleApplyPreset: (preset: GamePreset) => Promise<void>;
+  handleApplyPreset: (preset: GamePreset) => Promise<{ hasTargets: boolean }>;
+  handleUpdateActivePreset: () => Promise<void>;
 }
 
 export function usePresetManagement(options: UsePresetManagementOptions): UsePresetManagementReturn {
@@ -97,9 +101,11 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
     currentSessionTargets,
     selectedDeviceIds,
     availableDevices,
+    setSelectedDeviceIds,
     setSessionRoomId,
     setSessionDurationSeconds,
     setGoalShotsPerTarget,
+    setIsDurationUnlimited,
     registry,
   } = options;
 
@@ -248,6 +254,7 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
     }
 
     const targetIds = Array.from(new Set(stagedPresetTargets.map((device) => device.deviceId)));
+
     const resolvedRoomId = savePresetIncludeRoom && sessionRoomId ? sessionRoomId : null;
     const resolvedRoomName = resolvedRoomId ? rooms.find((room) => room.id === resolvedRoomId)?.name ?? null : null;
     if (resolvedRoomId && !resolvedRoomName) {
@@ -295,43 +302,47 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
   ]);
 
   const handleApplyPreset = useCallback(
-    async (preset: GamePreset) => {
+    async (preset: GamePreset): Promise<{ hasTargets: boolean }> => {
       if (isSessionLocked) {
         toast.info('Complete or stop the current session before applying a preset.');
-        return;
+        return { hasTargets: false };
       }
       setApplyingPresetId(preset.id);
 
       try {
-        const openFn = registry.current.openStartDialogForTargets;
-        if (!openFn) return;
-        const prepResult = await openFn({
-          targetIds: preset.targetIds,
-          source: 'preset',
-          requireOnline: false,
-          syncCurrentTargets: true,
-        });
+        // Resolve which preset targets exist in the available device list
+        const presetTargetIds = preset.targetIds ?? [];
+        const availableDeviceMap = new Map(availableDevices.map((d) => [d.deviceId, d]));
+        const matchedIds = presetTargetIds.filter((id) => availableDeviceMap.has(id));
+        const hasTargets = matchedIds.length > 0;
 
-        if (!prepResult || prepResult.targets.length === 0) {
-          return;
+        if (matchedIds.length === 0 && presetTargetIds.length > 0) {
+          toast.warning('Preset loaded but none of its targets are available. Select targets manually or refresh devices.');
+        } else if (matchedIds.length < presetTargetIds.length) {
+          const missing = presetTargetIds.length - matchedIds.length;
+          toast.info(`${missing} target${missing > 1 ? 's' : ''} from this preset ${missing > 1 ? 'are' : 'is'} unavailable. Applying ${matchedIds.length} available.`);
         }
 
+        // Populate wizard Step 1: target selection (may be empty if no targets matched)
+        setSelectedDeviceIds(matchedIds);
+
+        // Populate wizard Step 1: room
         const resolvedRoomId =
           preset.roomId ??
           (preset.settings != null && typeof (preset.settings as Record<string, unknown>)['roomId'] === 'string'
             ? ((preset.settings as Record<string, unknown>)['roomId'] as string)
             : null);
-        const resolvedRoomName =
-          resolvedRoomId !== null ? rooms.find((room) => room.id === resolvedRoomId)?.name ?? null : null;
-        if (resolvedRoomId !== null && !resolvedRoomName) {
-          console.warn('[Games] Preset room not found in local store', { presetId: preset.id, roomId: resolvedRoomId });
-        }
         setSessionRoomId(resolvedRoomId ?? null);
 
+        // Populate wizard Step 2: duration
         const desiredDurationSeconds = resolvePresetDurationSeconds(preset);
         setSessionDurationSeconds(desiredDurationSeconds);
+        // Synchronously set isDurationUnlimited so canAdvanceToReview is correct
+        // on the same render (the async useEffect sync in useSessionState would
+        // otherwise leave it stale for one cycle, blocking the Start button).
+        setIsDurationUnlimited(desiredDurationSeconds === null);
 
-        // Load goal shots from preset settings if available
+        // Populate wizard Step 3: goal shots
         const presetGoalShots = preset.settings?.goalShotsPerTarget;
         if (presetGoalShots && typeof presetGoalShots === 'object' && !Array.isArray(presetGoalShots)) {
           setGoalShotsPerTarget(presetGoalShots as Record<string, number>);
@@ -341,17 +352,83 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
 
         setStagedPresetId(preset.id);
         setActivePresetId(preset.id);
-        toast.success(`Preset "${preset.name}" applied. Launching session...`);
-        registry.current.beginSessionLaunch?.({ targets: prepResult.targets, gameId: prepResult.gameId });
+
+        if (hasTargets) {
+          toast.success(`Preset "${preset.name}" applied. Review the setup and press Start.`);
+        }
+        // Auto-advance effects in useSessionState will step through the wizard
+        return { hasTargets };
       } catch (error) {
         console.error('[Games] Failed to apply preset', { presetId: preset.id, error });
         toast.error('Failed to apply preset. Try again after refreshing devices.');
+        return { hasTargets: false };
       } finally {
         setApplyingPresetId(null);
       }
     },
-    [isSessionLocked, rooms, setGoalShotsPerTarget, setSessionDurationSeconds, setSessionRoomId],
+    [availableDevices, isSessionLocked, rooms, setGoalShotsPerTarget, setIsDurationUnlimited, setSelectedDeviceIds, setSessionDurationSeconds, setSessionRoomId],
   );
+
+  const handleUpdateActivePreset = useCallback(async () => {
+    if (!activePresetId) {
+      toast.error('No active preset to update.');
+      return;
+    }
+    const preset = gamePresets.find((p) => p.id === activePresetId);
+    if (!preset) {
+      toast.error('Active preset not found.');
+      return;
+    }
+    if (stagedPresetTargets.length === 0) {
+      toast.error('Select at least one target before updating the preset.');
+      return;
+    }
+
+    const targetIds = Array.from(new Set(stagedPresetTargets.map((d) => d.deviceId)));
+    const durationSeconds = typeof sessionDurationSeconds === 'number' && sessionDurationSeconds > 0
+      ? Math.round(sessionDurationSeconds)
+      : null;
+    const resolvedRoomId = sessionRoomId ?? null;
+    const resolvedRoomName = resolvedRoomId
+      ? rooms.find((room) => room.id === resolvedRoomId)?.name ?? null
+      : null;
+
+    const settings: Record<string, unknown> = { source: 'games-page' };
+    if (durationSeconds) {
+      settings.desiredDurationSeconds = durationSeconds;
+    }
+    if (resolvedRoomId) {
+      settings.roomId = resolvedRoomId;
+    }
+    if (Object.keys(goalShotsPerTarget).length > 0) {
+      settings.goalShotsPerTarget = goalShotsPerTarget;
+    }
+
+    try {
+      await savePresetMutation.mutateAsync({
+        id: preset.id,
+        name: preset.name,
+        description: preset.description ?? null,
+        roomId: resolvedRoomId,
+        roomName: resolvedRoomName,
+        durationSeconds,
+        targetIds,
+        settings,
+      });
+      toast.success(`Preset "${preset.name}" updated.`);
+    } catch (error) {
+      console.error('[Games] Failed to update preset', error);
+    }
+  }, [
+    activePresetId,
+    gamePresets,
+    goalShotsPerTarget,
+    rooms,
+    savePresetMutation,
+    sessionDurationSeconds,
+    sessionRoomId,
+    stagedPresetTargets,
+  ]);
 
   // --- Effects ---
 
@@ -390,5 +467,6 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
     handleSavePresetDurationChange,
     handleSavePresetSubmit,
     handleApplyPreset,
+    handleUpdateActivePreset,
   };
 }

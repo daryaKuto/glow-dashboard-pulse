@@ -505,6 +505,23 @@ useTargetCustomNames() ──→ displayName override ───────┘
 - **Hero stat resolution**: `Math.max(totalHitCount ?? 0, target.totalShots ?? 0)` — takes whichever is higher between game history aggregate and live telemetry. Shows `"—"` if both are 0/null.
 - **Status is pre-derived**: `target.status` is already `'online' | 'standby' | 'offline'` — do NOT re-derive from raw fields.
 
+### Step 12: Groups Section (IMPLEMENTED)
+
+Add a visual groups section between the filters and the targets grid. Shows all user-created target groups as cards with:
+- Group name with `Users` icon (bare, no badge background)
+- Hero target count (data-first hierarchy)
+- Status breakdown dots per group (active/ready/offline using `TARGET_STATUS_DISPLAY`)
+- Room assignment badge (if group is assigned to a room)
+- Target name preview (first 3 + "+N more")
+- Action dropdown: Add Targets, Delete Group (wires to existing handlers)
+
+**Grid**: `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4`
+**Card tint**: `bg-gradient-to-br from-white to-brand-secondary/[0.04]` (informational = secondary tint)
+**Visibility**: Only renders when `groupsWithCustomNames.length > 0`
+**Animation**: Staggered entrance using existing `containerVariants`/`itemVariants`
+
+**Component**: `GroupCard` defined inline in `targets-page.tsx` (same pattern as `StatCard` and `TargetCard`).
+
 ---
 
 ## File Checklist
@@ -545,3 +562,7 @@ useTargetCustomNames() ──→ displayName override ───────┘
 - [ ] Hit count label text says "Hit Count" (per Phase 10), positioned above the number
 - [ ] TargetCard hover: `shadow-card-hover -translate-y-0.5` (per Phase 10)
 - [ ] Room section headers use plain text count (no red Badge)
+- [ ] Groups section renders between filters and targets grid when groups exist
+- [ ] GroupCard uses `shadow-card` + secondary tint, no border, data-first hierarchy
+- [ ] GroupCard status dots use `TARGET_STATUS_DISPLAY` (never hardcoded)
+- [ ] GroupCard actions (Add Targets, Delete) wire to existing handlers

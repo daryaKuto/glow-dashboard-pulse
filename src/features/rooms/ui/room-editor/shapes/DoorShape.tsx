@@ -1,7 +1,8 @@
 import React from 'react';
-import { Group, Line, Arc } from 'react-konva';
+import { Group, Line, Arc, Rect } from 'react-konva';
+import type Konva from 'konva';
 import type { DoorData, WallData } from '../lib/types';
-import { EDITOR_COLORS, DEFAULT_GRID_SIZE } from '../lib/constants';
+import { EDITOR_COLORS, WALL_STROKE_WIDTH } from '../lib/constants';
 import { getPositionOnWall } from '../lib/geometry';
 
 interface DoorShapeProps {
@@ -9,7 +10,7 @@ interface DoorShapeProps {
   wall: WallData | undefined;
   isSelected: boolean;
   gridSize: number;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, e: Konva.KonvaEventObject<MouseEvent>) => void;
 }
 
 const DoorShape: React.FC<DoorShapeProps> = ({
@@ -25,16 +26,31 @@ const DoorShape: React.FC<DoorShapeProps> = ({
   const doorWidthPx = door.width * gridSize;
   const rotation = (angle * 180) / Math.PI;
   const hingeDir = door.hingeSide === 'left' ? -1 : 1;
-  const swingDir = door.swingDirection === 'inward' ? 1 : -1;
+  const wallThick = wall.thickness || WALL_STROKE_WIDTH;
+
+  // Door gap spans from hinge point (0) to end of door opening along the wall
+  const gapStart = Math.min(0, hingeDir * doorWidthPx);
+  const gapLength = Math.abs(doorWidthPx);
 
   return (
     <Group
       x={point.x}
       y={point.y}
       rotation={rotation}
-      onClick={() => onSelect(door.id)}
-      onTap={() => onSelect(door.id)}
+      onClick={(e) => onSelect(door.id, e)}
+      onTap={(e) => onSelect(door.id, e as unknown as Konva.KonvaEventObject<MouseEvent>)}
     >
+      {/* Wall gap — canvas-colored rect to mask the wall underneath */}
+      <Rect
+        x={0}
+        y={gapStart}
+        width={wallThick + 2}
+        height={gapLength}
+        offsetX={(wallThick + 2) / 2}
+        fill={EDITOR_COLORS.canvasBackground}
+        listening={false}
+      />
+
       {/* Door leaf */}
       <Line
         points={[

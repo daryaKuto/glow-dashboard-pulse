@@ -84,7 +84,7 @@ const Leaderboard: React.FC = () => {
             </div>
           </div>
           <div className="text-right">
-            <div className="text-h3 font-heading text-brand-dark">{displayValue}</div>
+            <div className="text-stat-sm font-bold font-body text-brand-dark tabular-nums">{displayValue}</div>
             <div className="text-sm text-brand-dark/70 font-body">{metricLabel}</div>
           </div>
         </div>

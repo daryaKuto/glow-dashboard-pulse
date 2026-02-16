@@ -1,5 +1,4 @@
-export { StepOneSkeleton, StepTwoSkeleton, StepThreeSkeleton } from './GameSetupSkeleton';
-export { GamePresetsCard, type GamePresetsCardProps } from './GamePresetsCard';
+export { StepOneSkeleton, StepTwoSkeleton, StepThreeSkeleton, SetupWizardSkeleton } from './GameSetupSkeleton';
 export { SavePresetDialog, type SavePresetDialogProps } from './SavePresetDialog';
 export { SetupStepOne, type SetupStepOneProps } from './SetupStepOne';
 export { SetupStepTwo, type SetupStepTwoProps } from './SetupStepTwo';

@@ -163,10 +163,15 @@ export function useLayoutPersistence({ roomId, onRoomCreated }: UseLayoutPersist
     }
   }, [isDirty, getDocumentSnapshot, canvasWidth, canvasHeight, gridSize, roomId, roomName]);
 
-  // Recover from localStorage on mount
+  // Recover from localStorage on mount (existing rooms only).
+  // New rooms always start blank — clear any stale draft.
   useEffect(() => {
+    if (!roomId) {
+      try { localStorage.removeItem('room-editor-draft-new'); } catch { /* ignore */ }
+      return;
+    }
     if (existingLayout) return; // Don't overwrite server data
-    const key = `room-editor-draft-${roomId ?? 'new'}`;
+    const key = `room-editor-draft-${roomId}`;
     try {
       const raw = localStorage.getItem(key);
       if (raw) {

@@ -88,7 +88,10 @@ export async function createRoom(roomData: CreateRoomData): Promise<ApiResponse<
       .single();
 
     if (roomError) {
-      return apiErr('CREATE_ROOM_ERROR', roomError.message, roomError);
+      const message = roomError.message?.includes('unique_user_room_name')
+        ? `A room named "${roomData.name}" already exists. Please choose a different name.`
+        : roomError.message;
+      return apiErr('CREATE_ROOM_ERROR', message, roomError);
     }
 
     // Assign targets if provided

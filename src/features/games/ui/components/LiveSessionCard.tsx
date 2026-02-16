@@ -1,16 +1,333 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Separator } from '@/components/ui/separator';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import { formatSessionDuration } from '@/features/games/lib/session-state';
 import type { LiveSessionSummary } from './types';
-import { Building2, Clock3, Bookmark, Crosshair, PlusCircle, RotateCcw, Info, ArrowRight } from 'lucide-react';
+import { ChevronRight, PlusCircle, RotateCcw, Info, ArrowRight } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useTargetCustomNames } from '@/features/targets';
+
+// --- Collapsible section for summary detail ---
+const CollapsibleSection: React.FC<{
+  title: string;
+  badge?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}> = ({ title, badge, defaultOpen = false, children }) => {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border-t border-[rgba(28,25,43,0.06)]">
+      <button onClick={() => setOpen(!open)}
+        className="flex items-center justify-between w-full py-3 text-left group">
+        <div className="flex items-center gap-2">
+          <ChevronRight className={`h-4 w-4 text-brand-dark/30 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
+          <span className="text-sm font-medium text-brand-dark font-body">{title}</span>
+          {badge && <span className="text-[10px] font-medium text-brand-dark/40 font-body">{badge}</span>}
+        </div>
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2, ease: 'easeOut' }} className="overflow-hidden">
+            <div className="pb-3 space-y-2">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+// --- Summary card (extracted for readability) ---
+const SummaryCard: React.FC<{
+  recentSummary: LiveSessionSummary;
+  isMultiTarget: boolean;
+  totalGoalShots: number;
+  summaryGoalShots: Record<string, number>;
+  avgTransitionTime: number | null;
+  topResults: Array<{ deviceId: string; deviceName: string; hitCount?: number }>;
+  recentSplits: Array<{ deviceId: string; deviceName: string; splitNumber: number; time: number }>;
+  recentTransitions: Array<{ fromDevice: string; toDevice: string; transitionNumber: number; time: number }>;
+  perTargetStats: Array<{ deviceId: string; deviceName: string; hitCount: number; splitCount: number; avgSplit: number | null; fastestSplit: number | null }>;
+  transitionStats: Array<{ key: string; fromName: string; toName: string; count: number; avgTime: number }>;
+  actionsDisabled: boolean;
+  onCreateNew?: () => void;
+  onUsePrevious?: () => void;
+  getDisplayName: (deviceId: string, defaultName: string) => string;
+}> = ({
+  recentSummary, isMultiTarget, totalGoalShots, summaryGoalShots, avgTransitionTime,
+  topResults, recentSplits, recentTransitions, perTargetStats, transitionStats,
+  actionsDisabled, onCreateNew, onUsePrevious, getDisplayName,
+}) => (
+  <Card className="shadow-card bg-gradient-to-br from-white via-white to-brand-primary/[0.04] rounded-[var(--radius-lg)]">
+    <CardContent className="p-5 md:p-6 space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-label text-brand-secondary uppercase tracking-wide font-body">Last Session</p>
+          <h2 className="font-heading text-lg text-brand-dark">Summary</h2>
+          <p className="text-[11px] text-brand-dark font-body">
+            {new Date(recentSummary.startedAt).toLocaleTimeString()} &bull; {recentSummary.targets.length} targets
+          </p>
+        </div>
+        <div className="rounded-full bg-brand-primary/10 px-3 py-1">
+          <span className="text-xs font-bold text-brand-primary font-body tabular-nums">
+            {formatSessionDuration(recentSummary.durationSeconds)}
+          </span>
+        </div>
+      </div>
+
+      {/* Hero stats grid — always visible */}
+      <div className={`grid grid-cols-2 gap-2 ${isMultiTarget ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+        <div className="rounded-[var(--radius)] bg-brand-primary/5 px-3 py-2 shadow-subtle">
+          <p className="text-label text-brand-secondary font-body uppercase tracking-wide block mb-0.5">Total Hits</p>
+          <p className="text-stat-md font-bold text-brand-dark font-body tabular-nums">{recentSummary.totalHits}</p>
+        </div>
+        <div className={`rounded-[var(--radius)] px-3 py-2 shadow-subtle ${
+          recentSummary.isValid === false ? 'bg-red-50' : 'bg-brand-primary/5'
+        }`}>
+          <div className="flex items-center gap-1">
+            <p className="text-label text-brand-secondary font-body uppercase tracking-wide block mb-0.5">Score</p>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button type="button" className="inline-flex items-center justify-center rounded-full hover:bg-brand-dark/10 p-0.5 -m-0.5 transition-colors" aria-label="Info about Score">
+                  <Info className="h-3 w-3 text-brand-dark/40" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="start" className="w-80 bg-white shadow-lg p-3 border-0 z-30">
+                <p className="text-xs font-medium text-brand-dark mb-1">How Score is Calculated</p>
+                {recentSummary.isValid === false ? (
+                  <p className="text-xs text-brand-dark/70">
+                    <span className="font-medium text-red-600">Did Not Finish (DNF):</span> Not all required hits were achieved.
+                  </p>
+                ) : totalGoalShots > 0 ? (
+                  <p className="text-xs text-brand-dark/70">
+                    Score = time (in seconds) of the last required hit. <span className="font-medium">Lower is better.</span>
+                  </p>
+                ) : (
+                  <p className="text-xs text-brand-dark/70">
+                    Score = time from first hit to last hit. <span className="font-medium">Lower is better.</span>
+                  </p>
+                )}
+              </PopoverContent>
+            </Popover>
+          </div>
+          <p className={`text-stat-md font-bold font-body tabular-nums ${
+            recentSummary.isValid === false ? 'text-red-500' : 'text-brand-dark'
+          }`}>
+            {recentSummary.isValid === false
+              ? 'DNF'
+              : typeof recentSummary.score === 'number' && Number.isFinite(recentSummary.score)
+                ? `${recentSummary.score.toFixed(2)}s`
+                : '—'}
+          </p>
+        </div>
+        <div className="rounded-[var(--radius)] bg-brand-primary/5 px-3 py-2 shadow-subtle">
+          <div className="flex items-center gap-1">
+            <p className="text-label text-brand-secondary font-body uppercase tracking-wide block mb-0.5">Avg Split</p>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button type="button" className="inline-flex items-center justify-center rounded-full hover:bg-brand-dark/10 p-0.5 -m-0.5 transition-colors" aria-label="Info about Avg Split">
+                  <Info className="h-3 w-3 text-brand-dark/40" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="start" className="w-72 bg-white shadow-lg p-3 border-0 z-30">
+                <p className="text-xs font-medium text-brand-dark mb-1">What is Avg Split?</p>
+                <p className="text-xs text-brand-dark/70">
+                  {isMultiTarget
+                    ? 'Average time between consecutive hits on the same target.'
+                    : 'Average time between consecutive shots.'}
+                </p>
+              </PopoverContent>
+            </Popover>
+          </div>
+          <p className="text-stat-md font-bold text-brand-dark font-body tabular-nums">
+            {recentSummary.averageHitInterval > 0 ? `${recentSummary.averageHitInterval.toFixed(2)}s` : '—'}
+          </p>
+        </div>
+        {isMultiTarget && (
+          <div className="rounded-[var(--radius)] bg-brand-primary/5 px-3 py-2 shadow-subtle">
+            <div className="flex items-center gap-1">
+              <p className="text-label text-brand-secondary font-body uppercase tracking-wide block mb-0.5">Avg Transition</p>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button type="button" className="inline-flex items-center justify-center rounded-full hover:bg-brand-dark/10 p-0.5 -m-0.5 transition-colors" aria-label="Info about Avg Transition">
+                    <Info className="h-3 w-3 text-brand-dark/40" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent side="bottom" align="start" className="w-72 bg-white shadow-lg p-3 border-0 z-30">
+                  <p className="text-xs font-medium text-brand-dark mb-1">What is Avg Transition?</p>
+                  <p className="text-xs text-brand-dark/70">Average time to switch between different targets.</p>
+                </PopoverContent>
+              </Popover>
+            </div>
+            <p className="text-stat-md font-bold text-brand-dark font-body tabular-nums">
+              {avgTransitionTime !== null ? `${avgTransitionTime.toFixed(2)}s` : '—'}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Collapsible: Targets */}
+      <CollapsibleSection title="Targets" badge={`${topResults.length} devices`}>
+        {topResults.length === 0 ? (
+          <p className="text-sm text-brand-dark/40 font-body">No target activity captured.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {topResults.map((result) => {
+              const goalShots = summaryGoalShots[result.deviceId];
+              const hasGoal = typeof goalShots === 'number' && goalShots > 0;
+              const goalReached = hasGoal && (result.hitCount ?? 0) >= goalShots;
+              const actualHits = result.hitCount ?? 0;
+              const displayName = getDisplayName(result.deviceId, result.deviceName);
+              return (
+                <div
+                  key={result.deviceId}
+                  className={`flex items-center justify-between rounded-[var(--radius)] px-3 py-2 shadow-subtle ${
+                    goalReached ? 'bg-green-50' : 'bg-white'
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${goalReached ? 'bg-green-500' : 'bg-brand-primary'}`} />
+                      <span className="text-sm font-medium text-brand-dark font-body truncate" title={displayName !== result.deviceName ? `Original: ${result.deviceName}` : undefined}>
+                        {displayName}
+                      </span>
+                      {goalReached && <span className="text-[10px] font-bold text-green-600 uppercase tracking-wide">Done</span>}
+                    </div>
+                    {hasGoal && (
+                      <p className="text-[11px] text-brand-dark/40 font-body ml-4">Goal: {goalShots} shots</p>
+                    )}
+                  </div>
+                  <p className="text-stat-sm font-bold text-brand-dark font-body tabular-nums ml-2">
+                    {hasGoal ? `${actualHits}/${goalShots}` : actualHits}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CollapsibleSection>
+
+      {/* Collapsible: Performance */}
+      {(perTargetStats.some(s => s.splitCount > 0) || transitionStats.length > 0) && (
+        <CollapsibleSection title="Performance">
+          {perTargetStats.some(s => s.splitCount > 0) && (
+            <div className="space-y-1.5">
+              <p className="text-label text-brand-secondary font-body uppercase tracking-wide">
+                {isMultiTarget ? 'Per-Target Splits' : 'Split Statistics'}
+              </p>
+              {perTargetStats.filter(s => s.splitCount > 0).map((stat) => (
+                <div key={stat.deviceId} className="flex items-center justify-between text-xs bg-white rounded-[var(--radius)] px-3 py-2 shadow-subtle">
+                  <div className="flex-1 min-w-0">
+                    {isMultiTarget && <span className="font-medium text-brand-dark font-body truncate block">{stat.deviceName}</span>}
+                    <span className="text-[10px] text-brand-dark/40 font-body">
+                      {stat.hitCount} hits, {stat.splitCount} split{stat.splitCount !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div className="text-right ml-2 flex-shrink-0">
+                    <p className="text-brand-primary font-medium font-body tabular-nums">
+                      avg {stat.avgSplit !== null ? `${stat.avgSplit.toFixed(2)}s` : '—'}
+                    </p>
+                    {stat.fastestSplit !== null && (
+                      <p className="text-[10px] text-green-600 font-body tabular-nums">
+                        best {stat.fastestSplit.toFixed(2)}s
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {isMultiTarget && transitionStats.length > 0 && (
+            <div className="space-y-1.5 mt-3">
+              <p className="text-label text-brand-secondary font-body uppercase tracking-wide">Transitions</p>
+              {transitionStats.map((stat) => (
+                <div key={stat.key} className="flex items-center justify-between text-xs bg-white rounded-[var(--radius)] px-3 py-2 shadow-subtle">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <span className="font-medium text-brand-dark font-body truncate">{stat.fromName}</span>
+                    <ArrowRight className="h-3 w-3 text-brand-secondary flex-shrink-0" />
+                    <span className="font-medium text-brand-dark font-body truncate">{stat.toName}</span>
+                  </div>
+                  <div className="text-right ml-2 flex-shrink-0">
+                    <p className="text-brand-secondary font-medium font-body tabular-nums">avg {stat.avgTime.toFixed(2)}s</p>
+                    <p className="text-[10px] text-brand-dark/40 font-body">{stat.count}x</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CollapsibleSection>
+      )}
+
+      {/* Collapsible: Shot Log */}
+      {(recentSplits.length > 0 || (isMultiTarget && recentTransitions.length > 0)) && (
+        <CollapsibleSection title="Shot Log" badge={`${recentSplits.length + recentTransitions.length} entries`}>
+          {recentSplits.length > 0 && (
+            <div className="space-y-1">
+              {recentSplits.map((split) => {
+                const displayName = getDisplayName(split.deviceId, split.deviceName);
+                const splitsForDevice = recentSummary.splits?.filter(s => s.deviceId === split.deviceId) ?? [];
+                const splitIndexForDevice = splitsForDevice.findIndex(s => s.splitNumber === split.splitNumber) + 1;
+                return (
+                  <div key={`${split.deviceId}-${split.splitNumber}`} className="flex items-center justify-between rounded-[var(--radius)] bg-brand-primary/[0.03] px-3 py-1.5 text-xs">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      {isMultiTarget && (
+                        <>
+                          <span className="font-medium text-brand-dark font-body truncate" title={displayName !== split.deviceName ? `Original: ${split.deviceName}` : undefined}>
+                            {displayName}
+                          </span>
+                          <span className="text-brand-dark/30">&bull;</span>
+                        </>
+                      )}
+                      <span className="font-medium text-brand-dark font-body">Split #{isMultiTarget ? splitIndexForDevice : split.splitNumber}</span>
+                    </div>
+                    <span className="text-sm font-bold text-brand-primary font-body tabular-nums ml-2">{split.time.toFixed(2)}s</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {isMultiTarget && recentTransitions.length > 0 && (
+            <div className="space-y-1 mt-2">
+              {recentTransitions.map((transition) => {
+                const fromName = getDisplayName(transition.fromDevice, transition.fromDevice);
+                const toName = getDisplayName(transition.toDevice, transition.toDevice);
+                return (
+                  <div key={`${transition.fromDevice}-${transition.toDevice}-${transition.transitionNumber}`} className="flex items-center justify-between rounded-[var(--radius)] bg-brand-secondary/[0.03] px-3 py-1.5 text-xs">
+                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                      <span className="font-medium text-brand-dark font-body truncate">{fromName}</span>
+                      <ArrowRight className="h-3 w-3 text-brand-secondary flex-shrink-0" />
+                      <span className="font-medium text-brand-dark font-body truncate">{toName}</span>
+                    </div>
+                    <span className="text-sm font-bold text-brand-secondary font-body tabular-nums ml-2">{transition.time.toFixed(2)}s</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CollapsibleSection>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end pt-3 border-t border-[rgba(28,25,43,0.06)]">
+        <Button variant="secondary" onClick={onCreateNew} disabled={actionsDisabled || !onCreateNew}>
+          <PlusCircle className="h-4 w-4" /> New setup
+        </Button>
+        <Button onClick={onUsePrevious} disabled={actionsDisabled || !onUsePrevious}>
+          <RotateCcw className="h-4 w-4" /> Repeat session
+        </Button>
+      </div>
+      {actionsDisabled && (onUsePrevious || onCreateNew) && (
+        <p className="text-[11px] text-brand-dark/40 text-right font-body">
+          Stop the active session to adjust setups.
+        </p>
+      )}
+    </CardContent>
+  </Card>
+);
 
 interface LiveSessionCardProps {
   isRunning: boolean;
@@ -128,34 +445,55 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
 
   if (isRunning) {
     return (
-      <Card className="bg-white border-brand-primary/20 shadow-lg rounded-md md:rounded-xl">
-        <CardContent className="p-4 md:p-6 space-y-5">
-          <div className="rounded-2xl bg-gradient-to-r from-brand-primary to-brand-secondary text-white px-5 py-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <Card className="bg-white shadow-elevated rounded-[var(--radius-lg)]">
+        <CardContent className="p-5 md:p-6 space-y-4">
+          {/* Compact header with live indicator */}
+          <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.35em] text-white/70">Current Session</p>
-              <h2 className="font-heading text-2xl text-white">Live Telemetry</h2>
-              <p className="text-sm text-white/80">Tracking {activeTargets.length} targets in real time</p>
+              <p className="text-label text-brand-secondary uppercase tracking-wide font-body">Live Session</p>
+              <h2 className="font-heading text-lg text-brand-dark">Training</h2>
             </div>
-            <Badge className="bg-white/15 text-white border-white/40 uppercase tracking-wide">Active</Badge>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-xl bg-brand-primary text-white px-4 py-3 shadow-md">
-              <p className="text-[11px] uppercase tracking-wide text-white/70">Stopwatch</p>
-              <p className="font-heading text-3xl">{formatSessionDuration(timerSeconds)}</p>
-              <p className="mt-1 text-xs text-white/70">Goal: {desiredDurationLabel}</p>
-            </div>
-            <div className="rounded-xl bg-brand-secondary text-white px-4 py-3 shadow-md">
-              <p className="text-[11px] uppercase tracking-wide text-white/70">Session Hits</p>
-              <p className="font-heading text-3xl">{activeHits}</p>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-[live-pulse_2s_ease-in-out_infinite]" />
+              <span className="text-xs font-medium text-red-500 font-body uppercase tracking-wide">Live</span>
             </div>
           </div>
+
+          {/* Hero stats — Strava recording-screen style */}
+          <div className="bg-brand-light px-5 py-4 rounded-[var(--radius)]">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <div className="text-center">
+                <motion.p
+                  key={activeHits}
+                  initial={{ scale: 1.05 }}
+                  animate={{ scale: 1 }}
+                  transition={{ duration: 0.15, ease: 'easeOut' }}
+                  className="text-stat-hero font-bold text-brand-dark font-body tabular-nums"
+                >
+                  {activeHits}
+                </motion.p>
+                <p className="text-label text-brand-secondary uppercase tracking-wide font-body">Total Hits</p>
+              </div>
+              <div className="text-center">
+                <p className="text-stat-lg font-bold text-brand-dark font-body tabular-nums">
+                  {formatSessionDuration(timerSeconds)}
+                </p>
+                <p className="text-label text-brand-secondary uppercase tracking-wide font-body">Elapsed</p>
+                <p className="text-[10px] text-brand-dark/40 font-body mt-0.5">Goal: {desiredDurationLabel}</p>
+              </div>
+              <div className="text-center hidden sm:block">
+                <p className="text-stat-lg font-bold text-brand-dark font-body tabular-nums">
+                  {activeTargets.length}
+                </p>
+                <p className="text-label text-brand-secondary uppercase tracking-wide font-body">Targets</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Target rows */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] uppercase tracking-wide text-brand-dark/70">Targets</p>
-              <span className="text-xs text-brand-dark/50">IDs logged to console</span>
-            </div>
             {activeTargets.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-brand-secondary/60 bg-brand-secondary/10 px-3 py-4 text-sm text-brand-dark/70 text-center">
+              <p className="text-sm text-brand-dark/40 font-body text-center py-6">
                 Select one or more online targets to stream live stats.
               </p>
             ) : (
@@ -164,34 +502,26 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
                   const hits = hitCounts[target.deviceId] ?? target.hitCount ?? 0;
                   const goalShots = goalShotsPerTarget[target.deviceId];
                   const hasGoal = typeof goalShots === 'number' && goalShots > 0;
-                  const isGoalReached = hasGoal && hits >= goalShots;
                   const isStopped = stoppedTargets.has(target.deviceId);
-                  console.debug('[LiveSessionCard] Tracking target', { deviceId: target.deviceId, hits, goalShots, isGoalReached, isStopped });
                   return (
                     <div
                       key={target.deviceId}
-                      className={`flex items-center justify-between rounded-xl border px-3 py-2 shadow-sm ${
-                        isStopped
-                          ? 'border-green-300 bg-green-50'
-                          : isGoalReached
-                            ? 'border-green-200 bg-green-50/50'
-                            : 'border-gray-100 bg-white'
+                      className={`flex items-center justify-between rounded-[var(--radius)] px-3 py-2.5 shadow-subtle transition-all duration-200 ${
+                        isStopped ? 'bg-green-50 shadow-green-100/50' : 'bg-white'
                       }`}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="font-medium text-brand-dark leading-tight truncate">{target.name ?? target.deviceId}</p>
-                          {isStopped && (
-                            <Badge className="bg-green-600 text-white text-[10px] px-1.5 py-0">Goal Reached</Badge>
-                          )}
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isStopped ? 'bg-green-500' : 'bg-brand-primary'}`} />
+                          <p className="text-sm font-medium text-brand-dark leading-tight truncate font-body">{target.name ?? target.deviceId}</p>
+                          {isStopped && <span className="text-[10px] font-bold text-green-600 uppercase tracking-wide">Done</span>}
                         </div>
-                        <p className="text-[11px] text-brand-dark/60">
-                          {hasGoal ? `${hits} / ${goalShots} shots` : 'Live hits updating'}
+                        <p className="text-[11px] text-brand-dark/40 font-body ml-4">
+                          {hasGoal ? `${hits} / ${goalShots} shots` : 'Live tracking'}
                         </p>
                       </div>
                       <div className="text-right ml-2">
-                        <p className="text-[11px] text-brand-dark/60 uppercase tracking-wide">Hits</p>
-                        <p className={`font-heading text-xl ${isGoalReached ? 'text-green-600' : 'text-brand-primary'}`}>{hits}</p>
+                        <p className="text-stat-md font-bold text-brand-primary font-body tabular-nums">{hits}</p>
                       </div>
                     </div>
                   );
@@ -210,602 +540,47 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
   };
 
   if (recentSummary) {
-    console.debug('[LiveSessionCard] Rendering last session summary', { gameId: recentSummary.gameId });
     const topResults = [...(recentSummary.historyEntry.deviceResults ?? [])]
       .sort((a, b) => (b.hitCount ?? 0) - (a.hitCount ?? 0))
       .slice(0, 3);
     const recentSplits = (recentSummary.splits ?? []).slice(0, 4);
     const recentTransitions = (recentSummary.transitions ?? []).slice(0, 4);
-    const summaryRoomLabel = recentSummary.roomName ?? 'No room selected';
-    const summaryDurationLabel =
-      typeof recentSummary.desiredDurationSeconds === 'number' && recentSummary.desiredDurationSeconds > 0
-        ? formatSessionDuration(recentSummary.desiredDurationSeconds)
-        : 'No time limit';
-    const displayTargets = recentSummary.targets.slice(0, 4);
-    const extraTargetCount = Math.max(0, recentSummary.targets.length - displayTargets.length);
     const actionsDisabled = isSessionLocked;
     const isMultiTarget = recentSummary.targets.length > 1;
-    
+
     // Calculate total goal shots from goalShotsPerTarget
-    // Check multiple possible locations for goalShotsPerTarget
-    const goalShotsPerTargetRaw = 
-      recentSummary.historyEntry?.goalShotsPerTarget ?? 
-      (recentSummary.historyEntry as any)?.goalShotsPerTarget ??
-      (recentSummary as any)?.goalShotsPerTarget ??
-      {};
-    
-    // Also check if it's stored directly in the summary (for backwards compatibility)
     const allPossibleLocations = [
       recentSummary.historyEntry?.goalShotsPerTarget,
       (recentSummary.historyEntry as any)?.goalShotsPerTarget,
       (recentSummary as any)?.goalShotsPerTarget,
-      (recentSummary as any)?.historyEntry?.goalShotsPerTarget,
     ].filter(Boolean);
-    
-    const goalShotsPerTarget = allPossibleLocations.length > 0 
+
+    const summaryGoalShots = allPossibleLocations.length > 0
       ? (allPossibleLocations[0] as Record<string, number>)
-      : goalShotsPerTargetRaw;
-    
-    console.debug('[LiveSessionCard] Full summary structure', {
-      historyEntry: recentSummary.historyEntry,
-      goalShotsPerTarget,
-      historyEntryKeys: recentSummary.historyEntry ? Object.keys(recentSummary.historyEntry) : [],
-      hasGoalShotsProperty: 'goalShotsPerTarget' in (recentSummary.historyEntry || {}),
-      rawGoalShots: recentSummary.historyEntry?.goalShotsPerTarget,
-      allPossibleLocations,
-      summaryKeys: Object.keys(recentSummary),
-    });
-    
-    const totalGoalShots = Object.values(goalShotsPerTarget).reduce((sum, goal) => {
+      : {};
+
+    const totalGoalShots = Object.values(summaryGoalShots).reduce((sum, goal) => {
       const numGoal = typeof goal === 'number' ? goal : (typeof goal === 'string' ? parseInt(goal, 10) : 0);
       return sum + (Number.isFinite(numGoal) && numGoal >= 0 ? numGoal : 0);
     }, 0);
-    
-    // Debug logging to help diagnose display issues
-    console.debug('[LiveSessionCard] Summary goal shots calculation', {
-      goalShotsPerTarget,
-      totalGoalShots,
-      totalHits: recentSummary.totalHits,
-      goalShotsEntries: Object.entries(goalShotsPerTarget),
-      goalShotsKeys: Object.keys(goalShotsPerTarget),
-      goalShotsValues: Object.values(goalShotsPerTarget),
-      historyEntryGoalShots: recentSummary.historyEntry?.goalShotsPerTarget,
-      willDisplay: totalGoalShots > 0 ? totalGoalShots : '—',
-    });
 
     return (
-      <Card className="rounded-md md:rounded-lg border border-brand-primary/20 bg-gradient-to-br from-white via-brand-primary/5 to-brand-secondary/10 shadow-lg">
-        <CardContent className="p-3 md:p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.2em] text-brand-primary font-semibold">Last Session</p>
-              <h2 className="font-heading text-xl text-brand-dark">Summary</h2>
-              <p className="text-xs text-brand-dark/70">
-                {new Date(recentSummary.startedAt).toLocaleTimeString()} • {recentSummary.targets.length} targets
-              </p>
-            </div>
-            <Badge className="bg-brand-primary/10 text-brand-primary border-brand-primary/40">
-              {formatSessionDuration(recentSummary.durationSeconds)}
-            </Badge>
-          </div>
-          <TooltipProvider>
-            <div className={`grid grid-cols-1 gap-2 ${isMultiTarget ? 'sm:grid-cols-5' : 'sm:grid-cols-4'}`}>
-              <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-3 py-2 shadow-sm">
-                <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Total Hits</p>
-                <p className="font-heading text-2xl text-brand-primary">{recentSummary.totalHits}</p>
-              </div>
-              <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-3 py-2 shadow-sm">
-                <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Goal Shots</p>
-                <p className="font-heading text-2xl text-brand-primary">
-                  {totalGoalShots > 0 ? totalGoalShots : '—'}
-                </p>
-              </div>
-              <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-3 py-2 shadow-sm">
-                <div className="flex items-center gap-1">
-                  <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Avg Split</p>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button 
-                        type="button" 
-                        className="inline-flex items-center justify-center rounded-full hover:bg-brand-dark/10 p-0.5 -m-0.5 transition-colors"
-                        aria-label="Info about Avg Split"
-                      >
-                        <Info className="h-3 w-3 text-brand-dark/40" />
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent 
-                      side="bottom" 
-                      align="start"
-                      className="w-72 bg-white border border-gray-200 shadow-lg p-3"
-                    >
-                      <p className="text-xs font-medium text-brand-dark mb-1">What is Avg Split?</p>
-                      <p className="text-xs text-brand-dark/70 mb-2">
-                        {isMultiTarget 
-                          ? 'Average time between consecutive hits on the same target. Measures recoil management and trigger control.'
-                          : 'Average time between consecutive shots. Measures recoil management and trigger control.'}
-                      </p>
-                      <p className="text-[10px] text-brand-dark/50 border-t border-gray-100 pt-2">
-                        <span className="font-medium">Calculation:</span> Split = timestamp of shot N − timestamp of shot N-1 (on the same target)
-                      </p>
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <p className="font-heading text-2xl text-brand-primary">
-                  {recentSummary.averageHitInterval > 0 ? `${recentSummary.averageHitInterval.toFixed(2)}s` : '—'}
-                </p>
-              </div>
-              {isMultiTarget && (
-                <div className="rounded-xl border border-brand-secondary/30 bg-white/80 px-3 py-2 shadow-sm">
-                  <div className="flex items-center gap-1">
-                    <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Avg Transition</p>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button 
-                          type="button" 
-                          className="inline-flex items-center justify-center rounded-full hover:bg-brand-dark/10 p-0.5 -m-0.5 transition-colors"
-                          aria-label="Info about Avg Transition"
-                        >
-                          <Info className="h-3 w-3 text-brand-dark/40" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent 
-                        side="bottom" 
-                        align="start"
-                        className="w-72 bg-white border border-gray-200 shadow-lg p-3"
-                      >
-                        <p className="text-xs font-medium text-brand-dark mb-1">What is Avg Transition?</p>
-                        <p className="text-xs text-brand-dark/70 mb-2">
-                          Average time to switch between different targets. Measures target acquisition speed.
-                        </p>
-                        <p className="text-[10px] text-brand-dark/50 border-t border-gray-100 pt-2">
-                          <span className="font-medium">Calculation:</span> Transition = time from last hit on Target A to first hit on Target B
-                        </p>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <p className="font-heading text-2xl text-brand-primary">
-                    {avgTransitionTime !== null ? `${avgTransitionTime.toFixed(2)}s` : '—'}
-                  </p>
-                </div>
-              )}
-              <div className={`rounded-xl border px-3 py-2 shadow-sm ${
-                recentSummary.isValid === false
-                  ? 'border-red-300 bg-red-50/80'
-                  : 'border-brand-secondary/30 bg-white/80'
-              }`}>
-                <div className="flex items-center gap-1">
-                  <p className="text-[10px] uppercase tracking-wide text-brand-dark/60">Score</p>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button 
-                        type="button" 
-                        className="inline-flex items-center justify-center rounded-full hover:bg-brand-dark/10 p-0.5 -m-0.5 transition-colors"
-                        aria-label="Info about Score"
-                      >
-                        <Info className="h-3 w-3 text-brand-dark/40" />
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent 
-                      side="bottom" 
-                      align="start"
-                      className="w-80 bg-white border border-gray-200 shadow-lg p-3"
-                    >
-                      <p className="text-xs font-medium text-brand-dark mb-1">How Score is Calculated</p>
-                      {recentSummary.isValid === false ? (
-                        <p className="text-xs text-brand-dark/70">
-                          <span className="font-medium text-red-600">Did Not Finish (DNF):</span> Not all required hits were achieved. A run is valid only when all targets receive their required number of hits.
-                        </p>
-                      ) : totalGoalShots > 0 ? (
-                        <>
-                          <p className="text-xs text-brand-dark/70 mb-2">
-                            Score = time (in seconds) of the last required hit. <span className="font-medium">Lower is better.</span>
-                          </p>
-                          <div className="text-[10px] text-brand-dark/50 border-t border-gray-100 pt-2 space-y-1">
-                            <p><span className="font-medium">Single target:</span> Score = timestamp of the Nth hit (relative to start)</p>
-                            <p><span className="font-medium">Multi-target:</span> Score = timestamp when all targets reach their goal shots</p>
-                            <p className="text-brand-dark/40 italic">No averages or partial credit — all goals must be met.</p>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-xs text-brand-dark/70 mb-2">
-                            Score = time from first hit to last hit. <span className="font-medium">Lower is better.</span>
-                          </p>
-                          <div className="text-[10px] text-brand-dark/50 border-t border-gray-100 pt-2 space-y-1">
-                            <p><span className="font-medium">No goals set:</span> Score measures total run time (first shot to last shot)</p>
-                            <p className="text-brand-dark/40 italic">Set goal shots per target for completion-based scoring.</p>
-                          </div>
-                        </>
-                      )}
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <p className={`font-heading text-2xl ${
-                  recentSummary.isValid === false
-                    ? 'text-red-500'
-                    : 'text-brand-primary'
-                }`}>
-                  {recentSummary.isValid === false
-                    ? 'DNF'
-                    : typeof recentSummary.score === 'number' && Number.isFinite(recentSummary.score)
-                      ? `${recentSummary.score.toFixed(2)}s`
-                      : '—'}
-                </p>
-              </div>
-            </div>
-          </TooltipProvider>
-          <Separator />
-          <div className="space-y-2">
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-              <div className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-                <div className="rounded-md bg-white p-2 text-brand-primary shadow-sm">
-                  <Building2 className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Room</p>
-                  <p className="font-medium text-brand-dark">{summaryRoomLabel ?? 'No room selected'}</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-                <div className="rounded-md bg-white p-2 text-brand-primary shadow-sm">
-                  <Crosshair className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Targets</p>
-                  <p className="font-medium text-brand-dark">{recentSummary.targets.length} staged</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-                <div className="rounded-md bg-white p-2 text-brand-primary shadow-sm">
-                  <Clock3 className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Duration</p>
-                  <p className="font-medium text-brand-dark">{summaryDurationLabel}</p>
-                </div>
-              </div>
-            </div>
-            {recentSummary.presetId && (
-              <div className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-                <div className="rounded-md bg-white p-2 text-brand-primary shadow-sm">
-                  <Bookmark className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Preset</p>
-                  <Badge variant="outline" className="text-xs font-mono">
-                    {recentSummary.presetId}
-                  </Badge>
-                </div>
-              </div>
-            )}
-            {displayTargets.length === 0 ? (
-              <div className="rounded-md border border-dashed border-gray-200 bg-white px-3 py-2 text-sm text-brand-dark/60">
-                No targets recorded.
-              </div>
-            ) : (
-              <div className="rounded-md border border-gray-200 bg-white px-3 py-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-brand-dark/60">Target list</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {displayTargets.map((target) => {
-                    const displayName = getDisplayName(target.deviceId, target.deviceName);
-                    return (
-                      <span
-                        key={target.deviceId}
-                        className="inline-flex items-center rounded-full border border-brand-secondary/30 bg-gray-50 px-3 py-1 text-xs font-medium text-brand-dark"
-                        title={displayName !== target.deviceName ? `Original: ${target.deviceName}` : undefined}
-                      >
-                        {displayName}
-                      </span>
-                    );
-                  })}
-                  {extraTargetCount > 0 && (
-                    <span className="inline-flex items-center rounded-full border border-dashed border-brand-secondary/40 bg-gray-50 px-3 py-1 text-xs font-medium text-brand-dark/60">
-                      +{extraTargetCount} more target{extraTargetCount === 1 ? '' : 's'}
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-          <Separator />
-          <div className="space-y-2">
-            <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Top Targets</p>
-            {topResults.length === 0 ? (
-              <p className="text-sm text-brand-dark/60">No target activity captured for this session.</p>
-            ) : (
-              <div className="space-y-1.5">
-                {topResults.map((result) => {
-                  const goalShots = recentSummary.historyEntry.goalShotsPerTarget?.[result.deviceId];
-                  const hasGoal = typeof goalShots === 'number' && goalShots > 0;
-                  const goalReached = hasGoal && (result.hitCount ?? 0) >= goalShots;
-                  const actualHits = result.hitCount ?? 0;
-                  const displayName = getDisplayName(result.deviceId, result.deviceName);
-                  return (
-                    <div
-                      key={result.deviceId}
-                      className={`flex items-center justify-between rounded-lg border px-2 py-1.5 ${
-                        goalReached
-                          ? 'border-green-300 bg-green-50/50'
-                          : 'border-brand-secondary/20 bg-white/80'
-                      }`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <span 
-                          className="font-medium text-brand-dark block truncate"
-                          title={displayName !== result.deviceName ? `Original: ${result.deviceName}` : undefined}
-                        >
-                          {displayName}
-                        </span>
-                        {hasGoal && (
-                          <span className="text-[10px] text-brand-dark/60">
-                            Goal: {goalShots} shots
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-right ml-2">
-                        {hasGoal ? (
-                          <>
-                            <span className={`font-heading text-lg ${goalReached ? 'text-green-600' : 'text-brand-primary'}`}>
-                              {actualHits} / {goalShots}
-                            </span>
-                            <span className="block text-[10px] text-brand-dark/60">
-                              hits
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="font-heading text-lg text-brand-primary">
-                              {actualHits}
-                            </span>
-                            <span className="block text-[10px] text-brand-dark/60">
-                              hits
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          {/* Performance Breakdown - Per-target and transition statistics */}
-          {(perTargetStats.some(s => s.splitCount > 0) || transitionStats.length > 0) && (
-            <>
-              <Separator />
-              <div className="space-y-3">
-                <p className="text-[11px] uppercase tracking-wide text-brand-dark/60">Performance Breakdown</p>
-                
-                {/* Per-Target Split Statistics */}
-                {perTargetStats.some(s => s.splitCount > 0) && (
-                  <div className="rounded-md border border-gray-200 bg-gray-50/50 p-2">
-                    <p className="text-[10px] uppercase tracking-wide text-brand-dark/50 mb-2">
-                      {isMultiTarget ? 'Per-Target Split Statistics' : 'Split Statistics'}
-                    </p>
-                    <div className="space-y-1.5">
-                      {perTargetStats.filter(s => s.splitCount > 0).map((stat) => (
-                        <div 
-                          key={stat.deviceId}
-                          className="flex items-center justify-between text-xs bg-white rounded px-2 py-1.5 border border-gray-100"
-                        >
-                          <div className="flex-1 min-w-0">
-                            {isMultiTarget && (
-                              <span className="font-medium text-brand-dark truncate block">{stat.deviceName}</span>
-                            )}
-                            <span className="text-[10px] text-brand-dark/60">
-                              {stat.hitCount} hits, {stat.splitCount} split{stat.splitCount !== 1 ? 's' : ''}
-                            </span>
-                          </div>
-                          <div className="text-right ml-2 flex-shrink-0">
-                            <div className="text-brand-primary font-medium">
-                              avg {stat.avgSplit !== null ? `${stat.avgSplit.toFixed(2)}s` : '—'}
-                            </div>
-                            {stat.fastestSplit !== null && (
-                              <div className="text-[10px] text-green-600">
-                                fastest {stat.fastestSplit.toFixed(2)}s
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {/* Transition Statistics (multi-target only) */}
-                {isMultiTarget && transitionStats.length > 0 && (
-                  <div className="rounded-md border border-gray-200 bg-gray-50/50 p-2">
-                    <p className="text-[10px] uppercase tracking-wide text-brand-dark/50 mb-2">Transition Statistics</p>
-                    <div className="space-y-1.5">
-                      {transitionStats.map((stat) => (
-                        <div 
-                          key={stat.key}
-                          className="flex items-center justify-between text-xs bg-white rounded px-2 py-1.5 border border-gray-100"
-                        >
-                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                            <span className="font-medium text-brand-dark truncate">{stat.fromName}</span>
-                            <ArrowRight className="h-3 w-3 text-brand-secondary flex-shrink-0" />
-                            <span className="font-medium text-brand-dark truncate">{stat.toName}</span>
-                          </div>
-                          <div className="text-right ml-2 flex-shrink-0">
-                            <div className="text-brand-secondary font-medium">
-                              avg {stat.avgTime.toFixed(2)}s
-                            </div>
-                            <div className="text-[10px] text-brand-dark/60">
-                              {stat.count} transition{stat.count !== 1 ? 's' : ''}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-          {recentSplits.length > 0 && (
-            <>
-              <Separator />
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-brand-dark/60">
-                  <div className="flex items-center gap-1">
-                    <span>Recent Splits</span>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button 
-                          type="button" 
-                          className="inline-flex items-center justify-center rounded-full hover:bg-brand-dark/10 p-0.5 -m-0.5 transition-colors"
-                          aria-label="Info about Splits"
-                        >
-                          <Info className="h-3 w-3 text-brand-dark/40" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent 
-                        side="bottom" 
-                        align="start"
-                        className="w-80 bg-white border border-gray-200 shadow-lg p-3"
-                      >
-                        <p className="text-xs font-medium text-brand-dark mb-1">What is a Split?</p>
-                        <p className="text-xs text-brand-dark/70 mb-2">
-                          {isMultiTarget 
-                            ? 'Split = time between consecutive hits on the same target. Measures recoil management and trigger control.'
-                            : 'Split = time between consecutive shots. Measures recoil management and trigger control.'}
-                        </p>
-                        <div className="text-[10px] text-brand-dark/50 border-t border-gray-100 pt-2 space-y-1">
-                          <p><span className="font-medium">Formula:</span> Split = timestamp of shot N − timestamp of shot N-1</p>
-                          {isMultiTarget && (
-                            <p><span className="font-medium">Note:</span> Splits are calculated per-target, ignoring hits on other targets in between.</p>
-                          )}
-                          <p className="italic">Example: Shots at 0.82s, 1.05s → Split = 0.23s</p>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <span className="text-brand-primary text-[10px] font-semibold">
-                    {isMultiTarget ? 'Target • Split # • Time' : 'Split # • Time'}
-                  </span>
-                </div>
-                  <div className="space-y-1">
-                    {recentSplits.map((split) => {
-                      const displayName = getDisplayName(split.deviceId, split.deviceName);
-                      // Count splits per device to show proper split number per target
-                      const splitsForDevice = recentSummary.splits?.filter(s => s.deviceId === split.deviceId) ?? [];
-                      const splitIndexForDevice = splitsForDevice.findIndex(s => s.splitNumber === split.splitNumber) + 1;
-                      
-                      return (
-                        <div
-                          key={`${split.deviceId}-${split.splitNumber}`}
-                          className="flex items-center justify-between rounded-lg border border-brand-primary/20 bg-brand-primary/5 px-2 py-1.5 text-xs text-brand-dark"
-                        >
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            {isMultiTarget && (
-                              <>
-                                <span 
-                                  className="font-medium text-brand-dark truncate" 
-                                  title={displayName !== split.deviceName ? `Original: ${split.deviceName}` : undefined}
-                                >
-                                  {displayName}
-                                </span>
-                                <span className="text-brand-dark/60">•</span>
-                              </>
-                            )}
-                            <span className="font-medium text-brand-dark">
-                              Split #{isMultiTarget ? splitIndexForDevice : split.splitNumber}
-                            </span>
-                          </div>
-                          <span className="font-heading text-sm text-brand-primary ml-2">{split.time.toFixed(2)}s</span>
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
-            </>
-          )}
-          {isMultiTarget && recentTransitions.length > 0 && (
-            <>
-              <Separator />
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-brand-dark/60">
-                  <div className="flex items-center gap-1">
-                    <span>Recent Transitions</span>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button 
-                          type="button" 
-                          className="inline-flex items-center justify-center rounded-full hover:bg-brand-dark/10 p-0.5 -m-0.5 transition-colors"
-                          aria-label="Info about Transitions"
-                        >
-                          <Info className="h-3 w-3 text-brand-dark/40" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent 
-                        side="bottom" 
-                        align="start"
-                        className="w-80 bg-white border border-gray-200 shadow-lg p-3"
-                      >
-                        <p className="text-xs font-medium text-brand-dark mb-1">What is a Transition?</p>
-                        <p className="text-xs text-brand-dark/70 mb-2">
-                          Transition = time to switch between different targets. Measures target acquisition speed.
-                        </p>
-                        <div className="text-[10px] text-brand-dark/50 border-t border-gray-100 pt-2 space-y-1">
-                          <p><span className="font-medium">Formula:</span> Transition = timestamp of hit on new target − timestamp of last hit on previous target</p>
-                          <p className="italic">Example: Target A at 1.20s, Target B at 1.55s → A→B transition = 0.35s</p>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <span className="text-brand-secondary text-[10px] font-semibold">From → To • Time</span>
-                </div>
-                <div className="space-y-1">
-                  {recentTransitions.map((transition) => {
-                    const fromName = getDisplayName(transition.fromDevice, transition.fromDevice);
-                    const toName = getDisplayName(transition.toDevice, transition.toDevice);
-                    return (
-                      <div
-                        key={`${transition.fromDevice}-${transition.toDevice}-${transition.transitionNumber}`}
-                        className="flex items-center justify-between rounded-lg border border-brand-secondary/20 bg-brand-secondary/5 px-2 py-1.5 text-xs text-brand-dark"
-                      >
-                        <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                          <span className="font-medium text-brand-dark truncate">{fromName}</span>
-                          <ArrowRight className="h-3 w-3 text-brand-secondary flex-shrink-0" />
-                          <span className="font-medium text-brand-dark truncate">{toName}</span>
-                        </div>
-                        <span className="font-heading text-sm text-brand-secondary ml-2">{transition.time.toFixed(2)}s</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </>
-          )}
-          <Separator />
-          <div className="flex flex-col gap-1.5 sm:flex-row sm:justify-end">
-            <Button
-              variant="default"
-              onClick={onCreateNew}
-              disabled={actionsDisabled || !onCreateNew}
-              className="bg-red-600 hover:bg-red-700 text-white"
-            >
-              <PlusCircle className="h-4 w-4" />
-              Create new setup
-            </Button>
-            <Button
-              variant="default"
-              onClick={onUsePrevious}
-              disabled={actionsDisabled || !onUsePrevious}
-              className="bg-green-600 hover:bg-green-700 text-white sm:min-w-[180px]"
-            >
-              <RotateCcw className="h-4 w-4" />
-              Use previous settings
-            </Button>
-          </div>
-          {actionsDisabled && (onUsePrevious || onCreateNew) && (
-            <p className="text-[11px] text-brand-dark/60 text-right">
-              Stop the active session to adjust setups.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+      <SummaryCard
+        recentSummary={recentSummary}
+        isMultiTarget={isMultiTarget}
+        totalGoalShots={totalGoalShots}
+        summaryGoalShots={summaryGoalShots}
+        avgTransitionTime={avgTransitionTime}
+        topResults={topResults}
+        recentSplits={recentSplits}
+        recentTransitions={recentTransitions}
+        perTargetStats={perTargetStats}
+        transitionStats={transitionStats}
+        actionsDisabled={actionsDisabled}
+        onCreateNew={onCreateNew}
+        onUsePrevious={onUsePrevious}
+        getDisplayName={getDisplayName}
+      />
     );
   }
 
@@ -814,71 +589,41 @@ export const LiveSessionCard: React.FC<LiveSessionCardProps> = ({
 
 // Placeholder while live session data boots.
 export const LiveSessionCardSkeleton: React.FC = () => (
-  <Card className="bg-white border-gray-200 shadow-sm rounded-md md:rounded-lg">
-    <CardContent className="p-4 md:p-5 space-y-5">
-      <div className="rounded-2xl bg-gradient-to-r from-brand-primary/10 to-brand-secondary/10 px-5 py-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-2">
-          <Skeleton className="h-4 w-36 bg-gray-200" />
-          <Skeleton className="h-6 w-40 bg-gray-200" />
-          <Skeleton className="h-3 w-48 bg-gray-200" />
-        </div>
-        <Skeleton className="h-6 w-20 bg-gray-200 rounded-full" />
+  <div className="bg-gradient-to-br from-white via-white to-brand-primary/[0.04] shadow-card rounded-[var(--radius-lg)] p-5 md:p-6 animate-pulse space-y-4">
+    {/* Header */}
+    <div className="flex items-center justify-between">
+      <div className="space-y-1.5">
+        <Skeleton className="h-3 w-20 bg-gray-200" />
+        <Skeleton className="h-5 w-28 bg-gray-200" />
+        <Skeleton className="h-3 w-40 bg-gray-200" />
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="rounded-xl bg-gray-50 px-4 py-3 shadow-inner space-y-2">
-          <Skeleton className="h-3 w-32 bg-gray-200" />
-          <Skeleton className="h-8 w-36 bg-gray-200" />
-          <Skeleton className="h-3 w-28 bg-gray-200" />
+      <Skeleton className="h-7 w-16 rounded-full bg-gray-200" />
+    </div>
+    {/* Hero stats */}
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="rounded-[var(--radius)] bg-gray-100 px-3 py-3 space-y-1.5">
+          <Skeleton className="h-3 w-16 bg-gray-200" />
+          <Skeleton className="h-7 w-12 bg-gray-200" />
         </div>
-        <div className="rounded-xl bg-gray-50 px-4 py-3 shadow-inner space-y-2">
-          <Skeleton className="h-3 w-32 bg-gray-200" />
-          <Skeleton className="h-8 w-24 bg-gray-200" />
+      ))}
+    </div>
+    {/* Target rows */}
+    <div className="space-y-2">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="flex items-center justify-between rounded-[var(--radius)] bg-white px-3 py-2.5 shadow-subtle">
+          <div className="space-y-1">
+            <Skeleton className="h-4 w-32 bg-gray-200" />
+            <Skeleton className="h-3 w-20 bg-gray-200" />
+          </div>
+          <Skeleton className="h-6 w-10 bg-gray-200" />
         </div>
-      </div>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-3 w-36 bg-gray-200" />
-          <Skeleton className="h-3 w-24 bg-gray-200" />
-        </div>
-        <div className="space-y-2 max-h-48">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div
-              key={index}
-              className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm"
-            >
-              <div className="space-y-1">
-                <Skeleton className="h-4 w-32 bg-gray-200" />
-                <Skeleton className="h-3 w-40 bg-gray-200" />
-              </div>
-              <Skeleton className="h-6 w-16 bg-gray-200 rounded-full" />
-            </div>
-          ))}
-        </div>
-      </div>
-      <Separator />
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-3 w-32 bg-gray-200" />
-          <Skeleton className="h-3 w-24 bg-gray-200" />
-        </div>
-        <div className="space-y-2">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <div
-              key={index}
-              className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
-            >
-              <Skeleton className="h-4 w-32 bg-gray-200" />
-              <Skeleton className="h-4 w-16 bg-gray-200" />
-            </div>
-          ))}
-        </div>
-      </div>
-      <Separator />
-      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-        <Skeleton className="h-9 w-full sm:w-40 rounded-md bg-gray-200" />
-        <Skeleton className="h-10 w-full sm:w-48 rounded-md bg-gray-200" />
-      </div>
-      <Skeleton className="h-3 w-52 bg-gray-200 self-end" />
-    </CardContent>
-  </Card>
+      ))}
+    </div>
+    {/* Action buttons */}
+    <div className="flex gap-2 justify-end pt-3 border-t border-[rgba(28,25,43,0.06)]">
+      <Skeleton className="h-10 w-28 rounded-full bg-gray-200" />
+      <Skeleton className="h-10 w-36 rounded-full bg-gray-200" />
+    </div>
+  </div>
 );

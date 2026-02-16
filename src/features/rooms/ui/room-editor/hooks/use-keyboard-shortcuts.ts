@@ -16,6 +16,7 @@ export function useKeyboardShortcuts({ onSave, enabled = true }: UseKeyboardShor
   const zoomIn = useRoomEditorStore((s) => s.zoomIn);
   const zoomOut = useRoomEditorStore((s) => s.zoomOut);
   const resetZoom = useRoomEditorStore((s) => s.resetZoom);
+  const addPrebuiltRoom = useRoomEditorStore((s) => s.addPrebuiltRoom);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -83,6 +84,14 @@ export function useKeyboardShortcuts({ onSave, enabled = true }: UseKeyboardShor
         setActiveTool('door');
         return;
       }
+      if (e.key === 'm' || e.key === '5') {
+        setActiveTool('move');
+        return;
+      }
+      if (e.key === 'r') {
+        addPrebuiltRoom();
+        return;
+      }
 
       // Zoom
       if (e.key === '=' || e.key === '+') {
@@ -113,6 +122,7 @@ export function useKeyboardShortcuts({ onSave, enabled = true }: UseKeyboardShor
       zoomIn,
       zoomOut,
       resetZoom,
+      addPrebuiltRoom,
     ]
   );
 

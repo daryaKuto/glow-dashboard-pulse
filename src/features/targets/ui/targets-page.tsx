@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { getStatusDisplay, TARGET_STATUS_DISPLAY } from '@/shared/constants/target-status';
 import { motion } from 'framer-motion';
 import { useRooms, type Room } from '@/features/rooms';
 import {
@@ -36,11 +37,15 @@ import {
   Wifi,
   WifiOff,
   MapPin,
-  MoreVertical,
   Settings,
   Trash2,
   Sparkles,
-  Users
+  Users,
+  X,
+  Pencil,
+  Check,
+  MoreVertical,
+  ChevronDown
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -48,7 +53,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { fetchAllGameHistory } from '@/features/games/lib/game-history';
+import { useGameHistory } from '@/features/games/hooks/use-game-history';
 import { TargetCustomizationDialog } from '@/features/targets/ui/TargetCustomizationDialog';
 import CreateGroupModal from '@/features/targets/ui/CreateGroupModal';
 import AddTargetsToGroupModal from '@/features/targets/ui/AddTargetsToGroupModal';
@@ -126,11 +131,9 @@ const TargetCard: React.FC<{
   const lastShotTime = target.lastShotTime ?? target.lastActivityTime ?? null;
 
   const status = target.status;
+  const statusConfig = getStatusDisplay(status);
   const isConnected = status === 'online' || status === 'standby';
   const ConnectionIcon = isConnected ? Wifi : WifiOff;
-  // User-friendly status: "Active" = in game, "Ready" = powered on & idle, "Offline" = disconnected
-  const connectionLabel =
-    status === 'online' ? 'Active' : status === 'standby' ? 'Ready' : 'Offline';
 
   return (
     <Card className="shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 bg-gradient-to-br from-white via-white to-brand-primary/[0.04]">
@@ -138,13 +141,7 @@ const TargetCard: React.FC<{
         {/* Row 1 — Status dot + Name + Action menu */}
         <div className="flex items-center justify-between gap-1.5 md:gap-2 mb-2 md:mb-3">
           <div className="flex items-center gap-1.5 md:gap-2 min-w-0 flex-1">
-            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-              status === 'online'
-                ? 'bg-green-500'
-                : status === 'standby'
-                  ? 'bg-amber-500'
-                  : 'bg-gray-400'
-            }`} />
+            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${statusConfig.dotColor}`} />
             <h3 className="text-sm md:text-base font-heading font-semibold text-brand-dark truncate" title={displayName}>
               {displayName}
             </h3>
@@ -202,7 +199,7 @@ const TargetCard: React.FC<{
         <div className="flex items-center justify-center gap-2 md:gap-4 mb-1.5 md:mb-2">
           <div className="flex items-center gap-1">
             <ConnectionIcon className="h-3 w-3 md:h-3.5 md:w-3.5 text-brand-dark/50" />
-            <span className="text-[10px] md:text-xs text-brand-dark/50 font-body">{connectionLabel}</span>
+            <span className="text-[10px] md:text-xs text-brand-dark/50 font-body">{statusConfig.label}</span>
           </div>
           <div className="flex items-center gap-1">
             <MapPin className="h-3 w-3 md:h-3.5 md:w-3.5 text-brand-dark/50" />
@@ -220,6 +217,193 @@ const TargetCard: React.FC<{
               : 'No activity'}
           </span>
         </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+// Status sort: ready (standby) first, then active (online), then offline
+const GROUP_TARGET_SORT: Record<string, number> = { standby: 0, online: 1, offline: 2 };
+
+// GroupCard — Design Gospel compliant group display card with inline edit mode
+const GroupCard: React.FC<{
+  group: TargetGroup & { targets?: (Target & { displayName?: string })[] };
+  room?: Room | null;
+  allTargets: Array<Target & { displayName?: string }>;
+  onAddTargets: (groupId: string, targetIds: string[]) => void;
+  onRemoveTarget: (groupId: string, targetId: string) => void;
+  onDelete: (groupId: string) => void;
+}> = ({ group, room, allTargets, onAddTargets, onRemoveTarget, onDelete }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const targets = group.targets ?? [];
+  const groupTargetIds = new Set(targets.map(t => t.id));
+  const sortedTargets = [...targets].sort(
+    (a, b) => (GROUP_TARGET_SORT[a.status ?? 'offline'] ?? 2) - (GROUP_TARGET_SORT[b.status ?? 'offline'] ?? 2)
+  );
+  // All targets sorted: ready first, with group members on top within each status tier
+  const sortedAllTargets = [...allTargets].sort((a, b) => {
+    const statusA = GROUP_TARGET_SORT[a.status ?? 'offline'] ?? 2;
+    const statusB = GROUP_TARGET_SORT[b.status ?? 'offline'] ?? 2;
+    if (statusA !== statusB) return statusA - statusB;
+    const inGroupA = groupTargetIds.has(a.id) ? 0 : 1;
+    const inGroupB = groupTargetIds.has(b.id) ? 0 : 1;
+    return inGroupA - inGroupB;
+  });
+  const onlineCount = targets.filter(t => t.status === 'online').length;
+  const standbyCount = targets.filter(t => t.status === 'standby').length;
+  const offlineCount = targets.filter(t => t.status === 'offline').length;
+
+  const handleToggleTarget = (targetId: string) => {
+    if (groupTargetIds.has(targetId)) {
+      onRemoveTarget(group.id, targetId);
+    } else {
+      onAddTargets(group.id, [targetId]);
+    }
+  };
+
+  return (
+    <Card className="shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 bg-gradient-to-br from-white to-brand-secondary/[0.04]">
+      <CardContent className="p-3 md:p-5">
+        {/* Row 1 — Group icon + Name + Edit/Delete buttons */}
+        <div className="flex items-center justify-between gap-1.5 md:gap-2 mb-2 md:mb-3">
+          <div className="flex items-center gap-1.5 md:gap-2 min-w-0 flex-1">
+            <Users className="w-3.5 h-3.5 md:w-4 md:h-4 text-brand-primary flex-shrink-0" />
+            <h3 className="text-sm md:text-base font-heading font-semibold text-brand-dark truncate" title={group.name}>
+              {group.name}
+            </h3>
+          </div>
+          <div className="flex items-center gap-0 md:gap-0.5 shrink-0">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setIsEditing(!isEditing)}
+              className={`h-7 w-7 md:h-8 md:w-8 ${isEditing ? 'text-brand-primary bg-brand-primary/[0.08]' : 'text-brand-dark/50 hover:text-brand-dark hover:bg-brand-dark/[0.06]'}`}
+              title={isEditing ? 'Done editing' : 'Edit Group'}
+            >
+              {isEditing ? <Check className="w-3 h-3 md:w-3.5 md:h-3.5" /> : <Pencil className="w-3 h-3 md:w-3.5 md:h-3.5" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => onDelete(group.id)}
+              className="text-brand-dark/50 hover:text-red-600 hover:bg-red-600/[0.08] h-7 w-7 md:h-8 md:w-8"
+              title="Delete Group"
+            >
+              <Trash2 className="w-3 h-3 md:w-3.5 md:h-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Row 2 — Status summary (clickable to expand/collapse in normal mode) */}
+        <button
+          type="button"
+          onClick={() => { if (!isEditing) setIsExpanded(!isExpanded); }}
+          className={`flex items-center gap-2 md:gap-3 w-full text-left ${isEditing ? 'cursor-default mb-2 md:mb-3' : 'cursor-pointer mb-2 md:mb-3'}`}
+        >
+          <div className="flex items-center gap-2 md:gap-3 flex-1 flex-wrap">
+            {onlineCount > 0 && (
+              <div className="flex items-center gap-1">
+                <div className={`w-1.5 h-1.5 rounded-full ${TARGET_STATUS_DISPLAY.online.dotColor}`} />
+                <span className="text-[10px] md:text-xs text-brand-dark/50 font-body">
+                  {onlineCount} {TARGET_STATUS_DISPLAY.online.label.toLowerCase()}
+                </span>
+              </div>
+            )}
+            {standbyCount > 0 && (
+              <div className="flex items-center gap-1">
+                <div className={`w-1.5 h-1.5 rounded-full ${TARGET_STATUS_DISPLAY.standby.dotColor}`} />
+                <span className="text-[10px] md:text-xs text-brand-dark/50 font-body">
+                  {standbyCount} {TARGET_STATUS_DISPLAY.standby.label.toLowerCase()}
+                </span>
+              </div>
+            )}
+            {offlineCount > 0 && (
+              <div className="flex items-center gap-1">
+                <div className={`w-1.5 h-1.5 rounded-full ${TARGET_STATUS_DISPLAY.offline.dotColor}`} />
+                <span className="text-[10px] md:text-xs text-brand-dark/50 font-body">
+                  {offlineCount} {TARGET_STATUS_DISPLAY.offline.label.toLowerCase()}
+                </span>
+              </div>
+            )}
+            {targets.length === 0 && !isEditing && (
+              <span className="text-[10px] md:text-xs text-brand-dark/40 font-body">No targets assigned</span>
+            )}
+          </div>
+          {!isEditing && targets.length > 0 && (
+            <ChevronDown className={`w-3.5 h-3.5 text-brand-dark/30 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+          )}
+        </button>
+
+        {/* Edit mode — all targets checklist */}
+        {isEditing ? (
+          <div className="space-y-1 mb-2 md:mb-3 max-h-[220px] overflow-y-auto scrollbar-thin scrollbar-thumb-brand-secondary/20">
+            {sortedAllTargets.length === 0 ? (
+              <p className="text-xs text-brand-dark/40 font-body text-center py-3">No targets available</p>
+            ) : (
+              sortedAllTargets.map((target) => {
+                const isInGroup = groupTargetIds.has(target.id);
+                const statusCfg = getStatusDisplay(target.status);
+                const displayName = target.displayName || target.name;
+                return (
+                  <button
+                    key={target.id}
+                    onClick={() => handleToggleTarget(target.id)}
+                    className={`flex items-center gap-2 w-full text-left rounded-[var(--radius)] px-2 py-1.5 transition-colors duration-150 ${
+                      isInGroup ? 'bg-brand-primary/[0.05]' : 'bg-white/60 hover:bg-white'
+                    }`}
+                  >
+                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                      isInGroup ? 'border-brand-primary bg-brand-primary' : 'border-brand-dark/20 bg-transparent'
+                    }`}>
+                      {isInGroup && <Check className="w-2.5 h-2.5 text-white" />}
+                    </div>
+                    <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusCfg.dotColor}`} />
+                    <span className="text-xs text-brand-dark font-body truncate flex-1" title={displayName}>
+                      {displayName}
+                    </span>
+                    <span className={`text-[9px] font-body ${statusCfg.textColor} flex-shrink-0`}>
+                      {statusCfg.label}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        ) : (
+          /* Normal mode — expandable target member list */
+          isExpanded && sortedTargets.length > 0 && (
+            <div className="space-y-1 mb-2 md:mb-3 max-h-[180px] overflow-y-auto scrollbar-thin scrollbar-thumb-brand-secondary/20">
+              {sortedTargets.map((target) => {
+                const statusCfg = getStatusDisplay(target.status);
+                const displayName = (target as Target & { displayName?: string }).displayName || target.name;
+                return (
+                  <div
+                    key={target.id}
+                    className="flex items-center gap-2 rounded-[var(--radius)] px-2 py-1.5 bg-white/60 hover:bg-white transition-colors duration-150"
+                  >
+                    <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusCfg.dotColor}`} />
+                    <TargetIcon className="w-3 h-3 text-brand-dark/30 flex-shrink-0" />
+                    <span className="text-xs text-brand-dark font-body truncate flex-1" title={displayName}>
+                      {displayName}
+                    </span>
+                    <span className={`text-[9px] font-body ${statusCfg.textColor} flex-shrink-0`}>
+                      {statusCfg.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
+
+        {/* Row 4 — Room badge */}
+        {room && (
+          <div className="flex items-center gap-1">
+            <MapPin className="h-3 w-3 text-brand-dark/40" />
+            <span className="text-[10px] md:text-[11px] text-brand-dark/40 font-body truncate max-w-[100px]">{room.name}</span>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -278,10 +462,41 @@ const Targets: React.FC = () => {
   
   // Local state
   const [targets, setTargets] = useState<Target[]>(storeTargets);
-  const [targetHitTotals, setTargetHitTotals] = useState<Record<string, number>>({});
-  const [hitTotalsLoading, setHitTotalsLoading] = useState(false);
-  const hitTotalsSignatureRef = useRef<string | null>(null);
-  const isLoading = roomsLoading || groupsLoading || targetsStoreLoading || detailsLoading;
+  const isLoading = roomsLoading || groupsLoading || targetsStoreLoading;
+
+  // Fetch game history for hit totals (deferred, non-blocking, max 3 pages = 150 records)
+  const { data: gameHistoryData, isLoading: hitTotalsLoading } = useGameHistory({
+    pageSize: 50,
+    maxPages: 3,
+  });
+
+  // Aggregate hit totals per device from game history
+  const targetHitTotals = useMemo(() => {
+    if (!gameHistoryData?.length) return {};
+    const totals: Record<string, number> = {};
+    for (const entry of gameHistoryData) {
+      const seen = new Set<string>();
+      if (Array.isArray(entry.targetStats)) {
+        for (const stat of entry.targetStats) {
+          const deviceId = stat?.deviceId;
+          const hits = Number(stat?.hitCount ?? 0);
+          if (!deviceId || !Number.isFinite(hits)) continue;
+          totals[deviceId] = (totals[deviceId] ?? 0) + hits;
+          seen.add(deviceId);
+        }
+      }
+      if (Array.isArray(entry.deviceResults)) {
+        for (const result of entry.deviceResults) {
+          const deviceId = result?.deviceId;
+          if (!deviceId || seen.has(deviceId)) continue;
+          const hits = Number(result?.hitCount ?? 0);
+          if (!Number.isFinite(hits)) continue;
+          totals[deviceId] = (totals[deviceId] ?? 0) + hits;
+        }
+      }
+    }
+    return totals;
+  }, [gameHistoryData]);
   
   // Use live rooms
   const rooms = liveRooms;
@@ -364,86 +579,6 @@ const Targets: React.FC = () => {
     });
   }, [storeTargets]);
 
-  useEffect(() => {
-    const signature = storeTargets
-      .map((target) => target.id)
-      .filter(Boolean)
-      .sort()
-      .join('|');
-
-    if (signature.length === 0) {
-      hitTotalsSignatureRef.current = signature;
-      setTargetHitTotals({});
-      return;
-    }
-
-    if (hitTotalsSignatureRef.current === signature) {
-      return;
-    }
-
-    let isCancelled = false;
-    setHitTotalsLoading(true);
-
-    const loadTargetHitTotals = async () => {
-      try {
-        const { history } = await fetchAllGameHistory({ pageSize: 50, maxPages: 10 });
-        const totals: Record<string, number> = {};
-
-        history.forEach((entry) => {
-          const seen = new Set<string>();
-          if (Array.isArray(entry.targetStats)) {
-            entry.targetStats.forEach((stat) => {
-              const deviceId = stat?.deviceId;
-              const hits = Number(stat?.hitCount ?? 0);
-              if (!deviceId || !Number.isFinite(hits)) {
-                return;
-              }
-              totals[deviceId] = (totals[deviceId] ?? 0) + hits;
-              seen.add(deviceId);
-            });
-          }
-
-          if (Array.isArray(entry.deviceResults)) {
-            entry.deviceResults.forEach((result) => {
-              const deviceId = result?.deviceId;
-              if (!deviceId || seen.has(deviceId)) {
-                return;
-              }
-              const hits = Number(result?.hitCount ?? 0);
-              if (!Number.isFinite(hits)) {
-                return;
-              }
-              totals[deviceId] = (totals[deviceId] ?? 0) + hits;
-            });
-          }
-        });
-
-        if (!isCancelled) {
-          logger.debug('[Targets] Game history hit totals aggregated', {
-            totalDevices: Object.keys(totals).length,
-            totals,
-          });
-          setTargetHitTotals(totals);
-          hitTotalsSignatureRef.current = signature;
-        }
-      } catch (error) {
-        if (!isCancelled) {
-          logger.error('❌ [Targets] Failed to aggregate hit history totals', error);
-          toast.error('Unable to load target hit history from Supabase');
-        }
-      } finally {
-        if (!isCancelled) {
-          setHitTotalsLoading(false);
-        }
-      }
-    };
-
-    void loadTargetHitTotals();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [storeTargets]);
 
   const ensureTargets = useCallback(async (force = false) => {
     const debug = isFetchDebugEnabled();
@@ -703,104 +838,79 @@ const Targets: React.FC = () => {
       : null;
   }, [groupIdToAddTargets, groupsWithCustomNames]);
 
-  // Filter targets by search term, room, and group
-  const filteredTargets = targetsWithCustomNames.filter(target => {
-    const matchesSearch = target.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         target.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRoom = roomFilter === 'all' || 
-                       (roomFilter === 'unassigned' && !target.roomId) ||
-                       (target.roomId && target.roomId.toString() === roomFilter);
-    const matchesGroup = groupFilter === 'all' ||
-                        (groupFilter === 'ungrouped' && !targetsInGroups.has(target.id)) ||
-                        (groupFilter === 'grouped' && targetsInGroups.has(target.id)) ||
-                        (groupFilter !== 'all' && groupFilter !== 'ungrouped' && groupFilter !== 'grouped' && 
-                         groupsWithCustomNames.some(g => g.id === groupFilter && g.targets?.some(t => t.id === target.id)));
-    return matchesSearch && matchesRoom && matchesGroup;
-  });
+  // Pre-build a Set of target IDs for the selected group filter (O(1) lookups instead of nested .some())
+  const groupFilterTargetIds = useMemo(() => {
+    if (groupFilter === 'all' || groupFilter === 'ungrouped' || groupFilter === 'grouped') return null;
+    const group = groupsWithCustomNames.find(g => g.id === groupFilter);
+    return new Set(group?.targets?.map(t => t.id) ?? []);
+  }, [groupFilter, groupsWithCustomNames]);
 
+  // Memoized filter → deduplicate → group → sort pipeline
+  const sortedGroupedTargets = useMemo(() => {
+    const searchLower = searchTerm.toLowerCase();
 
+    // 1. Filter
+    const filtered = targetsWithCustomNames.filter(target => {
+      const matchesSearch = !searchTerm ||
+        target.displayName.toLowerCase().includes(searchLower) ||
+        target.name.toLowerCase().includes(searchLower);
+      const matchesRoom = roomFilter === 'all' ||
+        (roomFilter === 'unassigned' && !target.roomId) ||
+        (target.roomId && target.roomId.toString() === roomFilter);
+      const matchesGroup = groupFilter === 'all' ||
+        (groupFilter === 'ungrouped' && !targetsInGroups.has(target.id)) ||
+        (groupFilter === 'grouped' && targetsInGroups.has(target.id)) ||
+        (groupFilterTargetIds !== null && groupFilterTargetIds.has(target.id));
+      return matchesSearch && matchesRoom && matchesGroup;
+    });
 
-
-  // Deduplicate targets by ID before grouping
-  const uniqueTargets = filteredTargets.reduce((acc: Target[], target) => {
-    const existingIndex = acc.findIndex(t => t.id === target.id);
-    if (existingIndex === -1) {
-      acc.push(target);
-    } else {
-      logger.warn(`⚠️ Duplicate target found: ${target.name} (ID: ${target.id})`);
-      // Keep the one with more complete data (has roomId or more properties)
-      const existing = acc[existingIndex];
-      if (target.roomId && !existing.roomId) {
-        acc[existingIndex] = target; // Replace with the one that has roomId
-        logger.debug(`   → Replaced with version that has roomId: ${target.roomId}`);
-      } else if (Object.keys(target).length > Object.keys(existing).length) {
-        acc[existingIndex] = target; // Replace with more complete data
-        logger.debug(`   → Replaced with more complete version`);
+    // 2. Deduplicate by ID (use Map for O(n) instead of O(n²) findIndex)
+    const seenMap = new Map<string, Target>();
+    for (const target of filtered) {
+      const existing = seenMap.get(target.id);
+      if (!existing) {
+        seenMap.set(target.id, target);
+      } else if (target.roomId && !existing.roomId) {
+        seenMap.set(target.id, target);
       }
     }
-    return acc;
-  }, []);
+    const unique = Array.from(seenMap.values());
 
-  // Group targets by room
-  const groupedTargets = uniqueTargets.reduce((groups: Record<string, Target[]>, target) => {
-    // Normalize roomId - treat null, undefined, empty string, and 'unassigned' as unassigned
-    let roomId: string;
-    const rawRoomId = target.roomId;
-    
-    // Convert to string first, then check for empty values
-    const roomIdStr = String(rawRoomId);
-    
-    if (!rawRoomId || 
-        roomIdStr === 'unassigned' || 
-        roomIdStr === '' || 
-        roomIdStr === 'null' ||
-        roomIdStr === 'undefined') {
-      roomId = 'unassigned';
-    } else {
-      roomId = roomIdStr;
+    // 3. Group by room
+    const grouped: Record<string, Target[]> = {};
+    for (const target of unique) {
+      const rawRoomId = target.roomId;
+      const roomIdStr = String(rawRoomId);
+      const roomId = (!rawRoomId || roomIdStr === 'unassigned' || roomIdStr === '' || roomIdStr === 'null' || roomIdStr === 'undefined')
+        ? 'unassigned'
+        : roomIdStr;
+      if (!grouped[roomId]) grouped[roomId] = [];
+      grouped[roomId].push(target);
     }
-    
-    if (!groups[roomId]) {
-      groups[roomId] = [];
-    }
-    groups[roomId].push(target);
-    return groups;
-  }, {});
 
-
-  // Sort groups: assigned rooms first (alphabetically), then unassigned
-  const sortedGroupKeys = Object.keys(groupedTargets).sort((a, b) => {
-    // Unassigned targets go to the end
-    if (a === 'unassigned') return 1;
-    if (b === 'unassigned') return -1;
-    
-    // Sort assigned rooms alphabetically by name
-    const roomA = rooms.find(r => r.id === a);
-    const roomB = rooms.find(r => r.id === b);
-    const nameA = roomA?.name || a;
-    const nameB = roomB?.name || b;
-    
-    return nameA.localeCompare(nameB);
-  });
-
-  // Create sorted grouped targets with comprehensive sorting
-  const sortedGroupedTargets: Record<string, Target[]> = {};
-  sortedGroupKeys.forEach(key => {
-    const targetsInGroup = groupedTargets[key];
-    const sortedTargets = [...targetsInGroup].sort((a, b) => {
-      // Primary sort: Online status (online first)
-      const aOnline = a.status === 'online' || a.status === 'standby';
-      const bOnline = b.status === 'online' || b.status === 'standby';
-      
-      if (aOnline && !bOnline) return -1; // Online comes first
-      if (!aOnline && bOnline) return 1;  // Offline comes after
-      
-      // Secondary sort: By name (alphabetical)
-      return a.name.localeCompare(b.name);
+    // 4. Sort room keys: assigned rooms alphabetically, unassigned last
+    const sortedKeys = Object.keys(grouped).sort((a, b) => {
+      if (a === 'unassigned') return 1;
+      if (b === 'unassigned') return -1;
+      const nameA = rooms.find(r => r.id === a)?.name || a;
+      const nameB = rooms.find(r => r.id === b)?.name || b;
+      return nameA.localeCompare(nameB);
     });
-    
-    sortedGroupedTargets[key] = sortedTargets;
-  });
+
+    // 5. Sort targets within each room group
+    const result: Record<string, Target[]> = {};
+    for (const key of sortedKeys) {
+      result[key] = [...grouped[key]].sort((a, b) => {
+        const aOnline = a.status === 'online' || a.status === 'standby';
+        const bOnline = b.status === 'online' || b.status === 'standby';
+        if (aOnline && !bOnline) return -1;
+        if (!aOnline && bOnline) return 1;
+        return a.name.localeCompare(b.name);
+      });
+    }
+
+    return result;
+  }, [targetsWithCustomNames, searchTerm, roomFilter, groupFilter, groupFilterTargetIds, targetsInGroups, rooms]);
 
   // Get room object for display
   const getRoom = (roomId?: string | number) => {
@@ -996,18 +1106,15 @@ const Targets: React.FC = () => {
               <p className="text-sm text-brand-dark/55 font-body mt-0.5 text-left">Manage your shooting targets and monitor their status</p>
               {/* Status Legend */}
               <div className="flex items-center gap-3 md:gap-4 pt-0.5">
-                <div className="flex items-center gap-1 md:gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-green-500" />
-                  <span className="text-[10px] md:text-xs text-brand-dark/50 font-body">Active — in game</span>
-                </div>
-                <div className="flex items-center gap-1 md:gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-amber-500" />
-                  <span className="text-[10px] md:text-xs text-brand-dark/50 font-body">Ready — powered on</span>
-                </div>
-                <div className="flex items-center gap-1 md:gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-gray-400" />
-                  <span className="text-[10px] md:text-xs text-brand-dark/50 font-body">Offline</span>
-                </div>
+                {(['online', 'standby', 'offline'] as const).map((s) => {
+                  const cfg = TARGET_STATUS_DISPLAY[s];
+                  return (
+                    <div key={s} className="flex items-center gap-1 md:gap-1.5">
+                      <div className={`w-2 h-2 rounded-full ${cfg.dotColor}`} />
+                      <span className="text-[10px] md:text-xs text-brand-dark/50 font-body">{cfg.description}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -1098,6 +1205,40 @@ const Targets: React.FC = () => {
               </div>
             )}
 
+            {/* Groups Section — only visible when groups exist */}
+            {!isLoading && groupsWithCustomNames.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2 md:mb-3">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4 text-brand-primary" />
+                    <h2 className="text-base font-heading font-semibold text-brand-dark">Groups</h2>
+                    <span className="text-[10px] text-brand-dark/40 font-body">
+                      {groupsWithCustomNames.length} group{groupsWithCustomNames.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                </div>
+                <motion.div
+                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4"
+                  variants={containerVariants}
+                  initial="hidden"
+                  animate="visible"
+                >
+                  {groupsWithCustomNames.map((group) => (
+                    <motion.div key={group.id} variants={itemVariants}>
+                      <GroupCard
+                        group={group}
+                        room={group.roomId ? getRoom(group.roomId) : null}
+                        allTargets={targetsWithCustomNames}
+                        onAddTargets={handleAddTargetsToGroup}
+                        onRemoveTarget={handleRemoveTargetFromGroup}
+                        onDelete={handleDeleteGroup}
+                      />
+                    </motion.div>
+                  ))}
+                </motion.div>
+              </div>
+            )}
+
             {/* Targets Grid */}
             {isLoading ? (
               <div className="space-y-4 md:space-y-8">
@@ -1137,7 +1278,7 @@ const Targets: React.FC = () => {
                   </div>
                 ))}
               </div>
-            ) : Object.keys(groupedTargets).length === 0 ? (
+            ) : Object.keys(sortedGroupedTargets).length === 0 ? (
               <Card className="shadow-card">
                 <CardContent className="p-8 md:p-12 text-center">
                   <TargetIcon className="h-10 w-10 md:h-12 md:w-12 mx-auto mb-3 md:mb-4 text-brand-dark/40" />
@@ -1181,17 +1322,17 @@ const Targets: React.FC = () => {
                         <div className="flex items-center gap-1.5 md:gap-2 text-[10px] md:text-[11px] text-brand-dark font-body shrink-0">
                           {roomTargets.some(t => t.status === 'online') && (
                             <div className="flex items-center gap-1">
-                              <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-green-500 rounded-full" />
-                              <span>{roomTargets.filter(t => t.status === 'online').length} active</span>
+                              <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${TARGET_STATUS_DISPLAY.online.dotColor}`} />
+                              <span>{roomTargets.filter(t => t.status === 'online').length} {TARGET_STATUS_DISPLAY.online.label.toLowerCase()}</span>
                             </div>
                           )}
                           <div className="flex items-center gap-1">
-                            <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-amber-500 rounded-full" />
-                            <span>{roomTargets.filter(t => t.status === 'online' || t.status === 'standby').length} ready</span>
+                            <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${TARGET_STATUS_DISPLAY.standby.dotColor}`} />
+                            <span>{roomTargets.filter(t => t.status === 'standby').length} {TARGET_STATUS_DISPLAY.standby.label.toLowerCase()}</span>
                           </div>
                           <div className="flex items-center gap-1">
-                            <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-gray-400 rounded-full" />
-                            <span>{roomTargets.filter(t => t.status === 'offline').length} off</span>
+                            <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${TARGET_STATUS_DISPLAY.offline.dotColor}`} />
+                            <span>{roomTargets.filter(t => t.status === 'offline').length} {TARGET_STATUS_DISPLAY.offline.label.toLowerCase()}</span>
                           </div>
                         </div>
                       </div>
@@ -1267,27 +1408,23 @@ const Targets: React.FC = () => {
         />
       )}
 
-      {/* Create Group Modal */}
-      {/* Show all targets EXCEPT those already in groups. Room assignment doesn't affect visibility. */}
-      <CreateGroupModal
-        isOpen={isCreateGroupModalOpen}
-        onClose={() => setIsCreateGroupModalOpen(false)}
-        onCreateGroup={handleCreateGroup}
-        availableTargets={useMemo(() => {
-          // Show all targets that are NOT already in groups
-          // Room assignment is independent and doesn't affect visibility
-          // Use targetsWithCustomNames to ensure we have all targets including those with custom names
-          const ungroupedTargets = targetsWithCustomNames.filter(target => !targetsInGroups.has(target.id));
-          
-          return ungroupedTargets.map(target => ({
-            id: target.id,
-            name: target.displayName || target.name, // Use custom name if available, otherwise use original name
-            status: target.status,
-            activityStatus: target.activityStatus,
-          }));
-        }, [targetsWithCustomNames, targetsInGroups])}
-        rooms={rooms}
-      />
+      {/* Create Group Modal — only mounted when open */}
+      {isCreateGroupModalOpen && (
+        <CreateGroupModal
+          isOpen={isCreateGroupModalOpen}
+          onClose={() => setIsCreateGroupModalOpen(false)}
+          onCreateGroup={handleCreateGroup}
+          availableTargets={targetsWithCustomNames
+            .filter(target => !targetsInGroups.has(target.id))
+            .map(target => ({
+              id: target.id,
+              name: target.displayName || target.name,
+              status: target.status,
+              activityStatus: target.activityStatus,
+            }))}
+          rooms={rooms}
+        />
+      )}
 
       {/* Add Targets to Group Modal */}
       {currentGroupForAdding && (

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getStatusDisplay } from '@/shared/constants/target-status';
 import {
   Card,
   CardContent,
@@ -195,14 +196,9 @@ const RoomCard: React.FC<RoomCardProps> = ({
           <div className="mt-2 md:mt-3 flex flex-wrap gap-1 md:gap-1.5">
             {(targets.length > 0 ? targets : targetNames.map(n => ({ name: n }))).map((t) => {
               const status = 'status' in t ? t.status : undefined;
-              const dotColor = status === 'online' ? 'bg-green-500'
-                : status === 'standby' ? 'bg-amber-400'
-                : 'bg-gray-400';
-              const pillStyle = status === 'online'
-                ? 'bg-green-50 text-green-700 ring-1 ring-green-200/60'
-                : status === 'standby'
-                ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/60'
-                : 'bg-gray-100 text-gray-500 ring-1 ring-gray-200/60';
+              const cfg = getStatusDisplay(status);
+              const dotColor = cfg.dotColor;
+              const pillStyle = cfg.pillClassName;
               return (
                 <span
                   key={t.name}

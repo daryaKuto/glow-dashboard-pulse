@@ -17,7 +17,15 @@ import type {
   DocumentSnapshot,
 } from '../lib/types';
 import type { ToolType } from '../lib/constants';
-import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT, DEFAULT_GRID_SIZE } from '../lib/constants';
+import {
+  DEFAULT_CANVAS_WIDTH,
+  DEFAULT_CANVAS_HEIGHT,
+  DEFAULT_GRID_SIZE,
+  WALL_STROKE_WIDTH,
+  DEFAULT_ROOM_WIDTH_UNITS,
+  DEFAULT_ROOM_HEIGHT_UNITS,
+} from '../lib/constants';
+import { snapToGrid } from '../lib/geometry';
 
 const MAX_HISTORY = 50;
 
@@ -62,6 +70,8 @@ interface RoomEditorState {
   updateTarget: (id: string, updates: Partial<PlacedTargetData>) => void;
   removeTarget: (id: string) => void;
 
+  addPrebuiltRoom: (containerWidth?: number, containerHeight?: number) => void;
+
   // ── Interaction Actions ──
   setActiveTool: (tool: ToolType) => void;
   setSelectedIds: (ids: string[]) => void;
@@ -89,7 +99,11 @@ interface RoomEditorState {
   zoomOut: () => void;
   resetZoom: () => void;
 
+  // ── Move Action ──
+  moveSelected: (dx: number, dy: number) => void;
+
   // ── Bulk Actions ──
+  setCanvasSize: (width: number, height: number) => void;
   setRoomName: (name: string) => void;
   loadDocument: (snapshot: DocumentSnapshot, canvasWidth: number, canvasHeight: number, gridSize: number) => void;
   getDocumentSnapshot: () => DocumentSnapshot;
@@ -210,6 +224,49 @@ export const useRoomEditorStore = create<RoomEditorState>((set, get) => ({
   removeTarget: (id) => {
     get().saveToHistory();
     set((s) => ({ targets: s.targets.filter((t) => t.id !== id), isDirty: true }));
+  },
+
+  addPrebuiltRoom: (containerWidth, containerHeight) => {
+    const state = get();
+    state.saveToHistory();
+
+    const grid = state.gridSize;
+    const roomW = DEFAULT_ROOM_WIDTH_UNITS * grid;
+    const roomH = DEFAULT_ROOM_HEIGHT_UNITS * grid;
+
+    // Calculate visible center in canvas coordinates
+    const viewW = containerWidth ?? state.canvasWidth;
+    const viewH = containerHeight ?? state.canvasHeight;
+    const centerX = snapToGrid(
+      (viewW / 2 - state.stagePosition.x) / state.stageScale,
+      grid
+    );
+    const centerY = snapToGrid(
+      (viewH / 2 - state.stagePosition.y) / state.stageScale,
+      grid
+    );
+
+    const x = snapToGrid(centerX - roomW / 2, grid);
+    const y = snapToGrid(centerY - roomH / 2, grid);
+
+    const newWall: WallData = {
+      id: crypto.randomUUID(),
+      points: [
+        x,         y,           // top-left
+        x + roomW, y,           // top-right
+        x + roomW, y + roomH,   // bottom-right
+        x,         y + roomH,   // bottom-left
+      ],
+      thickness: WALL_STROKE_WIDTH,
+      closed: true,
+    };
+
+    set({
+      walls: [...state.walls, newWall],
+      isDirty: true,
+      selectedIds: [newWall.id],
+      activeTool: 'select',
+    });
   },
 
   // ── Interaction Actions ──
@@ -340,7 +397,46 @@ export const useRoomEditorStore = create<RoomEditorState>((set, get) => ({
   resetZoom: () =>
     set({ stageScale: 1, stagePosition: { x: 0, y: 0 } }),
 
+  // ── Move Action ──
+  moveSelected: (dx, dy) => {
+    const state = get();
+    if (state.selectedIds.length === 0 || (dx === 0 && dy === 0)) return;
+    state.saveToHistory();
+    const sel = new Set(state.selectedIds);
+
+    // Collect wallIds of selected walls (doors/windows on moved walls move implicitly)
+    const movedWallIds = new Set(
+      state.walls.filter((w) => sel.has(w.id)).map((w) => w.id)
+    );
+
+    set({
+      walls: state.walls.map((w) => {
+        if (!sel.has(w.id)) return w;
+        return {
+          ...w,
+          points: w.points.map((v, i) => v + (i % 2 === 0 ? dx : dy)),
+        };
+      }),
+      doors: state.doors.map((d) => {
+        // Doors on moved walls: no change needed (they reference wall by ID + positionOnWall)
+        // Doors selected directly but wall NOT selected: cannot move independently (skip)
+        return d;
+      }),
+      windows: state.windows.map((w) => {
+        // Same as doors — position is relative to wall
+        return w;
+      }),
+      targets: state.targets.map((t) => {
+        if (!sel.has(t.id)) return t;
+        return { ...t, x: t.x + dx, y: t.y + dy };
+      }),
+      isDirty: true,
+    });
+  },
+
   // ── Bulk Actions ──
+  setCanvasSize: (width, height) => set({ canvasWidth: width, canvasHeight: height }),
+
   setRoomName: (name) => set({ roomName: name, isDirty: true }),
 
   loadDocument: (snapshot, canvasWidth, canvasHeight, gridSize) =>

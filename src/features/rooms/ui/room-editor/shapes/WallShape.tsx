@@ -1,5 +1,6 @@
 import React from 'react';
 import { Line, Circle, Group } from 'react-konva';
+import type Konva from 'konva';
 import type { WallData } from '../lib/types';
 import {
   WALL_STROKE_WIDTH,
@@ -14,7 +15,7 @@ interface WallShapeProps {
   isSelected: boolean;
   isHovered: boolean;
   gridSize: number;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, e: Konva.KonvaEventObject<MouseEvent>) => void;
   onCornerDrag: (wallId: string, pointIndex: number, x: number, y: number) => void;
 }
 
@@ -47,8 +48,8 @@ const WallShape: React.FC<WallShapeProps> = ({
         lineCap="round"
         lineJoin="round"
         hitStrokeWidth={WALL_HIT_STROKE_WIDTH}
-        onClick={() => onSelect(wall.id)}
-        onTap={() => onSelect(wall.id)}
+        onClick={(e) => onSelect(wall.id, e)}
+        onTap={(e) => onSelect(wall.id, e as unknown as Konva.KonvaEventObject<MouseEvent>)}
       />
 
       {/* Hover highlight */}

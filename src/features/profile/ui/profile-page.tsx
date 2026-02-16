@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { TARGET_STATUS_DISPLAY } from '@/shared/constants/target-status';
 import { format } from 'date-fns';
 import { useAuth } from '@/shared/hooks/use-auth';
 import { useRooms } from '@/features/rooms';
@@ -721,23 +722,23 @@ const Profile: React.FC = () => {
                                       <span className="text-xs text-brand-dark/70 font-medium">Status</span>
                                       <div className="flex items-center gap-1">
                                         <div className={`w-2 h-2 rounded-full ${
-                                          hasOnlineTargets 
-                                            ? 'bg-green-500'  // Online/Active
+                                          hasOnlineTargets
+                                            ? TARGET_STATUS_DISPLAY.online.dotColor
                                             : room.targetCount > 0
-                                            ? 'bg-gray-400'   // All targets offline
-                                            : 'bg-blue-500'   // No targets assigned
+                                            ? TARGET_STATUS_DISPLAY.offline.dotColor
+                                            : 'bg-brand-secondary/40'
                                         }`}></div>
                                         <span className={`text-xs font-medium ${
-                                          hasOnlineTargets 
-                                            ? 'text-green-700'  // Online
+                                          hasOnlineTargets
+                                            ? TARGET_STATUS_DISPLAY.online.textColor
                                             : room.targetCount > 0
-                                            ? 'text-gray-600'   // Offline
-                                            : 'text-blue-700'   // Standby
+                                            ? 'text-gray-600'
+                                            : 'text-brand-secondary'
                                         }`}>
-                                          {hasOnlineTargets 
-                                            ? `${onlineTargetsCount} Online` 
-                                            : room.targetCount > 0 
-                                            ? 'All Offline' 
+                                          {hasOnlineTargets
+                                            ? `${onlineTargetsCount} ${TARGET_STATUS_DISPLAY.online.label}`
+                                            : room.targetCount > 0
+                                            ? `All ${TARGET_STATUS_DISPLAY.offline.label}`
                                             : 'No Targets'}
                                         </span>
                                       </div>

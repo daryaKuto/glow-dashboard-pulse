@@ -6,6 +6,7 @@
  */
 
 import type { TargetStatus, ActivityStatus } from './validators';
+import { TARGET_STATUS_SORT_ORDER } from '@/shared/constants/target-status';
 
 /**
  * Target domain model (internal representation)
@@ -352,8 +353,7 @@ export function calculateTargetHealthScore(target: TargetDomainModel): number {
 export function sortTargetsByPriority(targets: TargetDomainModel[]): TargetDomainModel[] {
   return [...targets].sort((a, b) => {
     // Online targets first
-    const statusOrder: Record<TargetStatus, number> = { online: 0, standby: 1, offline: 2 };
-    const statusDiff = statusOrder[a.status] - statusOrder[b.status];
+    const statusDiff = (TARGET_STATUS_SORT_ORDER[a.status] ?? 2) - (TARGET_STATUS_SORT_ORDER[b.status] ?? 2);
     if (statusDiff !== 0) return statusDiff;
     
     // Active targets first

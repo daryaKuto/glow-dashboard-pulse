@@ -256,5 +256,8 @@ export function useSessionState(deps: UseSessionStateDeps) {
     handleDesiredDurationChange,
     handleDurationInputValueChange,
     handleToggleDurationUnlimited,
+
+    // Direct setter for preset apply (bypasses the async effect sync)
+    setIsDurationUnlimited,
   };
 }

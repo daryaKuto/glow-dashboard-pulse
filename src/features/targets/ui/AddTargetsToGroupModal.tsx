@@ -4,6 +4,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Plus, Target } from 'lucide-react';
 import type { Target as TargetType } from '@/features/targets/schema';
+import { getStatusDisplay } from '@/shared/constants/target-status';
 
 interface AddTargetsToGroupModalProps {
   isOpen: boolean;
@@ -53,27 +54,8 @@ const AddTargetsToGroupModal: React.FC<AddTargetsToGroupModalProps> = ({
 
   const resolveStatusDisplay = useCallback(
     (status: TargetType['status'] | null | undefined, _activityStatus?: TargetType['activityStatus'] | null) => {
-      const normalizedStatus = status ?? 'offline';
-
-      if (normalizedStatus === 'offline') {
-        return {
-          label: 'Offline',
-          className: 'bg-gray-100 text-gray-600',
-        };
-      }
-
-      if (normalizedStatus === 'online') {
-        return {
-          label: 'Active',
-          className: 'bg-green-100 text-green-800',
-        };
-      }
-
-      // standby = powered on & idle
-      return {
-        label: 'Ready',
-        className: 'bg-amber-100 text-amber-700',
-      };
+      const cfg = getStatusDisplay(status);
+      return { label: cfg.label, className: cfg.badgeClassName };
     },
     [],
   );

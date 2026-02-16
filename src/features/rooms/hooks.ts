@@ -70,7 +70,6 @@ export function useRooms(force = false) {
       return result.data;
     },
     staleTime: 60 * 1000, // 60 seconds - increased to reduce refetches
-    refetchOnMount: false, // Don't refetch if data exists and is fresh
   });
 }
 

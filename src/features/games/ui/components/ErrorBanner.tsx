@@ -1,7 +1,5 @@
 import React from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, X } from 'lucide-react';
 
 export type ErrorBannerProps = {
   message: string;
@@ -10,22 +8,15 @@ export type ErrorBannerProps = {
 
 const _ErrorBanner: React.FC<ErrorBannerProps> = ({ message, onDismiss }) => {
   return (
-    <Card className="border-red-200 bg-red-50 mb-6">
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2">
-          <AlertCircle className="h-4 w-4 text-red-600" />
-          <span className="text-red-800 font-medium">{message}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onDismiss}
-            className="ml-auto text-red-600 hover:text-red-800"
-          >
-            ×
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="rounded-[var(--radius)] bg-red-50 shadow-subtle px-4 py-3 flex items-start gap-3">
+      <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+      <div className="flex-1">
+        <p className="text-sm text-red-800 font-body">{message}</p>
+      </div>
+      <button onClick={onDismiss} className="rounded-full p-1 hover:bg-red-100 transition-colors">
+        <X className="h-3.5 w-3.5 text-red-500" />
+      </button>
+    </div>
   );
 };
 

@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { getStatusDisplay, TARGET_STATUS_SORT_ORDER } from '@/shared/constants/target-status';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -95,18 +96,8 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
 
   const resolveStatusDot = useCallback(
     (status: TargetType['status'] | null | undefined) => {
-      const normalizedStatus = status ?? 'offline';
-
-      if (normalizedStatus === 'offline') {
-        return { label: 'Offline', dotColor: 'bg-gray-400' };
-      }
-
-      if (normalizedStatus === 'online') {
-        return { label: 'Active', dotColor: 'bg-green-500' };
-      }
-
-      // standby
-      return { label: 'Ready', dotColor: 'bg-amber-400' };
+      const cfg = getStatusDisplay(status);
+      return { label: cfg.label, dotColor: cfg.dotColor };
     },
     [],
   );
@@ -224,20 +215,16 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             ) : (
               <div className="space-y-1.5 md:space-y-2 max-h-48 md:max-h-56 overflow-y-auto">
                 {[...availableTargets].sort((a, b) => {
-                  const order = { online: 0, standby: 1, offline: 2 };
-                  const aOrder = order[(a.status as keyof typeof order) ?? 'offline'] ?? 2;
-                  const bOrder = order[(b.status as keyof typeof order) ?? 'offline'] ?? 2;
+                  const aOrder = TARGET_STATUS_SORT_ORDER[a.status ?? 'offline'] ?? 2;
+                  const bOrder = TARGET_STATUS_SORT_ORDER[b.status ?? 'offline'] ?? 2;
                   return aOrder - bOrder;
                 }).map((target) => {
                   const statusDisplay = resolveStatusDot(target.status);
                   const isSelected = selectedTargets.includes(target.id);
+                  const statusCfg = getStatusDisplay(target.status);
                   const rowBg = isSelected
                     ? 'bg-brand-primary/[0.06] ring-1 ring-brand-primary/20 shadow-subtle'
-                    : statusDisplay.label === 'Active'
-                    ? 'bg-gradient-to-r from-green-500/[0.04] to-white hover:from-green-500/[0.07]'
-                    : statusDisplay.label === 'Ready'
-                    ? 'bg-gradient-to-r from-amber-400/[0.04] to-white hover:from-amber-400/[0.07]'
-                    : 'bg-gradient-to-r from-gray-200/[0.2] to-white hover:from-gray-200/[0.35]';
+                    : statusCfg.rowBgClassName;
                   return (
                     <div
                       key={target.id}
@@ -251,11 +238,7 @@ const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                         </div>
                         <div className="min-w-0">
                           <span className="text-xs md:text-sm font-medium font-body text-brand-dark truncate block">{target.name}</span>
-                          <span className={`text-[10px] font-body ${
-                            statusDisplay.label === 'Active' ? 'text-green-600'
-                            : statusDisplay.label === 'Ready' ? 'text-amber-600'
-                            : 'text-brand-dark/35'
-                          }`}>
+                          <span className={`text-[10px] font-body ${statusCfg.textColor}`}>
                             {statusDisplay.label}
                           </span>
                         </div>

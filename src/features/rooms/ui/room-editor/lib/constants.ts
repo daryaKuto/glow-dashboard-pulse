@@ -24,6 +24,10 @@ export const DEFAULT_DOOR_WIDTH = 3; // grid units
 export const DEFAULT_WINDOW_WIDTH = 3; // grid units
 export const DEFAULT_SWING_ANGLE = 90;
 
+// Pre-built room defaults (grid units)
+export const DEFAULT_ROOM_WIDTH_UNITS = 10;   // 10 × 20px = 200px
+export const DEFAULT_ROOM_HEIGHT_UNITS = 8;   // 8 × 20px = 160px
+
 // Target shape
 export const TARGET_RADIUS = 16;
 export const TARGET_LABEL_OFFSET = 24;
@@ -49,7 +53,7 @@ export const EDITOR_COLORS = {
   doorArcDash: [4, 4],
 
   // Windows
-  windowStroke: '#816E94', // brand-secondary
+  windowStroke: '#6B4A38', // brown — visible against dark walls
 
   // Targets
   targetFill: 'rgba(206,62,10,0.1)',
@@ -70,7 +74,7 @@ export const EDITOR_COLORS = {
 } as const;
 
 // Tool types
-export type ToolType = 'select' | 'wall' | 'door' | 'window' | 'target' | 'delete';
+export type ToolType = 'select' | 'move' | 'wall' | 'door' | 'window' | 'target' | 'delete';
 
 // Auto-save debounce delay (ms)
 export const AUTO_SAVE_DELAY = 3000;

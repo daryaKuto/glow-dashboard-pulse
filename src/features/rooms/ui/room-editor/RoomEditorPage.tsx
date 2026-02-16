@@ -16,9 +16,10 @@ const RoomEditorPage: React.FC = () => {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+  const [canvasSizeLocal, setCanvasSizeLocal] = useState({ width: 0, height: 0 });
 
   const setRoomName = useRoomEditorStore((s) => s.setRoomName);
+  const setCanvasSize = useRoomEditorStore((s) => s.setCanvasSize);
   const reset = useRoomEditorStore((s) => s.reset);
 
   // Fetch rooms to get room metadata + all targets for the palette
@@ -71,12 +72,13 @@ const RoomEditorPage: React.FC = () => {
 
   useKeyboardShortcuts({ onSave: save });
 
-  // Measure container for responsive canvas sizing
+  // Measure container for responsive canvas sizing — sync to store so grid fills viewport
   useEffect(() => {
     const updateSize = () => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
-        setCanvasSize({ width: rect.width, height: rect.height });
+        setCanvasSize(rect.width, rect.height);
+        setCanvasSizeLocal({ width: rect.width, height: rect.height });
       }
     };
 
@@ -109,7 +111,7 @@ const RoomEditorPage: React.FC = () => {
   return (
     <div className="fixed inset-0 flex flex-col bg-brand-light overflow-hidden z-50">
       {/* Toolbar */}
-      <EditorToolbar onSave={save} isSaving={isSaving} />
+      <EditorToolbar onSave={save} isSaving={isSaving} roomId={roomId} />
 
       {/* Main area — palette + canvas */}
       <div className="flex flex-1 min-h-0">
@@ -118,10 +120,10 @@ const RoomEditorPage: React.FC = () => {
 
         {/* Canvas area — fills remaining space, no scroll */}
         <div ref={containerRef} className="flex-1 overflow-hidden relative">
-          {canvasSize.width > 0 && canvasSize.height > 0 && (
+          {canvasSizeLocal.width > 0 && canvasSizeLocal.height > 0 && (
             <EditorCanvas
-              containerWidth={canvasSize.width}
-              containerHeight={canvasSize.height}
+              containerWidth={canvasSizeLocal.width}
+              containerHeight={canvasSizeLocal.height}
             />
           )}
         </div>

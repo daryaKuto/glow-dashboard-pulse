@@ -33,9 +33,7 @@ import { useTbSessionFlow } from '@/features/games/hooks/use-tb-session-flow';
 import { useSessionFinalizer } from '@/features/games/hooks/use-session-finalizer';
 import { deriveIsOnline } from '@/features/games/lib/device-status-utils';
 import {
-  StepOneSkeleton,
-  StepTwoSkeleton,
-  StepThreeSkeleton,
+  SetupWizardSkeleton,
   SavePresetDialog,
   SetupStepOne,
   SetupStepTwo,
@@ -43,9 +41,96 @@ import {
   ErrorBanner,
   PresetBanner,
 } from './components';
+import { Card, CardContent } from '@/components/ui/card';
+import { Check, Pencil, RotateCcw } from 'lucide-react';
 import { FeatureErrorBoundary } from '@/shared/ui/FeatureErrorBoundary';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const REVIEW_TARGET_DISPLAY_LIMIT = 6;
+
+// --- Wizard accordion inline components (Phase 3) ---
+
+const StepProgressBar: React.FC<{
+  currentStep: 1 | 2 | 3;
+  step1Complete: boolean;
+  step2Complete: boolean;
+}> = ({ currentStep, step1Complete, step2Complete }) => (
+  <div className="flex gap-1.5">
+    {[1, 2, 3].map((step) => {
+      const isComplete = step === 1 ? step1Complete : step === 2 ? step2Complete : false;
+      const isActive = step === currentStep;
+      const isFilled = isComplete || isActive;
+      return (
+        <div key={step} className="flex-1 h-1.5 rounded-full overflow-hidden bg-[rgba(28,25,43,0.08)]">
+          <motion.div
+            className="h-full rounded-full bg-brand-primary"
+            initial={{ width: 0 }}
+            animate={{ width: isFilled ? '100%' : '0%' }}
+            transition={{ duration: 0.4, ease: 'easeOut' }}
+          />
+        </div>
+      );
+    })}
+  </div>
+);
+
+const StepBadge: React.FC<{ step: number; isComplete: boolean; isActive: boolean }> = ({
+  step, isComplete, isActive
+}) => (
+  <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-sm font-bold font-body transition-colors duration-200 ${
+    isComplete ? 'bg-brand-primary text-white'
+      : isActive ? 'bg-brand-primary/10 text-brand-primary'
+      : 'bg-[rgba(28,25,43,0.06)] text-brand-dark/30'
+  }`}>
+    {isComplete ? <Check className="w-4 h-4" /> : step}
+  </span>
+);
+
+const SetupStep: React.FC<{
+  step: number;
+  title: string;
+  isActive: boolean;
+  isComplete: boolean;
+  isReachable: boolean;
+  summaryText: string;
+  onEdit: () => void;
+  children: React.ReactNode;
+}> = ({ step, title, isActive, isComplete, isReachable, summaryText, onEdit, children }) => (
+  <div>
+    <button
+      onClick={onEdit}
+      disabled={!isReachable}
+      className="flex items-center justify-between w-full py-2 text-left group"
+    >
+      <div className="flex items-center gap-3">
+        <StepBadge step={step} isComplete={isComplete} isActive={isActive} />
+        <div>
+          <p className="text-label text-brand-secondary uppercase tracking-wide font-body">Step {step}</p>
+          <h2 className="font-heading text-base font-semibold text-brand-dark">{title}</h2>
+        </div>
+      </div>
+      {!isActive && isComplete && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-brand-dark/60 font-body">{summaryText}</span>
+          <Pencil className="h-3.5 w-3.5 text-brand-dark/30 group-hover:text-brand-primary transition-colors" />
+        </div>
+      )}
+    </button>
+    <AnimatePresence>
+      {isActive && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.25, ease: 'easeOut' }}
+          className="overflow-hidden"
+        >
+          <div className="pt-3 pb-1">{children}</div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </div>
+);
 
 // Main Live Game Control page: orchestrates device state, telemetry streams, and session history for operator control.
 const Games: React.FC = () => {
@@ -78,6 +163,11 @@ const Games: React.FC = () => {
   const [availableDevices, setAvailableDevices] = useState<NormalizedGameDevice[]>([]);
   // Surface-level error banner for operator actions (start/stop failures, auth issues).
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<'setup' | 'summary'>('setup');
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  // Tracks whether auto-advance is allowed.  When the user manually navigates
+  // back to an earlier step we disable auto-advance so they can edit freely.
+  const autoAdvanceAllowedRef = useRef(true);
   // Single source of truth for the popup lifecycle (selecting → launching → running → stopping → finalizing).
   const {
     lifecycle: sessionLifecycle,
@@ -250,13 +340,14 @@ const Games: React.FC = () => {
     isStepReview,
     canAdvanceToDuration,
     canAdvanceToReview,
-    canLaunchGame,
+    canLaunchGame: _canLaunchGameFromHook,
     formattedDurationLabel,
     resetSetupStep,
     advanceToReviewStep,
     handleDesiredDurationChange,
     handleDurationInputValueChange,
     handleToggleDurationUnlimited,
+    setIsDurationUnlimited,
   } = useSessionState({
     recentSessionSummary,
     sessionLifecycle,
@@ -265,6 +356,10 @@ const Games: React.FC = () => {
     isSessionLocked,
     registry,
   });
+
+  // Override canLaunchGame to use the visual accordion step (currentStep) instead of
+  // the internal setupStep from useSessionState, so both stay in sync after presets.
+  const canLaunchGame = currentStep === 3 && canAdvanceToReview && selectedOnlineDevices > 0 && !isSessionLocked;
 
   // --- Preset management (state, save/delete/apply callbacks, logging effects) ---
   const {
@@ -290,6 +385,7 @@ const Games: React.FC = () => {
     handleSavePresetDurationChange,
     handleSavePresetSubmit,
     handleApplyPreset,
+    handleUpdateActivePreset,
   } = usePresetManagement({
     gamePresets,
     presetsLoading,
@@ -307,9 +403,11 @@ const Games: React.FC = () => {
     currentSessionTargets,
     selectedDeviceIds,
     availableDevices,
+    setSelectedDeviceIds,
     setSessionRoomId,
     setSessionDurationSeconds,
     setGoalShotsPerTarget,
+    setIsDurationUnlimited,
     registry,
   });
   // Register setStagedPresetId so useDeviceSelection + useSessionState can reach it via registry.
@@ -331,9 +429,21 @@ const Games: React.FC = () => {
   // Composite reset: resets setup step + clears external state from other hooks
   const resetSetupFlow = useCallback(() => {
     resetSetupStep();
+    setCurrentStep(1);
+    autoAdvanceAllowedRef.current = true;
     call('setStagedPresetId', null);
     call('setStoppedTargets', new Set<string>());
   }, [resetSetupStep, call]);
+
+  // Full clear: resets everything including device selection, room, and duration
+  const clearAllSetup = useCallback(() => {
+    resetSetupFlow();
+    handleClearDeviceSelection();
+    setSessionRoomId(null);
+    setSessionGroupId(null);
+    setSessionDurationSeconds(null);
+    setActivePresetId(null);
+  }, [resetSetupFlow, handleClearDeviceSelection, setSessionRoomId, setSessionGroupId, setSessionDurationSeconds, setActivePresetId]);
 
   useEffect(() => {
     if (selectedDeviceIds.length === 0 && !isStepSelectTargets) {
@@ -541,6 +651,45 @@ const Games: React.FC = () => {
     handleStopGame,
   });
 
+  // Auto-switch to summary after a game ends (not on initial mount with restored data)
+  const hasAutoSwitchedRef = useRef(false);
+  useEffect(() => {
+    if (!recentSessionSummary) {
+      hasAutoSwitchedRef.current = false;
+      return;
+    }
+    // Skip the first time recentSessionSummary appears (restored from localStorage on mount)
+    if (!hasAutoSwitchedRef.current) {
+      hasAutoSwitchedRef.current = true;
+      return;
+    }
+    if (!isRunningLifecycle && sessionLifecycle === 'idle') {
+      setActiveView('summary');
+    }
+  }, [recentSessionSummary]);
+
+  // Auto-switch to setup when running starts
+  useEffect(() => {
+    if (isRunningLifecycle) {
+      setActiveView('setup');
+    }
+  }, [isRunningLifecycle]);
+
+  // Auto-advance wizard steps — only when auto-advance is allowed (not when
+  // the user has manually navigated back to an earlier step to edit).
+  useEffect(() => {
+    if (autoAdvanceAllowedRef.current && canAdvanceToDuration && currentStep === 1) {
+      setCurrentStep(2);
+    }
+  }, [canAdvanceToDuration, currentStep]);
+
+  useEffect(() => {
+    if (autoAdvanceAllowedRef.current && canAdvanceToReview && currentStep === 2) {
+      setCurrentStep(3);
+    }
+  }, [canAdvanceToReview, currentStep]);
+
+
   const formatLastSeen = (timestamp: number) => {
     if (!timestamp) return 'No activity';
     const diffMs = Date.now() - timestamp;
@@ -624,7 +773,7 @@ const Games: React.FC = () => {
   const canDismissSessionDialog = sessionLifecycle === 'selecting' && !isStarting && !isLaunchingLifecycle;
 
   return (
-    <div className="min-h-screen bg-brand-background pt-[116px] lg:pt-16">
+    <div className="min-h-screen flex flex-col bg-brand-light responsive-container pt-[116px] lg:pt-16">
       <Header />
       {isMobile && <MobileDrawer />}
 
@@ -632,26 +781,52 @@ const Games: React.FC = () => {
       <div className="flex flex-1 lg:pl-64">
         <main className="flex-1 overflow-y-auto">
           <FeatureErrorBoundary feature="Game Session">
-          <div className="p-2 md:p-4 lg:p-6 xl:p-8 max-w-[1600px] mx-auto">
+          <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
             {errorMessage && (
               <ErrorBanner
                 message={errorMessage}
                 onDismiss={() => setErrorMessage(null)}
               />
             )}
-            <div className="space-y-6">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between text-left">
-                <div>
-                  <h1 className="font-heading text-2xl md:text-3xl font-semibold text-brand-text">
-                    Games &amp; Sessions Overview
+            <div className="space-y-2 md:space-y-4 lg:space-y-6">
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-left">
+                  <h1 className="font-heading text-xl md:text-2xl font-semibold text-brand-dark">
+                    Games
                   </h1>
-                  <p className="font-body text-brand-text/70 text-sm md:text-base">
-                    Manage rooms, targets, and quick-start presets from one control center.
+                  <p className="text-sm text-brand-dark/60 font-body">
+                    Configure and start training sessions.
                   </p>
                 </div>
-                <div className="flex flex-col items-stretch gap-3 text-sm text-brand-dark/60 sm:flex-row sm:items-center sm:gap-4" />
+                {recentSessionSummary && !isRunningLifecycle && (
+                  <div className="flex gap-1 bg-brand-light rounded-full p-1">
+                    <button
+                      onClick={() => setActiveView('setup')}
+                      className={`rounded-full px-4 py-1.5 text-xs font-medium font-body transition-all duration-200 ${
+                        activeView === 'setup'
+                          ? 'bg-brand-primary text-white'
+                          : 'text-brand-dark/60 hover:text-brand-dark'
+                      }`}
+                    >
+                      New Session
+                    </button>
+                    <button
+                      onClick={() => setActiveView('summary')}
+                      className={`rounded-full px-4 py-1.5 text-xs font-medium font-body transition-all duration-200 ${
+                        activeView === 'summary'
+                          ? 'bg-brand-primary text-white'
+                          : 'text-brand-dark/60 hover:text-brand-dark'
+                      }`}
+                    >
+                      Last Session
+                    </button>
+                  </div>
+                )}
               </div>
 
+              <AnimatePresence mode="wait">
+                {activeView === 'setup' ? (
+                  <motion.div key="setup" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="space-y-2 md:space-y-4 lg:space-y-6">
               <PresetBanner
                 presets={gamePresets}
                 presetsLoading={presetsLoading}
@@ -659,82 +834,140 @@ const Games: React.FC = () => {
                 isSessionLocked={isSessionLocked}
                 applyingId={applyingPresetId}
                 deletingId={deletingPresetId}
-                selectedDeviceCount={selectedDevices.length}
-                onApply={handleApplyPreset}
+                activePresetId={activePresetId}
+                onApply={async (preset) => { autoAdvanceAllowedRef.current = true; const result = await handleApplyPreset(preset); setCurrentStep(result.hasTargets ? 3 : 1); }}
                 onDelete={handleDeletePreset}
                 onRefresh={handleRefreshPresets}
-                onRequestSavePreset={handleRequestSavePreset}
               />
 
-              <div className="space-y-4">
-                {isPageLoading ? (
-                  <StepOneSkeleton />
-                ) : (
-                  <SetupStepOne
-                    roomsLoading={roomsLoading}
-                    roomSelections={roomSelections}
-                    sessionRoomId={sessionRoomId}
-                    onSelectAllRooms={handleSelectAllRooms}
-                    onClearRoomSelection={handleClearRoomSelection}
-                    onToggleRoomTargets={handleToggleRoomTargets}
-                    groupsLoading={groupsLoading}
-                    groupSelections={groupSelections}
-                    sessionGroupId={sessionGroupId}
-                    onSelectAllGroups={handleSelectAllGroups}
-                    onClearGroupSelection={handleClearGroupSelection}
-                    onToggleGroupTargets={handleToggleGroupTargets}
-                    loadingDevices={loadingDevices}
-                    isSessionLocked={isSessionLocked}
-                    orderedAvailableDevices={orderedAvailableDevices}
-                    targetById={targetById}
-                    selectedDeviceIds={selectedDeviceIds}
-                    hitCounts={hitCounts}
-                    formatLastSeen={formatLastSeen}
-                    onToggleDeviceSelection={handleToggleDeviceSelection}
-                    onSelectAllDevices={handleSelectAllDevices}
-                    onClearDeviceSelection={handleClearDeviceSelection}
-                    displayedSelectedCount={displayedSelectedCount}
-                    totalOnlineSelectableTargets={totalOnlineSelectableTargets}
-                  />
-                )}
+              {isPageLoading ? (
+                <SetupWizardSkeleton />
+              ) : (
+                <Card className="bg-white shadow-card rounded-[var(--radius-lg)]">
+                  <CardContent className="p-5 md:p-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="flex-1">
+                        <StepProgressBar
+                          currentStep={currentStep}
+                          step1Complete={canAdvanceToDuration}
+                          step2Complete={canAdvanceToReview}
+                        />
+                      </div>
+                      {selectedDeviceIds.length > 0 && !isSessionLocked && (
+                        <button
+                          onClick={clearAllSetup}
+                          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium font-body text-brand-dark/50 hover:text-brand-primary hover:bg-brand-primary/[0.06] transition-colors shrink-0"
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          Clear
+                        </button>
+                      )}
+                    </div>
 
-                {isPageLoading ? (
-                  <StepTwoSkeleton />
-                ) : (
-                  <SetupStepTwo
-                    canAdvanceToDuration={canAdvanceToDuration}
-                    isSessionLocked={isSessionLocked}
-                    isDurationUnlimited={isDurationUnlimited}
-                    durationInputValue={durationInputValue}
-                    formattedDurationLabel={formattedDurationLabel}
-                    onDurationInputValueChange={handleDurationInputValueChange}
-                    onToggleDurationUnlimited={handleToggleDurationUnlimited}
-                  />
-                )}
+                    {/* Step 1: Select Targets */}
+                    <SetupStep
+                      step={1}
+                      title="Select Targets"
+                      isActive={currentStep === 1}
+                      isComplete={canAdvanceToDuration}
+                      isReachable={true}
+                      summaryText={`${selectedDevices.length} target${selectedDevices.length !== 1 ? 's' : ''} selected`}
+                      onEdit={() => { autoAdvanceAllowedRef.current = false; setCurrentStep(1); }}
+                    >
+                      <SetupStepOne
+                        roomsLoading={roomsLoading}
+                        roomSelections={roomSelections}
+                        sessionRoomId={sessionRoomId}
+                        onSelectAllRooms={handleSelectAllRooms}
+                        onClearRoomSelection={handleClearRoomSelection}
+                        onToggleRoomTargets={handleToggleRoomTargets}
+                        groupsLoading={groupsLoading}
+                        groupSelections={groupSelections}
+                        sessionGroupId={sessionGroupId}
+                        onSelectAllGroups={handleSelectAllGroups}
+                        onClearGroupSelection={handleClearGroupSelection}
+                        onToggleGroupTargets={handleToggleGroupTargets}
+                        loadingDevices={loadingDevices}
+                        isSessionLocked={isSessionLocked}
+                        orderedAvailableDevices={orderedAvailableDevices}
+                        targetById={targetById}
+                        selectedDeviceIds={selectedDeviceIds}
+                        hitCounts={hitCounts}
+                        formatLastSeen={formatLastSeen}
+                        onToggleDeviceSelection={handleToggleDeviceSelection}
+                        onSelectAllDevices={handleSelectAllDevices}
+                        onClearDeviceSelection={handleClearDeviceSelection}
+                        displayedSelectedCount={displayedSelectedCount}
+                        totalOnlineSelectableTargets={totalOnlineSelectableTargets}
+                        presetTargetWarning={activePresetId != null && selectedDeviceIds.length === 0}
+                        onRefreshDevices={() => loadLiveDevices({ silent: false })}
+                      />
+                    </SetupStep>
 
-                {isPageLoading ? (
-                  <StepThreeSkeleton />
-                ) : (
-                  <SetupStepThree
-                    sessionRoomName={sessionRoomName}
-                    selectedDevices={selectedDevices}
-                    reviewTargets={reviewTargets}
-                    remainingReviewTargetCount={remainingReviewTargetCount}
-                    formattedDurationLabel={formattedDurationLabel}
-                    canAdvanceToReview={canAdvanceToReview}
-                    canLaunchGame={canLaunchGame}
-                    isSessionLocked={isSessionLocked}
-                    isStarting={isStarting}
-                    loadingDevices={loadingDevices}
-                    goalShotsPerTarget={goalShotsPerTarget}
-                    setGoalShotsPerTarget={setGoalShotsPerTarget}
-                    targetById={targetById}
-                    onOpenStartDialog={handleOpenStartDialog}
-                    onRequestSavePreset={handleRequestSavePreset}
-                  />
-                )}
+                    <div className="border-t border-[rgba(28,25,43,0.06)] my-3" />
 
-                {isPageLoading ? (
+                    {/* Step 2: Duration */}
+                    <SetupStep
+                      step={2}
+                      title="Duration"
+                      isActive={currentStep === 2}
+                      isComplete={canAdvanceToReview}
+                      isReachable={canAdvanceToDuration}
+                      summaryText={formattedDurationLabel}
+                      onEdit={() => { autoAdvanceAllowedRef.current = false; setCurrentStep(2); }}
+                    >
+                      <SetupStepTwo
+                        canAdvanceToDuration={canAdvanceToDuration}
+                        isSessionLocked={isSessionLocked}
+                        isDurationUnlimited={isDurationUnlimited}
+                        durationInputValue={durationInputValue}
+                        formattedDurationLabel={formattedDurationLabel}
+                        onDurationInputValueChange={handleDurationInputValueChange}
+                        onToggleDurationUnlimited={handleToggleDurationUnlimited}
+                        onConfirm={() => { autoAdvanceAllowedRef.current = true; setCurrentStep(3); }}
+                      />
+                    </SetupStep>
+
+                    <div className="border-t border-[rgba(28,25,43,0.06)] my-3" />
+
+                    {/* Step 3: Review & Launch */}
+                    <SetupStep
+                      step={3}
+                      title="Review & Launch"
+                      isActive={currentStep === 3}
+                      isComplete={false}
+                      isReachable={canAdvanceToDuration && canAdvanceToReview}
+                      summaryText=""
+                      onEdit={() => { autoAdvanceAllowedRef.current = true; setCurrentStep(3); }}
+                    >
+                      <SetupStepThree
+                        sessionRoomName={sessionRoomName}
+                        selectedDevices={selectedDevices}
+                        reviewTargets={reviewTargets}
+                        remainingReviewTargetCount={remainingReviewTargetCount}
+                        formattedDurationLabel={formattedDurationLabel}
+                        canAdvanceToReview={canAdvanceToReview}
+                        canLaunchGame={canLaunchGame}
+                        isSessionLocked={isSessionLocked}
+                        isStarting={isStarting}
+                        loadingDevices={loadingDevices}
+                        goalShotsPerTarget={goalShotsPerTarget}
+                        setGoalShotsPerTarget={setGoalShotsPerTarget}
+                        targetById={targetById}
+                        activePresetName={activePresetId ? gamePresets.find((p) => p.id === activePresetId)?.name ?? null : null}
+                        isUpdatingPreset={presetsSaving}
+                        onOpenStartDialog={handleOpenStartDialog}
+                        onRequestSavePreset={handleRequestSavePreset}
+                        onUpdatePreset={handleUpdateActivePreset}
+                      />
+                    </SetupStep>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Live session card — only during an active session */}
+              {isSessionLocked && (
+                isPageLoading ? (
                   <LiveSessionCardSkeleton />
                 ) : (
                   <LiveSessionCard
@@ -743,7 +976,7 @@ const Games: React.FC = () => {
                     activeTargets={currentSessionTargets}
                     activeHits={activeSessionHits}
                     hitCounts={hitCounts}
-                    recentSummary={recentSessionSummary}
+                    recentSummary={null}
                     desiredDurationSeconds={sessionDurationSeconds}
                     goalShotsPerTarget={goalShotsPerTarget}
                     stoppedTargets={stoppedTargets}
@@ -751,8 +984,32 @@ const Games: React.FC = () => {
                     onCreateNew={handleCreateNewSetup}
                     isSessionLocked={isSessionLocked}
                   />
+                )
+              )}
+                  </motion.div>
+                ) : (
+                  <motion.div key="summary" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                    {isPageLoading ? (
+                      <LiveSessionCardSkeleton />
+                    ) : (
+                      <LiveSessionCard
+                        isRunning={false}
+                        timerSeconds={sessionTimerSeconds}
+                        activeTargets={currentSessionTargets}
+                        activeHits={activeSessionHits}
+                        hitCounts={hitCounts}
+                        recentSummary={recentSessionSummary}
+                        desiredDurationSeconds={sessionDurationSeconds}
+                        goalShotsPerTarget={goalShotsPerTarget}
+                        stoppedTargets={stoppedTargets}
+                        onUsePrevious={() => { handleUsePreviousSettings(); setActiveView('setup'); }}
+                        onCreateNew={() => { handleCreateNewSetup(); setActiveView('setup'); }}
+                        isSessionLocked={false}
+                      />
+                    )}
+                  </motion.div>
                 )}
-              </div>
+              </AnimatePresence>
             </div>
           </div>
           </FeatureErrorBoundary>

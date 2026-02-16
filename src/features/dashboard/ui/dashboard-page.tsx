@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { TARGET_STATUS_DISPLAY } from '@/shared/constants/target-status';
 import { motion } from 'framer-motion';
 import { Target as TargetIcon, Users, Activity, Play, X, BarChart, Award, CheckCircle, Gamepad2, Trophy } from 'lucide-react';
 import { useRooms } from '@/features/rooms';
@@ -420,7 +421,18 @@ const Dashboard: React.FC = () => {
                   <StatCard
                     title="Total Registered Targets"
                     value={summaryReady ? totalTargets : '—'}
-                    subtitle={summaryReady ? 'Registered devices' : ''}
+                    subtitle={summaryReady ? (
+                      <div className="flex items-center gap-2">
+                        <span className="flex items-center gap-1">
+                          <span className={`w-1.5 h-1.5 rounded-full ${TARGET_STATUS_DISPLAY.standby.dotColor}`} />
+                          <span>{standbyTargets} {TARGET_STATUS_DISPLAY.standby.label.toLowerCase()}</span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className={`w-1.5 h-1.5 rounded-full ${TARGET_STATUS_DISPLAY.offline.dotColor}`} />
+                          <span>{totalTargets - onlineTargets - standbyTargets} {TARGET_STATUS_DISPLAY.offline.label.toLowerCase()}</span>
+                        </span>
+                      </div>
+                    ) : ''}
                     icon={<TargetIcon className="w-4 h-4" />}
                     isLoading={summaryPending || !summaryReady}
                   />

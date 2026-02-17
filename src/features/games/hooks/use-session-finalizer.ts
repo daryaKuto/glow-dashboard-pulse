@@ -136,9 +136,36 @@ export function useSessionFinalizer(options: UseSessionFinalizerOptions): UseSes
         goalShotsPerTarget: goalShots ?? {},
       });
 
+      logger.warn('[Games][DIAG] buildLiveSessionSummary result', {
+        gameId: sessionSummary.gameId,
+        score: sessionSummary.score,
+        isValid: sessionSummary.isValid,
+        totalHits: sessionSummary.totalHits,
+        deviceStatsHits: sessionSummary.deviceStats.map((d) => ({
+          id: d.deviceId,
+          hits: d.hitCount,
+          hitTimesCount: d.hitTimes.length,
+        })),
+        hitHistoryLength: sessionSummary.hitHistory.length,
+        hitHistoryDeviceIds: [...new Set(sessionSummary.hitHistory.map((h) => h.deviceId))],
+        goalShotsPerTarget: goalShots,
+      });
+
+      // Final per-target hit count summary — compare with actual sounds heard
+      const perTargetFinal = sessionSummary.deviceStats.map((d) => {
+        const goal = goalShots?.[d.deviceId];
+        return `${d.deviceName ?? d.deviceId}: ${d.hitCount} hits${goal ? ` (goal: ${goal})` : ''}`;
+      });
+      console.log(
+        `%c[SESSION FINAL] ${sessionSummary.gameId}%c — Score: ${sessionSummary.score ?? 'N/A'} | Total: ${sessionSummary.totalHits} hits | ${perTargetFinal.join(' | ')}`,
+        'color: #CE3E0A; font-weight: bold; font-size: 13px',
+        'color: inherit; font-size: 13px',
+      );
+
       setRecentSessionSummary(sessionSummary);
       setGameHistory((prev) => [sessionSummary.historyEntry, ...prev]);
 
+      let persistenceError: unknown = null;
       try {
         const { status, sessionPersisted, sessionPersistError } = await saveGameHistory(sessionSummary.historyEntry);
         if (status === 'created') {
@@ -152,12 +179,13 @@ export function useSessionFinalizer(options: UseSessionFinalizerOptions): UseSes
             sessionPersistError,
           });
         }
-      } catch (persistError) {
-        console.warn('[Games] Failed to persist game history', persistError);
+      } catch (error) {
+        persistenceError = error;
+        console.warn('[Games] Failed to persist game history', error);
         toast.error('Failed to persist game history. Please check your connection.');
       }
 
-      return sessionSummary;
+      return { ...sessionSummary, persistenceError };
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],

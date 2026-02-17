@@ -10,6 +10,9 @@ import ResetPassword from './pages/auth/ResetPassword';
 import ChangePassword from './pages/auth/ChangePassword';
 import OAuthCallback from './pages/auth/callback';
 
+// Persistent layout shell for all dashboard routes
+import DashboardLayout from './components/shared/DashboardLayout';
+
 // Dashboard pages - lazy loaded for code splitting
 const DashboardPage = React.lazy(() => import('./features/dashboard/ui/dashboard-page'));
 const TargetsPage = React.lazy(() => import('./features/targets/ui/targets-page'));
@@ -21,9 +24,16 @@ const SettingsPage = React.lazy(() => import('./features/settings/ui/settings-pa
 const RoomEditorPage = React.lazy(() => import('./features/rooms/ui/room-editor/RoomEditorPage'));
 import NotFound from './pages/NotFound';
 
-// Loading fallback for lazy-loaded pages
+// Full-page loading fallback (used for Room Editor which has no persistent shell)
 const PageLoading = () => (
   <div className="min-h-screen flex items-center justify-center bg-brand-light">
+    <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" />
+  </div>
+);
+
+// Content-area loading fallback (sidebar/header already visible via DashboardLayout)
+const ContentLoading = () => (
+  <div className="flex items-center justify-center h-full min-h-[60vh]">
     <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" />
   </div>
 );
@@ -70,16 +80,20 @@ function App() {
         <Route path="/change-password" element={user ? <ChangePassword /> : <Navigate to="/login" replace />} />
         <Route path="/auth/callback" element={<OAuthCallback />} />
         
-        {/* Dashboard routes - require authentication, wrapped in Suspense for lazy loading */}
-        <Route path="/dashboard" element={user ? <Suspense fallback={<PageLoading />}><DashboardPage /></Suspense> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/targets" element={user ? <Suspense fallback={<PageLoading />}><TargetsPage /></Suspense> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/rooms" element={user ? <Suspense fallback={<PageLoading />}><RoomsPage /></Suspense> : <Navigate to="/login" replace />} />
+        {/* Dashboard routes — persistent layout shell (Header + Sidebar stay mounted across navigation) */}
+        <Route element={user ? <DashboardLayout /> : <Navigate to="/login" replace />}>
+          <Route path="/dashboard" element={<Suspense fallback={<ContentLoading />}><DashboardPage /></Suspense>} />
+          <Route path="/dashboard/targets" element={<Suspense fallback={<ContentLoading />}><TargetsPage /></Suspense>} />
+          <Route path="/dashboard/rooms" element={<Suspense fallback={<ContentLoading />}><RoomsPage /></Suspense>} />
+          <Route path="/dashboard/games" element={<Suspense fallback={<ContentLoading />}><GamesPage /></Suspense>} />
+          <Route path="/dashboard/leaderboard" element={<Suspense fallback={<ContentLoading />}><LeaderboardPage /></Suspense>} />
+          <Route path="/dashboard/profile" element={<Suspense fallback={<ContentLoading />}><ProfilePage /></Suspense>} />
+          <Route path="/dashboard/settings" element={<Suspense fallback={<ContentLoading />}><SettingsPage /></Suspense>} />
+        </Route>
+
+        {/* Room Editor — full-screen, no persistent shell */}
         <Route path="/dashboard/rooms/layout/new" element={user ? <Suspense fallback={<PageLoading />}><RoomEditorPage /></Suspense> : <Navigate to="/login" replace />} />
         <Route path="/dashboard/rooms/:roomId/layout" element={user ? <Suspense fallback={<PageLoading />}><RoomEditorPage /></Suspense> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/games" element={user ? <Suspense fallback={<PageLoading />}><GamesPage /></Suspense> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/leaderboard" element={user ? <Suspense fallback={<PageLoading />}><LeaderboardPage /></Suspense> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/profile" element={user ? <Suspense fallback={<PageLoading />}><ProfilePage /></Suspense> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard/settings" element={user ? <Suspense fallback={<PageLoading />}><SettingsPage /></Suspense> : <Navigate to="/login" replace />} />
         
         {/* Fallback route - redirect from old path structure */}
         <Route path="/profile" element={<Navigate to="/dashboard/profile" replace />} />

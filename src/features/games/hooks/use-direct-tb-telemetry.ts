@@ -5,7 +5,7 @@
  * @see src/_legacy/README.md for migration details
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { tbSubscribeTelemetry } from '@/features/games/lib/thingsboard-client';
 import { logger } from '@/shared/lib/logger';
 
@@ -19,6 +19,9 @@ interface UseDirectTbTelemetryOptions {
   token: string | null;
   gameId: string | null;
   devices: DeviceDescriptor[];
+  /** Ref to the set of device IDs that have been stopped (goal reached).
+   *  Hits from stopped targets are ignored to prevent post-goal hit inflation. */
+  stoppedTargetsRef?: MutableRefObject<Set<string>>;
 }
 
 export interface DirectTelemetryState {
@@ -91,6 +94,7 @@ export const useDirectTbTelemetry = ({
   token,
   gameId,
   devices,
+  stoppedTargetsRef,
 }: UseDirectTbTelemetryOptions): DirectTelemetryState => {
   const [hitCounts, setHitCounts] = useState<Record<string, number>>({});
   const [hitHistory, setHitHistory] = useState<DirectTelemetryState['hitHistory']>([]);
@@ -99,6 +103,8 @@ export const useDirectTbTelemetry = ({
   const [hitTimesByDevice, setHitTimesByDevice] = useState<Record<string, number[]>>({});
   const [sessionEventTimestamp, setSessionEventTimestamp] = useState<number | null>(null);
   const [readyDevices, setReadyDevices] = useState<Record<string, number>>({});
+  // Mirror of hitCounts for logging outside state updaters (avoids StrictMode double-log)
+  const hitCountsRef = useRef<Record<string, number>>({});
   const lastHitTimestampRef = useRef<Record<string, number | null>>({});
   const lastHitDeviceRef = useRef<{
     deviceId: string;
@@ -107,6 +113,7 @@ export const useDirectTbTelemetry = ({
   } | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const trackedDevices = useMemo(() => devices.map((device) => device.deviceId), [devices]);
+  const trackedDeviceSet = useMemo(() => new Set(trackedDevices), [trackedDevices]);
   const deviceNameMap = useMemo(() => {
     const map = new Map<string, string>();
     devices.forEach((device) => {
@@ -123,6 +130,7 @@ export const useDirectTbTelemetry = ({
     setHitTimesByDevice({});
     setSessionEventTimestamp(null);
     setReadyDevices({});
+    hitCountsRef.current = {};
     lastHitTimestampRef.current = {};
     lastHitDeviceRef.current = null;
   }, []);
@@ -165,10 +173,29 @@ export const useDirectTbTelemetry = ({
         const eventTimestamp = resolveTimestamp(telemetry.event, Date.now());
 
         const fallbackEntityId = typeof payload.entityId === 'string' ? payload.entityId : '';
-        const deviceId =
+        let deviceId =
           typeof deviceIdValue === 'string' && deviceIdValue.trim().length > 0
             ? deviceIdValue
             : fallbackEntityId;
+
+        // Normalize to tracked device ID if the resolved ID doesn't match.
+        // Handles firmware sending MAC address while we track by ThingsBoard UUID.
+        if (deviceId && !trackedDeviceSet.has(deviceId)) {
+          if (fallbackEntityId && trackedDeviceSet.has(fallbackEntityId)) {
+            logger.warn('[DirectTelemetry][DIAG] Normalized deviceId from telemetry to tracked UUID', {
+              original: deviceId,
+              normalized: fallbackEntityId,
+            });
+            deviceId = fallbackEntityId;
+          } else {
+            logger.warn('[DirectTelemetry] deviceId not in tracked set and no fallback match', {
+              deviceId,
+              fallbackEntityId,
+              trackedDevices: [...trackedDeviceSet],
+            });
+          }
+        }
+
         if (!deviceId || deviceId.trim().length === 0) {
           console.warn('[DirectTelemetry] Dropping telemetry without deviceId', {
             entityId: payload.entityId,
@@ -201,6 +228,35 @@ export const useDirectTbTelemetry = ({
 
         if (eventValue !== 'hit') {
           return;
+        }
+
+        // Skip hits from targets that have already been stopped (goal reached).
+        // The physical device may continue firing between the stop RPC and
+        // when the firmware actually processes it — these late hits should
+        // not inflate hitCounts or pollute hitHistory/splits/transitions.
+        if (stoppedTargetsRef?.current.has(deviceId)) {
+          logger.warn('[DirectTelemetry] Ignoring post-goal hit from stopped target', {
+            deviceId,
+            deviceName,
+            eventTimestamp,
+          });
+          return;
+        }
+
+        // Log BEFORE the state updater so StrictMode double-invoke doesn't duplicate it
+        {
+          const prevCount = hitCountsRef.current[deviceId] ?? 0;
+          const newCount = prevCount + 1;
+          hitCountsRef.current = { ...hitCountsRef.current, [deviceId]: newCount };
+          const perDevice: Record<string, number> = {};
+          for (const [id, count] of Object.entries(hitCountsRef.current)) {
+            perDevice[deviceNameMap.get(id) ?? id] = count;
+          }
+          console.log(
+            `%c[HIT] #${newCount} — ${deviceName}%c | ts: ${eventTimestamp} | All counts: ${JSON.stringify(perDevice)}`,
+            'color: #CE3E0A; font-weight: bold',
+            'color: inherit',
+          );
         }
 
         setHitCounts((prev) => ({
@@ -288,7 +344,7 @@ export const useDirectTbTelemetry = ({
         unsubscribeRef.current = null;
       }
     };
-  }, [enabled, token, gameId, trackedDevices, deviceNameMap, resetState]);
+  }, [enabled, token, gameId, trackedDevices, trackedDeviceSet, deviceNameMap, resetState]);
 
   return useMemo(
     () => ({

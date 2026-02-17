@@ -19,10 +19,6 @@ import {
 } from '@/features/targets';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/components/ui/sonner';
-import Header from '@/components/shared/Header';
-import Sidebar from '@/components/shared/Sidebar';
-import MobileDrawer from '@/components/shared/MobileDrawer';
-import { useIsMobile } from '@/shared/hooks/use-mobile';
 import type { Target } from '@/features/targets';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -410,7 +406,6 @@ const GroupCard: React.FC<{
 };
 
 const Targets: React.FC = () => {
-  const isMobile = useIsMobile();
 
   const queryClient = useQueryClient();
   // Use new React Query hooks
@@ -1032,13 +1027,8 @@ const Targets: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-light responsive-container pt-[116px] lg:pt-16">
-      <Header />
-      {isMobile && <MobileDrawer />}
-      {!isMobile && <Sidebar />}
-      <div className="flex flex-1 no-overflow lg:pl-64">
-        <main className="flex-1 overflow-y-auto responsive-container">
-          <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
+    <>
+    <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
 
             {/* Page Header */}
             <div>
@@ -1378,10 +1368,8 @@ const Targets: React.FC = () => {
               </div>
             )}
 
-          </div>
-        </main>
-      </div>
-      
+    </div>
+
       {/* Rename Target Dialog */}
       {renamingTargetId && (() => {
         const target = targets.find(t => t.id === renamingTargetId);
@@ -1436,7 +1424,7 @@ const Targets: React.FC = () => {
           groupName={currentGroupForAdding.name}
         />
       )}
-    </div>
+    </>
   );
 };
 

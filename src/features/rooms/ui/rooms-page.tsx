@@ -20,11 +20,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Plus, Users, Target, RefreshCw, Eye, X, Check, ArrowRight, ArrowLeft, PenTool, Monitor } from 'lucide-react';
-import Header from '@/components/shared/Header';
-import Sidebar from '@/components/shared/Sidebar';
-import MobileDrawer from '@/components/shared/MobileDrawer';
 import StatCard from '@/components/shared/StatCard';
-import { useIsMobile } from '@/shared/hooks/use-mobile';
 import RoomCard from '@/components/RoomCard';
 import { toast } from '@/components/ui/sonner';
 import CreateRoomModal from '@/components/CreateRoomModal';
@@ -44,7 +40,6 @@ import { useTargets } from '@/features/targets';
 const RoomsPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
 
 
   // React Query hooks
@@ -328,14 +323,8 @@ const RoomsPage: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-light responsive-container pt-[116px] lg:pt-16">
-      <Header />
-      {isMobile && <MobileDrawer />}
-
-      {!isMobile && <Sidebar />}
-      <div className="flex flex-1 no-overflow lg:pl-64">
-        <main className="flex-1 overflow-y-auto responsive-container">
-          <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
+    <>
+    <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
             {/* Page Header */}
             <div>
               <div className="flex items-center justify-between gap-2 md:gap-4">
@@ -462,9 +451,7 @@ const RoomsPage: React.FC = () => {
                 ))}
               </div>
             )}
-          </div>
-        </main>
-      </div>
+    </div>
 
       {/* Delete Room Dialog */}
       <AlertDialog
@@ -767,7 +754,7 @@ const RoomsPage: React.FC = () => {
           activityStatus: target.activityStatus ?? null,
         }))}
       />
-    </div>
+    </>
   );
 };
 

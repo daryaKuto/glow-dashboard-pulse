@@ -1,10 +1,6 @@
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import Header from '@/components/shared/Header';
-import Sidebar from '@/components/shared/Sidebar';
-import MobileDrawer from '@/components/shared/MobileDrawer';
-import { useIsMobile } from '@/shared/hooks/use-mobile';
 import NotificationSettings from '@/features/settings/ui/NotificationSettings';
 import ThemeSettings from '@/features/settings/ui/ThemeSettings';
 import PasswordSettings from '@/features/settings/ui/PasswordSettings';
@@ -19,8 +15,6 @@ import {
 
 const Settings = () => {
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
-
 
   // Get user from auth context
   const { user, loading: authLoading } = useAuth();
@@ -63,14 +57,7 @@ const Settings = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-light pt-[116px] lg:pt-16">
-      <Header />
-      {isMobile && <MobileDrawer />}
-
-      {!isMobile && <Sidebar />}
-      <div className="flex flex-1 lg:pl-64">
-        <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
-          <div className="container mx-auto">
+          <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-h1 font-heading text-brand-dark">Settings</h2>
             </div>
@@ -98,9 +85,6 @@ const Settings = () => {
               </div>
             )}
           </div>
-        </main>
-      </div>
-    </div>
   );
 };
 

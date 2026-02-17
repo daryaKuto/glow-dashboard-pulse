@@ -1,8 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import Header from '@/components/shared/Header';
-import Sidebar from '@/components/shared/Sidebar';
-import MobileDrawer from '@/components/shared/MobileDrawer';
-import { useIsMobile } from '@/shared/hooks/use-mobile';
 import { useGameDevices, type NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import { useTargets } from '@/features/targets';
 import type { Target } from '@/features/targets/schema';
@@ -135,7 +131,6 @@ const SetupStep: React.FC<{
 // Main Live Game Control page: orchestrates device state, telemetry streams, and session history for operator control.
 const Games: React.FC = () => {
   mark('games-page-render-start');
-  const isMobile = useIsMobile();
   const { user } = useAuth();
 
 
@@ -572,6 +567,11 @@ const Games: React.FC = () => {
     setDirectTelemetryEnabled,
   });
 
+  // Shared ref: tracks which targets have been stopped (goal reached).
+  // Created here so it can be shared between useDirectTbTelemetry (to ignore
+  // post-goal hits) and useSessionTelemetrySync (to prevent duplicate stop RPCs).
+  const stoppedTargetsRef = useRef<Set<string>>(new Set());
+
   // Shared telemetry hook feeds real-time hit data for active devices so the page can merge hit counts, splits, and transitions.
   const directTelemetryDeviceDescriptors = useMemo(
     () =>
@@ -587,6 +587,7 @@ const Games: React.FC = () => {
     token: directControlToken,
     gameId: directSessionGameId,
     devices: directTelemetryDeviceDescriptors,
+    stoppedTargetsRef,
   });
 
   const telemetryState = directTelemetryState;
@@ -599,7 +600,6 @@ const Games: React.FC = () => {
     setHitCounts,
     setHitHistory,
     setStoppedTargets,
-    stoppedTargetsRef,
     goalShotsPerTargetRef,
     stopTargetWhenGoalReached,
   } = useSessionTelemetrySync({
@@ -612,6 +612,7 @@ const Games: React.FC = () => {
     sessionConfirmed,
     markTelemetryConfirmed,
     hasMarkedTelemetryConfirmedRef,
+    stoppedTargetsRef,
     currentSessionTargetsRef,
     availableDevicesRef,
     setAvailableDevices,
@@ -773,13 +774,7 @@ const Games: React.FC = () => {
   const canDismissSessionDialog = sessionLifecycle === 'selecting' && !isStarting && !isLaunchingLifecycle;
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-light responsive-container pt-[116px] lg:pt-16">
-      <Header />
-      {isMobile && <MobileDrawer />}
-
-      {!isMobile && <Sidebar />}
-      <div className="flex flex-1 lg:pl-64">
-        <main className="flex-1 overflow-y-auto">
+    <>
           <FeatureErrorBoundary feature="Game Session">
           <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
             {errorMessage && (
@@ -1013,7 +1008,6 @@ const Games: React.FC = () => {
             </div>
           </div>
           </FeatureErrorBoundary>
-        </main>
         <StartSessionDialog
           open={isSessionDialogVisible}
           lifecycle={sessionLifecycle}
@@ -1059,8 +1053,7 @@ const Games: React.FC = () => {
           onSubmit={handleSavePresetSubmit}
           roomName={sessionRoomName}
         />
-      </div>
-    </div>
+    </>
   );
 };
 

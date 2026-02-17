@@ -1,9 +1,5 @@
 
 import React, { useState } from 'react';
-import Header from '@/components/shared/Header';
-import Sidebar from '@/components/shared/Sidebar';
-import MobileDrawer from '@/components/shared/MobileDrawer';
-import { useIsMobile } from '@/shared/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -12,8 +8,6 @@ import { useLeaderboardEntries } from '../hooks';
 import type { LeaderboardEntry, LeaderboardQuery } from '../schema';
 
 const Leaderboard: React.FC = () => {
-  const isMobile = useIsMobile();
-
   const [timeframe, setTimeframe] = useState<LeaderboardQuery['timeframe']>('week');
   const [activeTab, setActiveTab] = useState<LeaderboardQuery['sortBy']>('score');
 
@@ -93,14 +87,7 @@ const Leaderboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-light pt-[116px] lg:pt-16">
-      <Header />
-      {isMobile && <MobileDrawer />}
-
-      {!isMobile && <Sidebar />}
-      <div className="flex flex-1 lg:pl-64">
-        <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
-          <div className="container mx-auto">
+          <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-h1 font-heading text-brand-dark">Leaderboard</h2>
               <div className="flex items-center gap-4">
@@ -154,9 +141,6 @@ const Leaderboard: React.FC = () => {
               </CardContent>
             </Card>
           </div>
-        </main>
-      </div>
-    </div>
   );
 };
 

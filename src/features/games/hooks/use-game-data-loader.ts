@@ -10,6 +10,7 @@ import {
   convertHistoryEntryToLiveSummary,
 } from '@/features/games/lib/session-summary-builder';
 import { getRecentSessionsService } from '@/features/profile/service';
+import { logger } from '@/shared/lib/logger';
 import type { SessionRegistry } from './use-session-registry';
 
 const RECENT_SESSION_STORAGE_KEY = 'glow-dashboard:last-session';
@@ -122,10 +123,36 @@ export function useGameDataLoader(options: UseGameDataLoaderOptions): UseGameDat
       if (combinedHistory.length > 0) {
         const newSummary = convertHistoryEntryToLiveSummary(combinedHistory[0]);
         setRecentSessionSummary((prev) => {
-          if (!prev || prev.gameId !== newSummary.gameId || prev.startedAt !== newSummary.startedAt) {
-            return newSummary;
+          logger.warn('[GameDataLoader][DIAG] setRecentSessionSummary evaluating replacement', {
+            prevGameId: prev?.gameId,
+            prevStartedAt: prev?.startedAt,
+            prevIsValid: prev?.isValid,
+            prevScore: prev?.score,
+            newGameId: newSummary.gameId,
+            newStartedAt: newSummary.startedAt,
+            newIsValid: newSummary.isValid,
+            newScore: newSummary.score,
+            newHitHistoryLength: newSummary.hitHistory.length,
+            newTotalHits: newSummary.totalHits,
+          });
+
+          if (!prev) return newSummary;
+
+          // Same session — keep the existing one (it was built from live telemetry and is more reliable)
+          if (prev.gameId === newSummary.gameId && prev.startedAt === newSummary.startedAt) {
+            logger.warn('[GameDataLoader][DIAG] Keeping existing summary (same session)');
+            return prev;
           }
-          return prev;
+
+          // Different session — but if prev is valid and newSummary is invalid for a session
+          // that just completed, this is likely a race condition (history fetched before save committed)
+          if (prev.isValid === true && newSummary.isValid === false &&
+              Math.abs((prev.startedAt ?? 0) - (newSummary.startedAt ?? 0)) < 5000) {
+            logger.warn('[GameDataLoader][DIAG] Keeping valid prev over invalid new (race condition guard)');
+            return prev;
+          }
+
+          return newSummary;
         });
       } else {
         setRecentSessionSummary(null);

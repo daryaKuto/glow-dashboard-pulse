@@ -91,8 +91,6 @@ type RequestPayload = StartPayload | StopPayload | ConfigurePayload | InfoPayloa
 
 type HistorySummary = NonNullable<HistoryPayload['summary']>;
 
-type HistorySummary = NonNullable<HistoryPayload['summary']>;
-
 const TELEMETRY_KEYS = ["hits", "wifiStrength", "ambientLight", "event", "gameStatus", "gameId", "hit_ts"];
 
 function isUuid(value: unknown): value is string {
@@ -382,6 +380,19 @@ async function handleHistory(
 
     const summaryRecord = summary as Record<string, unknown>;
 
+    // Compute safe endTime once — reused by both sessions INSERT and game_history upsert.
+    const endTimeValue = typeof summary.endTime === "number" && summary.endTime > 0
+      ? summary.endTime
+      : Date.now();
+
+    if (typeof summary.endTime !== "number" || summary.endTime <= 0) {
+      console.warn(`[game-control] Session endTime missing or invalid for gameId ${summary.gameId}, using current time as fallback`, {
+        gameId: summary.gameId,
+        providedEndTime: summary.endTime,
+        fallbackEndTime: endTimeValue,
+      });
+    }
+
     let sessionId: string | null = null;
     let sessionPersisted = false;
     let sessionPersistError: unknown = null;
@@ -399,20 +410,7 @@ async function handleHistory(
       const normalizedScore = Number.isFinite(rawScoreValue) ? Math.round(rawScoreValue) : hitCount;
 
       const startedAtIso = new Date(summary.startTime).toISOString();
-      // CRITICAL: Ensure ended_at is ALWAYS set. If endTime is missing, use current time as fallback.
-      const endTimeValue = typeof summary.endTime === "number" && summary.endTime > 0 
-        ? summary.endTime 
-        : Date.now();
       const endedAtIso = new Date(endTimeValue).toISOString();
-      
-      // Log warning if endTime was missing or invalid
-      if (typeof summary.endTime !== "number" || summary.endTime <= 0) {
-        console.warn(`[game-control] Session endTime missing or invalid for gameId ${summary.gameId}, using current time as fallback`, {
-          gameId: summary.gameId,
-          providedEndTime: summary.endTime,
-          fallbackEndTime: endTimeValue,
-        });
-      }
       
       const durationMs = typeof summary.actualDuration === "number"
         ? Math.max(0, Math.round(summary.actualDuration * 1000))
@@ -596,12 +594,23 @@ async function handleHistory(
       summaryRecord.sessionId = sessionId;
     } catch (sessionError) {
       sessionPersistError = sessionError;
+      const pgErr = sessionError as { code?: string; details?: string; hint?: string; message?: string };
       console.warn('[game-control] Failed to persist session analytics', {
-        error: sessionError,
+        message: pgErr.message,
+        pgCode: pgErr.code,
+        pgDetails: pgErr.details,
+        pgHint: pgErr.hint,
         summaryGameId: summary.gameId,
         isUuid: isUuid(summary.gameId),
       });
     }
+
+    console.log('[game-control] Session persistence phase complete', {
+      sessionPersisted,
+      sessionId,
+      sessionPersistError: sessionPersistError ? toErrorMessage(sessionPersistError) : null,
+      gameId: summary.gameId,
+    });
 
     let isUpdate = false;
     try {
@@ -618,28 +627,63 @@ async function handleHistory(
       console.warn('[game-control] Failed to check existing game history', lookupError);
     }
 
+    const safeStartTime = typeof summary.startTime === "number" && summary.startTime > 0
+      ? summary.startTime
+      : endTimeValue;
     const row = {
       user_id: userId,
       game_id: summary.gameId,
       game_name: summary.gameName ?? null,
-      duration_minutes: typeof summary.durationMinutes === "number" ? summary.durationMinutes : null,
-      started_at: new Date(summary.startTime).toISOString(),
-      ended_at: new Date(summary.endTime).toISOString(),
+      duration_minutes: typeof summary.durationMinutes === "number" ? Math.round(summary.durationMinutes) : null,
+      started_at: new Date(safeStartTime).toISOString(),
+      ended_at: new Date(endTimeValue).toISOString(),
       total_hits: typeof summary.totalHits === "number" ? summary.totalHits : null,
-      actual_duration_seconds: typeof summary.actualDuration === "number" ? summary.actualDuration : null,
+      actual_duration_seconds: typeof summary.actualDuration === "number" ? Math.round(summary.actualDuration) : null,
       average_hit_interval: typeof summary.averageHitInterval === "number" ? summary.averageHitInterval : null,
       summary: summaryRecord,
     };
 
-    const { data, error } = await supabaseAdmin
+    // Try upsert first (requires UNIQUE(user_id, game_id) index on game_history)
+    console.log('[game-control] Attempting game_history upsert', {
+      gameId: summary.gameId,
+      userId,
+      isUpdate,
+      rowKeys: Object.keys(row),
+    });
+    let { data, error } = await supabaseAdmin
       .from('game_history')
       .upsert(row, { onConflict: 'user_id,game_id' })
       .select('id, created_at, summary')
       .single();
 
+    // If upsert fails (e.g., missing unique constraint), fall back to plain INSERT
     if (error) {
-      console.error('[game-control] Failed to persist game history', error);
-      return errorResponse('Failed to save game history', 500, error.message ?? undefined);
+      const pgError = error as { code?: string; details?: string; hint?: string; message?: string };
+      console.warn('[game-control] game_history upsert failed, falling back to INSERT', {
+        upsertError: toErrorMessage(error),
+        pgCode: pgError.code,
+        pgDetails: pgError.details,
+        pgHint: pgError.hint,
+        gameId: summary.gameId,
+      });
+      ({ data, error } = await supabaseAdmin
+        .from('game_history')
+        .insert(row)
+        .select('id, created_at, summary')
+        .single());
+    }
+
+    if (error) {
+      const pgError = error as { code?: string; details?: string; hint?: string; message?: string };
+      console.error('[game-control] Failed to persist game history (both upsert and insert failed)', {
+        pgCode: pgError.code,
+        pgDetails: pgError.details,
+        pgHint: pgError.hint,
+        message: pgError.message,
+        gameId: summary.gameId,
+        userId,
+      });
+      return errorResponse('Failed to save game history', 500, toErrorMessage(error) ?? undefined);
     }
 
     return jsonResponse({

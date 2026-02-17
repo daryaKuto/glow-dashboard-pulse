@@ -39,6 +39,9 @@ interface UseSessionTelemetrySyncOptions {
   markTelemetryConfirmed: (timestamp: number) => void;
   hasMarkedTelemetryConfirmedRef: React.MutableRefObject<boolean>;
 
+  // Shared ref for stopped targets (created in parent, shared with useDirectTbTelemetry)
+  stoppedTargetsRef: React.MutableRefObject<Set<string>>;
+
   // External refs for device lookups
   currentSessionTargetsRef: React.MutableRefObject<NormalizedGameDevice[]>;
   availableDevicesRef: React.MutableRefObject<NormalizedGameDevice[]>;
@@ -62,7 +65,6 @@ interface UseSessionTelemetrySyncReturn {
   setStoppedTargets: React.Dispatch<React.SetStateAction<Set<string>>>;
 
   // Refs
-  stoppedTargetsRef: React.MutableRefObject<Set<string>>;
   goalShotsPerTargetRef: React.MutableRefObject<Record<string, number>>;
 
   // Callback
@@ -80,6 +82,7 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
     sessionConfirmed,
     markTelemetryConfirmed,
     hasMarkedTelemetryConfirmedRef,
+    stoppedTargetsRef,
     currentSessionTargetsRef,
     availableDevicesRef,
     setAvailableDevices,
@@ -92,7 +95,7 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
   const [stoppedTargets, setStoppedTargets] = useState<Set<string>>(new Set());
 
   // --- Refs ---
-  const stoppedTargetsRef = useRef<Set<string>>(new Set());
+  // stoppedTargetsRef is passed in from parent (shared with useDirectTbTelemetry)
   const goalShotsPerTargetRef = useRef<Record<string, number>>({});
   const prevHitCountsRef = useRef<Record<string, number>>({});
   const prevHitHistoryRef = useRef<SessionHitRecord[]>([]);
@@ -110,12 +113,22 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
 
   const stopTargetWhenGoalReached = useCallback(
     async (deviceId: string, deviceName: string, goalShots: number) => {
-      if (stoppedTargets.has(deviceId)) {
+      // Use REF for guard check (always current) — avoids stale closure when
+      // multiple targets reach their goal in the same React render cycle.
+      if (stoppedTargetsRef.current.has(deviceId)) {
         return; // Already stopped
       }
 
+      // Optimistically mark as stopped in the ref BEFORE async RPC.
+      // This prevents duplicate stop calls from concurrent effect runs.
+      stoppedTargetsRef.current = new Set(stoppedTargetsRef.current).add(deviceId);
+
       const gameId = directSessionGameId;
       if (!gameId) {
+        // Rollback ref on failure
+        const rollback = new Set(stoppedTargetsRef.current);
+        rollback.delete(deviceId);
+        stoppedTargetsRef.current = rollback;
         console.warn('[Games] Cannot stop target: no game ID', { deviceId });
         return;
       }
@@ -138,11 +151,17 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
           },
         });
 
-        const newStoppedTargets = new Set(stoppedTargets).add(deviceId);
-        setStoppedTargets(newStoppedTargets);
+        // Use functional updater to read LATEST state — avoids stale closure
+        // where concurrent calls would overwrite each other's additions.
+        setStoppedTargets((prev) => new Set(prev).add(deviceId));
 
         toast.success(`${deviceName} reached goal of ${goalShots} shots`);
       } catch (error) {
+        // Rollback ref on failure so the target can be retried
+        const rollback = new Set(stoppedTargetsRef.current);
+        rollback.delete(deviceId);
+        stoppedTargetsRef.current = rollback;
+
         console.error('[Games] Failed to stop target when goal reached', {
           deviceId,
           deviceName,
@@ -151,7 +170,7 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
         toast.error(`Failed to stop ${deviceName}. Please stop manually.`);
       }
     },
-    [stoppedTargets, directSessionGameId],
+    [directSessionGameId],
   );
 
   // --- Main telemetry processing effect ---
@@ -166,6 +185,22 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
       if (hitCountsChanged) {
         setHitCounts(currentHitCounts);
         prevHitCountsRef.current = currentHitCounts;
+
+        // Log per-target hit count summary with device names
+        const goals = goalShotsPerTargetRef.current;
+        const summary = Object.entries(currentHitCounts).map(([id, count]) => {
+          const device = currentSessionTargetsRef.current.find((d) => d.deviceId === id) ||
+            availableDevicesRef.current.find((d) => d.deviceId === id);
+          const name = device?.name ?? id.slice(0, 8);
+          const goal = goals[id];
+          return `${name}: ${count}${goal ? `/${goal}` : ''}`;
+        });
+        const total = Object.values(currentHitCounts).reduce((s, c) => s + c, 0);
+        console.log(
+          `%c[TelemetrySync] Hit counts updated%c — total: ${total} | ${summary.join(' | ')}`,
+          'color: #816E94; font-weight: bold',
+          'color: inherit',
+        );
       }
 
       // Only update hitHistory if content actually changed (prevent infinite loop)
@@ -218,9 +253,32 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
 
       // Check if any targets have reached their goal shots
       if (isRunningLifecycle && Object.keys(goalShotsPerTargetRef.current).length > 0) {
+        const hitCountKeys = Object.keys(currentTelemetry.hitCounts);
+        const goalKeys = Object.keys(goalShotsPerTargetRef.current);
+
+        // Log mismatch between hitCount keys and goal keys (diagnostic for DNF/auto-stop bugs)
+        if (hitCountKeys.length > 0 && goalKeys.length > 0) {
+          const hitKeysNotInGoals = hitCountKeys.filter((k) => !goalKeys.includes(k));
+          const goalKeysNotInHits = goalKeys.filter((k) => !hitCountKeys.includes(k));
+          if (hitKeysNotInGoals.length > 0 || goalKeysNotInHits.length > 0) {
+            logger.warn('[TelemetrySync] DeviceId mismatch between hitCounts and goalShotsPerTarget', {
+              hitCountKeys,
+              goalKeys,
+              hitKeysNotInGoals,
+              goalKeysNotInHits,
+            });
+          }
+        }
+
         Object.entries(goalShotsPerTargetRef.current).forEach(([deviceId, goalShots]) => {
           const currentHits = currentTelemetry.hitCounts[deviceId] ?? 0;
           if (currentHits >= goalShots && !stoppedTargetsRef.current.has(deviceId)) {
+            logger.warn('[TelemetrySync][DIAG] Goal reached — stopping target', {
+              deviceId,
+              currentHits,
+              goalShots,
+              stoppedTargets: Array.from(stoppedTargetsRef.current),
+            });
             const device = currentSessionTargetsRef.current.find((d) => d.deviceId === deviceId) ||
               availableDevicesRef.current.find((d) => d.deviceId === deviceId);
             const deviceName = device?.name ?? deviceId;
@@ -268,6 +326,7 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
       });
       setStoppedTargets((prev) => (prev.size > 0 ? new Set() : prev)); // Only update if not already empty
       // Reset refs when session ends
+      stoppedTargetsRef.current = new Set();
       prevHitCountsRef.current = {};
       prevHitHistoryRef.current = [];
     }
@@ -294,7 +353,6 @@ export function useSessionTelemetrySync(options: UseSessionTelemetrySyncOptions)
     setHitCounts,
     setHitHistory,
     setStoppedTargets,
-    stoppedTargetsRef,
     goalShotsPerTargetRef,
     stopTargetWhenGoalReached,
   };

@@ -7,10 +7,6 @@ import { useRooms } from '@/features/rooms';
 import { useProfile, useRecentSessions, useStatsTrend, useUpdateProfile, useWifiCredentials, useUpdateWifiCredentials, profileKeys, useUserPreferences, useSaveUserPreferences, type UserPreferences, type TargetPreferences } from '@/features/profile';
 import { useSetDeviceAttributes, useTargets } from '@/features/targets';
 import { useQueryClient } from '@tanstack/react-query';
-import { useIsMobile } from '@/shared/hooks/use-mobile';
-import Header from '@/components/shared/Header';
-import Sidebar from '@/components/shared/Sidebar';
-import MobileDrawer from '@/components/shared/MobileDrawer';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -55,7 +51,6 @@ import {
 const EMPTY_PREFS: UserPreferences = {};
 
 const Profile: React.FC = () => {
-  const isMobile = useIsMobile();
 
   const { user: authUser } = useAuth();
   // Use new React Query hooks
@@ -327,13 +322,6 @@ const Profile: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-light pt-[116px] lg:pt-16">
-      <Header />
-      {isMobile && <MobileDrawer />}
-
-      {!isMobile && <Sidebar />}
-      <div className="flex flex-1 lg:pl-64">
-        <main className="flex-1 overflow-y-auto">
           <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <h2 className="text-h1 font-heading text-brand-dark mb-8">Profile</h2>
             
@@ -1046,9 +1034,6 @@ const Profile: React.FC = () => {
               </TabsContent>
             </Tabs>
           </div>
-        </main>
-      </div>
-    </div>
   );
 };
 

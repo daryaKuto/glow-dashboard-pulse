@@ -3,6 +3,7 @@ import type { LiveSessionSummary } from '@/features/games/ui/components/types';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
 import type { SplitRecord, TransitionRecord } from '@/features/games/lib/telemetry-types';
 import { calculateSessionScore } from '@/domain/games/rules';
+import { logger } from '@/shared/lib/logger';
 
 export interface BuildLiveSessionSummaryArgs {
   gameId: string;
@@ -159,9 +160,57 @@ export function convertHistoryEntryToLiveSummary(entry: GameHistory): LiveSessio
   entry.targetDeviceIds = targets.map((target) => target.deviceId);
   entry.targetDeviceNames = targets.map((target) => target.deviceName);
 
-  // Calculate time-based score using the new scoring system
-  const goalShotsPerTarget = entry.goalShotsPerTarget ?? {};
-  const scoreResult = calculateSessionScore(sortedHitHistory, goalShotsPerTarget, startTime);
+  // Calculate time-based score using the new scoring system.
+  // Filter goalShotsPerTarget to only include devices that actually participated
+  // in this session — presets may carry phantom goal keys for devices that were
+  // not selected, causing calculateSessionScore to mark the run as invalid.
+  const rawGoalShotsPerTarget = entry.goalShotsPerTarget ?? {};
+  const participatingDeviceIds = new Set([
+    ...sortedHitHistory.map((h) => h.deviceId),
+    ...targets.map((t) => t.deviceId),
+  ]);
+  const goalShotsPerTarget: Record<string, number> = {};
+  for (const [id, shots] of Object.entries(rawGoalShotsPerTarget)) {
+    if (participatingDeviceIds.has(id)) {
+      goalShotsPerTarget[id] = shots;
+    }
+  }
+  let scoreResult = calculateSessionScore(sortedHitHistory, goalShotsPerTarget, startTime);
+
+  // Cross-check: if score says invalid but deviceResults/targetStats show all goals met,
+  // the hitHistory deviceIds likely don't match goalShotsPerTarget keys.
+  // Trust deviceResults in this case and recalculate from deviceStats hitTimes.
+  if (!scoreResult.isValid && Object.keys(goalShotsPerTarget).length > 0) {
+    const goalKeys = Object.keys(goalShotsPerTarget);
+    const hitDeviceIds = [...new Set(sortedHitHistory.map((h) => h.deviceId))];
+    logger.warn('[convertHistoryEntryToLiveSummary] Score invalid despite goals set', {
+      goalKeys,
+      hitDeviceIds,
+      hitHistoryLength: sortedHitHistory.length,
+      goalShotsPerTarget,
+      entryDeviceResults: entry.deviceResults?.map((d) => ({ id: d.deviceId, hits: d.hitCount })),
+    });
+
+    const allGoalsMet = Object.entries(goalShotsPerTarget).every(([deviceId, required]) => {
+      const result = deviceStats.find((d) => d.deviceId === deviceId);
+      return result && result.hitCount >= required;
+    });
+
+    if (allGoalsMet) {
+      // Goals are met per deviceResults — recalculate score from deviceStats hitTimes
+      const syntheticHitHistory = deviceStats.flatMap((stat) =>
+        stat.hitTimes.map((ts) => ({ deviceId: stat.deviceId, timestamp: ts })),
+      );
+      const retryResult = calculateSessionScore(
+        syntheticHitHistory.sort((a, b) => a.timestamp - b.timestamp),
+        goalShotsPerTarget,
+        startTime,
+      );
+      if (retryResult.isValid) {
+        scoreResult = retryResult;
+      }
+    }
+  }
 
   return {
     gameId: entry.gameId,
@@ -222,12 +271,37 @@ export function buildLiveSessionSummary({
     .sort((a, b) => a.timestamp - b.timestamp);
   const totalHits = sortedHits.length;
 
+  // Filter goalShotsPerTarget to only include devices that are part of this session.
+  // Presets may carry phantom goal keys for devices that were not selected.
+  const filteredGoalShotsPerTarget: Record<string, number> = {};
+  for (const [id, shots] of Object.entries(goalShotsPerTarget)) {
+    if (deviceIdSet.has(id)) {
+      filteredGoalShotsPerTarget[id] = shots;
+    }
+  }
+
   // Calculate time-based score using the new scoring system
   // Score = time of last required hit (lower is better)
   // A run is valid only if all required hits occur
-  const scoreResult = calculateSessionScore(sortedHits, goalShotsPerTarget, safeStart, {
+  const scoreResult = calculateSessionScore(sortedHits, filteredGoalShotsPerTarget, safeStart, {
     targetOrder,
   });
+
+  if (!scoreResult.isValid && Object.keys(filteredGoalShotsPerTarget).length > 0) {
+    const goalKeys = Object.keys(filteredGoalShotsPerTarget);
+    const hitDeviceIds = [...new Set(hitHistory.map((h) => h.deviceId))];
+    const filteredDeviceIds = [...new Set(sortedHits.map((h) => h.deviceId))];
+    logger.warn('[buildLiveSessionSummary] Score invalid despite goals set', {
+      goalKeys,
+      hitDeviceIds,
+      filteredDeviceIds,
+      deviceIdSetContents: [...deviceIdSet],
+      hitHistoryLength: hitHistory.length,
+      sortedHitsLength: sortedHits.length,
+      totalHits,
+      filteredGoalShotsPerTarget,
+    });
+  }
 
   // Keep legacy efficiencyScore for backwards compatibility (deprecated)
   const firstHitTimestamp = sortedHits.length > 0 ? sortedHits[0].timestamp : safeStart;
@@ -334,8 +408,8 @@ export function buildLiveSessionSummary({
       : null;
   historyEntry.desiredDurationSeconds = normalizedDesiredDuration;
   historyEntry.presetId = presetId ?? null;
-  if (Object.keys(goalShotsPerTarget).length > 0) {
-    historyEntry.goalShotsPerTarget = goalShotsPerTarget;
+  if (Object.keys(filteredGoalShotsPerTarget).length > 0) {
+    historyEntry.goalShotsPerTarget = filteredGoalShotsPerTarget;
   }
   historyEntry.targetDeviceIds = targets.map((target) => target.deviceId);
   historyEntry.targetDeviceNames = targets.map((target) => target.deviceName);

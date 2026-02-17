@@ -6,10 +6,6 @@ import { useRooms } from '@/features/rooms';
 import { useDashboardMetrics, useDashboardSessions } from '@/features/dashboard';
 import { useGameHistory } from '@/features/games';
 import { useAuth } from '@/shared/hooks/use-auth';
-import Header from '@/components/shared/Header';
-import Sidebar from '@/components/shared/Sidebar';
-import MobileDrawer from '@/components/shared/MobileDrawer';
-import { useIsMobile } from '@/shared/hooks/use-mobile';
 import type { TargetsSummary } from '@/lib/edge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -156,7 +152,6 @@ const ComingSoonCard: React.FC<{
 const SESSION_HISTORY_LIMIT = 100; // Fetch all sessions (API max) for accurate counts
 
 const Dashboard: React.FC = () => {
-  const isMobile = useIsMobile();
 
   const [dismissedCards, setDismissedCards] = useState<string[]>([]);
 
@@ -378,12 +373,6 @@ const Dashboard: React.FC = () => {
   // Banner removed - no longer showing ThingsBoard connection status
 
   return (
-    <div className="min-h-screen flex flex-col bg-brand-light responsive-container pt-[116px] lg:pt-16">
-      <Header />
-      {isMobile && <MobileDrawer />}
-      {!isMobile && <Sidebar />}
-      <div className="flex flex-1 no-overflow lg:pl-64">
-        <main className="flex-1 overflow-y-auto responsive-container">
           <FeatureErrorBoundary feature="Dashboard">
           <div className="w-full px-4 py-2 md:p-4 lg:p-6 md:max-w-7xl md:mx-auto space-y-2 md:space-y-4 lg:space-y-6 responsive-transition h-full">
             
@@ -546,9 +535,6 @@ const Dashboard: React.FC = () => {
 
           </div>
           </FeatureErrorBoundary>
-        </main>
-      </div>
-    </div>
   );
 };
 

@@ -342,10 +342,17 @@ export function usePresetManagement(options: UsePresetManagementOptions): UsePre
         // otherwise leave it stale for one cycle, blocking the Start button).
         setIsDurationUnlimited(desiredDurationSeconds === null);
 
-        // Populate wizard Step 3: goal shots
+        // Populate wizard Step 3: goal shots — filter to only matched (selected) targets
         const presetGoalShots = preset.settings?.goalShotsPerTarget;
         if (presetGoalShots && typeof presetGoalShots === 'object' && !Array.isArray(presetGoalShots)) {
-          setGoalShotsPerTarget(presetGoalShots as Record<string, number>);
+          const rawGoals = presetGoalShots as Record<string, number>;
+          const filteredGoals: Record<string, number> = {};
+          for (const id of matchedIds) {
+            if (id in rawGoals) {
+              filteredGoals[id] = rawGoals[id];
+            }
+          }
+          setGoalShotsPerTarget(filteredGoals);
         } else {
           setGoalShotsPerTarget({});
         }

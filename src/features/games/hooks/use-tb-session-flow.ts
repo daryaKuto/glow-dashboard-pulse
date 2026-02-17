@@ -569,8 +569,32 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
     const startTimestampSnapshot = gameStartTime ?? stopTimestamp;
     const sessionLabel = `Game ${new Date(startTimestampSnapshot).toLocaleTimeString()}`;
 
+    // Filter goalShotsPerTarget to only include devices actually in this session.
+    // Presets may carry goals for devices that are no longer selected/available.
+    const sessionDeviceIds = new Set(targetDevices.map((d) => d.deviceId));
+    const filteredGoalShotsPerTarget: Record<string, number> = {};
+    for (const [id, shots] of Object.entries(goalShotsPerTarget)) {
+      if (sessionDeviceIds.has(id)) {
+        filteredGoalShotsPerTarget[id] = shots;
+      }
+    }
+
+    logger.warn('[Games][DIAG] finalizeSession inputs', {
+      gameId: directSessionGameId,
+      startTimestampSnapshot,
+      gameStartTime,
+      stopTimestamp,
+      hitHistoryLength: hitHistorySnapshot.length,
+      hitHistoryDeviceIds: [...new Set(hitHistorySnapshot.map((h) => h.deviceId))],
+      targetDeviceIds: targetDevices.map((d) => d.deviceId),
+      goalShotsPerTarget: filteredGoalShotsPerTarget,
+      goalKeys: Object.keys(filteredGoalShotsPerTarget),
+      splitRecordsCount: splitRecordsSnapshot.length,
+      transitionRecordsCount: transitionRecordsSnapshot.length,
+    });
+
     try {
-      await registry.current.finalizeSession?.({
+      const finalizeResult = await registry.current.finalizeSession?.({
         resolvedGameId: directSessionGameId,
         sessionLabel,
         startTimestamp: startTimestampSnapshot,
@@ -583,13 +607,21 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
         roomName: sessionRoomName,
         desiredDurationSeconds: sessionDurationSeconds,
         presetId: activePresetId,
-        goalShotsPerTarget,
-      });
+        goalShotsPerTarget: filteredGoalShotsPerTarget,
+      }) as { persistenceError?: unknown } | undefined;
 
-      logger.info('[Games] Direct session persisted successfully', {
-        gameId: directSessionGameId,
-        stopTimestamp,
-      });
+      if (finalizeResult?.persistenceError) {
+        logger.warn('[Games] Session finalized locally but persistence failed', {
+          gameId: directSessionGameId,
+          stopTimestamp,
+          error: finalizeResult.persistenceError,
+        });
+      } else {
+        logger.info('[Games] Direct session persisted successfully', {
+          gameId: directSessionGameId,
+          stopTimestamp,
+        });
+      }
       await loadGameHistory();
       toast.success('Game stopped successfully.');
     } catch (error) {

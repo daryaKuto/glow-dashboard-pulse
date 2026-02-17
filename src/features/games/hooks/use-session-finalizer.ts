@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { toast } from '@/components/ui/sonner';
 import type { SessionHitRecord } from '@/features/games/lib/device-game-flow';
-import type { SplitRecord, TransitionRecord, FinalizeSessionArgs } from '@/features/games/lib/telemetry-types';
+import type { SplitRecord, TransitionRecord, RoundSplit, FinalizeSessionArgs } from '@/features/games/lib/telemetry-types';
 import type { LiveSessionSummary } from '@/features/games/ui/components/types';
 import type { GameHistory } from '@/features/games/lib/device-game-flow';
 import type { SessionLifecycle } from '@/features/games/lib/session-state';
@@ -40,7 +40,7 @@ export interface UseSessionFinalizerOptions {
   // Telemetry data (from useSessionTelemetrySync)
   hitHistory: SessionHitRecord[];
   stoppedTargets: Set<string>;
-  telemetryState: { splits: SplitRecord[]; transitions: TransitionRecord[] };
+  telemetryState: { splits: SplitRecord[]; transitions: TransitionRecord[]; roundSplits: RoundSplit[] };
 
   // State setters for persisting finalized session
   setRecentSessionSummary: React.Dispatch<React.SetStateAction<LiveSessionSummary | null>>;
@@ -102,6 +102,11 @@ export function useSessionFinalizer(options: UseSessionFinalizerOptions): UseSes
       ? telemetryState.transitions
       : [];
 
+  const roundSplitRecords =
+    isRunningLifecycle || sessionLifecycle === 'stopping' || sessionLifecycle === 'finalizing'
+      ? telemetryState.roundSplits
+      : [];
+
   // --- Callbacks ---
 
   const finalizeSession = useCallback(
@@ -114,6 +119,7 @@ export function useSessionFinalizer(options: UseSessionFinalizerOptions): UseSes
       hitHistorySnapshot,
       splitRecordsSnapshot,
       transitionRecordsSnapshot,
+      roundSplitsSnapshot,
       roomId,
       roomName,
       desiredDurationSeconds,
@@ -128,6 +134,7 @@ export function useSessionFinalizer(options: UseSessionFinalizerOptions): UseSes
         hitHistory: hitHistorySnapshot,
         splitRecords: splitRecordsSnapshot,
         transitionRecords: transitionRecordsSnapshot,
+        roundSplits: roundSplitsSnapshot,
         devices: targetDevices,
         roomId,
         roomName,
@@ -289,6 +296,7 @@ export function useSessionFinalizer(options: UseSessionFinalizerOptions): UseSes
   register('getHitHistory', () => hitHistory);
   register('getSplitRecords', () => splitRecords);
   register('getTransitionRecords', () => transitionRecords);
+  register('getRoundSplits', () => roundSplitRecords);
 
   return {
     splitRecords,

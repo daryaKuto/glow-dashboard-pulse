@@ -103,6 +103,13 @@ export interface GameHistory {
   transitions?: SessionTransition[];
   hitHistory?: SessionHitRecord[];
   goalShotsPerTarget?: Record<string, number>;
+  roundSplits?: Array<{
+    roundNumber: number;
+    completedAt: number;
+    roundTime: number;
+    pairGap: number;
+    deviceTimestamps: Record<string, number>;
+  }>;
 }
 
 export type GameCommandWarning = { deviceId: string; warning: string };

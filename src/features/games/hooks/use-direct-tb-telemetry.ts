@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { tbSubscribeTelemetry } from '@/features/games/lib/thingsboard-client';
+import type { RoundSplit } from '@/features/games/lib/telemetry-types';
 import { logger } from '@/shared/lib/logger';
 
 interface DeviceDescriptor {
@@ -48,6 +49,7 @@ export interface DirectTelemetryState {
     timestamp: number;
     transitionNumber: number;
   }>;
+  roundSplits: RoundSplit[];
   hitTimesByDevice: Record<string, number[]>;
   sessionEventTimestamp: number | null;
   readyDevices: Record<string, number>;
@@ -100,6 +102,7 @@ export const useDirectTbTelemetry = ({
   const [hitHistory, setHitHistory] = useState<DirectTelemetryState['hitHistory']>([]);
   const [splits, setSplits] = useState<DirectTelemetryState['splits']>([]);
   const [transitions, setTransitions] = useState<DirectTelemetryState['transitions']>([]);
+  const [roundSplits, setRoundSplits] = useState<RoundSplit[]>([]);
   const [hitTimesByDevice, setHitTimesByDevice] = useState<Record<string, number[]>>({});
   const [sessionEventTimestamp, setSessionEventTimestamp] = useState<number | null>(null);
   const [readyDevices, setReadyDevices] = useState<Record<string, number>>({});
@@ -111,6 +114,12 @@ export const useDirectTbTelemetry = ({
     deviceName: string;
     timestamp: number;
   } | null>(null);
+  // Track per-device hit timestamps outside React state for synchronous access in the callback
+  const hitTimesByDeviceRef = useRef<Record<string, number[]>>({});
+  // Track the last completed round number for round split detection
+  const lastCompletedRoundRef = useRef<number>(0);
+  // Track the completion timestamp of the previous round for round-to-round timing
+  const lastRoundCompletionRef = useRef<number | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const trackedDevices = useMemo(() => devices.map((device) => device.deviceId), [devices]);
   const trackedDeviceSet = useMemo(() => new Set(trackedDevices), [trackedDevices]);
@@ -127,12 +136,16 @@ export const useDirectTbTelemetry = ({
     setHitHistory([]);
     setSplits([]);
     setTransitions([]);
+    setRoundSplits([]);
     setHitTimesByDevice({});
     setSessionEventTimestamp(null);
     setReadyDevices({});
     hitCountsRef.current = {};
     lastHitTimestampRef.current = {};
     lastHitDeviceRef.current = null;
+    hitTimesByDeviceRef.current = {};
+    lastCompletedRoundRef.current = 0;
+    lastRoundCompletionRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -158,6 +171,13 @@ export const useDirectTbTelemetry = ({
     // telemetry that ThingsBoard sends as an initial snapshot when the
     // WebSocket opens.  Only events newer than this threshold are real.
     const subscriptionStartedAt = Date.now();
+    const isMultiTargetSession = trackedDevices.length > 1;
+    const deviceNamesForLog = trackedDevices.map((id) => deviceNameMap.get(id) ?? id);
+    console.log(
+      `%c[DirectTelemetry] Subscription started%c | mode: ${isMultiTargetSession ? 'MULTI-TARGET (round-based)' : 'SINGLE-TARGET (sequential)'} | devices: [${deviceNamesForLog.join(', ')}] | gameId: ${gameId}`,
+      'color: #CE3E0A; font-weight: bold; font-size: 13px',
+      'color: inherit; font-size: 13px',
+    );
 
     const unsubscribe = tbSubscribeTelemetry(
       trackedDevices,
@@ -274,6 +294,14 @@ export const useDirectTbTelemetry = ({
           },
         ]);
 
+        // Update hitTimesByDevice (both React state and synchronous ref)
+        {
+          const refTimes = hitTimesByDeviceRef.current;
+          const existing = refTimes[deviceId] ? [...refTimes[deviceId]] : [];
+          existing.push(eventTimestamp);
+          refTimes[deviceId] = existing;
+          hitTimesByDeviceRef.current = { ...refTimes };
+        }
         setHitTimesByDevice((prev) => {
           const next = { ...prev };
           const existing = next[deviceId] ? [...next[deviceId]] : [];
@@ -282,6 +310,7 @@ export const useDirectTbTelemetry = ({
           return next;
         });
 
+        // Same-device splits (unchanged — correct for all session types)
         const previousTimestamp = lastHitTimestampRef.current[deviceId];
         if (typeof previousTimestamp === 'number') {
           const splitTime = (eventTimestamp - previousTimestamp) / 1000;
@@ -300,22 +329,99 @@ export const useDirectTbTelemetry = ({
         }
         lastHitTimestampRef.current[deviceId] = eventTimestamp;
 
-        const previousHit = lastHitDeviceRef.current;
-        if (previousHit && previousHit.deviceId !== deviceId) {
-          const transitionTime = (eventTimestamp - previousHit.timestamp) / 1000;
-          if (transitionTime > 0) {
-            setTransitions((prevTransitions) => ([
-              ...prevTransitions,
-              {
-                fromDevice: previousHit.deviceId,
-                toDevice: deviceId,
-                fromDeviceName: previousHit.deviceName,
-                toDeviceName: deviceName,
-                time: transitionTime,
-                timestamp: eventTimestamp,
-                transitionNumber: prevTransitions.length + 1,
-              },
-            ]));
+        const isMultiTarget = trackedDevices.length > 1;
+
+        if (isMultiTarget) {
+          // Multi-target: compute round-based transitions and roundSplits.
+          // A "round" completes when ALL tracked devices have at least N hits.
+          const refTimes = hitTimesByDeviceRef.current;
+          const perDeviceHitCounts: Record<string, number> = {};
+          for (const id of trackedDevices) {
+            perDeviceHitCounts[deviceNameMap.get(id) ?? id] = refTimes[id]?.length ?? 0;
+          }
+          const minHits = Math.min(
+            ...trackedDevices.map((id) => (refTimes[id]?.length ?? 0)),
+          );
+
+          console.log(
+            `%c[ROUND-CHECK] After hit on ${deviceName}%c | Per-device counts: ${JSON.stringify(perDeviceHitCounts)} | minHits: ${minHits} | lastCompletedRound: ${lastCompletedRoundRef.current}`,
+            'color: #A884FF; font-weight: bold',
+            'color: inherit',
+          );
+
+          if (minHits > lastCompletedRoundRef.current) {
+            // New round completed
+            const roundNumber = minHits;
+            const deviceTimestamps: Record<string, number> = {};
+            for (const id of trackedDevices) {
+              deviceTimestamps[id] = refTimes[id][roundNumber - 1];
+            }
+            const timestamps = Object.values(deviceTimestamps);
+            const completedAt = Math.max(...timestamps);
+            const pairGap = (Math.max(...timestamps) - Math.min(...timestamps)) / 1000;
+            const previousCompletion = lastRoundCompletionRef.current;
+            const roundTime = previousCompletion !== null
+              ? (completedAt - previousCompletion) / 1000
+              : 0;
+
+            const namedTimestamps: Record<string, number> = {};
+            for (const [id, ts] of Object.entries(deviceTimestamps)) {
+              namedTimestamps[deviceNameMap.get(id) ?? id] = ts;
+            }
+            console.log(
+              `%c[ROUND-COMPLETE] Round #${roundNumber}%c | roundTime: ${roundTime.toFixed(3)}s | pairGap: ${pairGap.toFixed(3)}s | completedAt: ${completedAt} | deviceTimestamps: ${JSON.stringify(namedTimestamps)}`,
+              'color: #FF7A00; font-weight: bold; font-size: 13px',
+              'color: inherit; font-size: 13px',
+            );
+
+            lastCompletedRoundRef.current = roundNumber;
+            lastRoundCompletionRef.current = completedAt;
+
+            setRoundSplits((prev) => [
+              ...prev,
+              { roundNumber, completedAt, roundTime, pairGap, deviceTimestamps },
+            ]);
+
+            // Record a round-to-round transition (meaningful for multi-target)
+            if (roundNumber > 1 && roundTime > 0) {
+              console.log(
+                `%c[ROUND-TRANSITION] Round ${roundNumber - 1} → ${roundNumber}%c | time: ${roundTime.toFixed(3)}s`,
+                'color: #6B4A38; font-weight: bold',
+                'color: inherit',
+              );
+              setTransitions((prevTransitions) => ([
+                ...prevTransitions,
+                {
+                  fromDevice: trackedDevices[0],
+                  toDevice: trackedDevices[trackedDevices.length - 1],
+                  fromDeviceName: deviceNameMap.get(trackedDevices[0]) ?? trackedDevices[0],
+                  toDeviceName: deviceNameMap.get(trackedDevices[trackedDevices.length - 1]) ?? trackedDevices[trackedDevices.length - 1],
+                  time: roundTime,
+                  timestamp: completedAt,
+                  transitionNumber: prevTransitions.length + 1,
+                },
+              ]));
+            }
+          }
+        } else {
+          // Single-target: original sequential transition logic
+          const previousHit = lastHitDeviceRef.current;
+          if (previousHit && previousHit.deviceId !== deviceId) {
+            const transitionTime = (eventTimestamp - previousHit.timestamp) / 1000;
+            if (transitionTime > 0) {
+              setTransitions((prevTransitions) => ([
+                ...prevTransitions,
+                {
+                  fromDevice: previousHit.deviceId,
+                  toDevice: deviceId,
+                  fromDeviceName: previousHit.deviceName,
+                  toDeviceName: deviceName,
+                  time: transitionTime,
+                  timestamp: eventTimestamp,
+                  transitionNumber: prevTransitions.length + 1,
+                },
+              ]));
+            }
           }
         }
         lastHitDeviceRef.current = {
@@ -352,11 +458,12 @@ export const useDirectTbTelemetry = ({
       hitHistory,
       splits,
       transitions,
+      roundSplits,
       hitTimesByDevice,
       sessionEventTimestamp,
       readyDevices,
     }),
-    [hitCounts, hitHistory, splits, transitions, hitTimesByDevice, sessionEventTimestamp, readyDevices],
+    [hitCounts, hitHistory, splits, transitions, roundSplits, hitTimesByDevice, sessionEventTimestamp, readyDevices],
   );
 };
 

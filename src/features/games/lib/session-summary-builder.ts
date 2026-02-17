@@ -1,7 +1,7 @@
 import type { GameHistory, SessionHitRecord, SessionSplit, SessionTransition } from '@/features/games/lib/device-game-flow';
 import type { LiveSessionSummary } from '@/features/games/ui/components/types';
 import type { NormalizedGameDevice } from '@/features/games/hooks/use-game-devices';
-import type { SplitRecord, TransitionRecord } from '@/features/games/lib/telemetry-types';
+import type { SplitRecord, TransitionRecord, RoundSplit } from '@/features/games/lib/telemetry-types';
 import { calculateSessionScore } from '@/domain/games/rules';
 import { logger } from '@/shared/lib/logger';
 
@@ -21,6 +21,8 @@ export interface BuildLiveSessionSummaryArgs {
   goalShotsPerTarget?: Record<string, number>;
   /** Target order for multi-target sessions with order enforcement */
   targetOrder?: string[];
+  /** Round-based splits for multi-target sessions (from useDirectTbTelemetry) */
+  roundSplits?: RoundSplit[];
 }
 
 export function convertHistoryEntryToLiveSummary(entry: GameHistory): LiveSessionSummary {
@@ -258,6 +260,7 @@ export function buildLiveSessionSummary({
   presetId = null,
   goalShotsPerTarget = {},
   targetOrder,
+  roundSplits: inputRoundSplits = [],
 }: BuildLiveSessionSummaryArgs): LiveSessionSummary {
   const safeStart = Number.isFinite(startTime) ? startTime : stopTime;
   const durationMs = Math.max(0, stopTime - safeStart);
@@ -332,26 +335,108 @@ export function buildLiveSessionSummary({
     };
   });
 
-  const overallIntervals = sortedHits.slice(1).map((hit, idx) => (hit.timestamp - sortedHits[idx].timestamp) / 1000);
-  const averageHitInterval = overallIntervals.length
-    ? Number((overallIntervals.reduce((sum, value) => sum + value, 0) / overallIntervals.length).toFixed(2))
-    : 0;
+  const isMultiTarget = devices.length > 1;
 
-  const switchTimes: number[] = [];
-  for (let i = 1; i < sortedHits.length; i++) {
-    if (sortedHits[i].deviceId !== sortedHits[i - 1].deviceId) {
-      const switchSpan = (sortedHits[i].timestamp - sortedHits[i - 1].timestamp) / 1000;
-      switchTimes.push(Number(switchSpan.toFixed(2)));
+  // Compute round completion times for multi-target sessions.
+  // Used for both averageHitInterval and crossTargetStats.
+  let roundCompletionTimes: number[] = [];
+  if (isMultiTarget) {
+    // Prefer pre-computed roundSplits from the telemetry hook
+    if (inputRoundSplits.length > 0) {
+      roundCompletionTimes = inputRoundSplits.map((r) => r.completedAt);
+      console.log(
+        `%c[SUMMARY] Multi-target: using ${inputRoundSplits.length} pre-computed roundSplits%c | roundTimes: [${inputRoundSplits.map((r) => r.roundTime.toFixed(3) + 's').join(', ')}] | pairGaps: [${inputRoundSplits.map((r) => r.pairGap.toFixed(3) + 's').join(', ')}]`,
+        'color: #CE3E0A; font-weight: bold; font-size: 12px',
+        'color: inherit; font-size: 12px',
+      );
+    } else {
+      // Fallback: compute from hitHistory
+      const hitsByDevice = new Map<string, number[]>();
+      sortedHits.forEach((hit) => {
+        const arr = hitsByDevice.get(hit.deviceId) ?? [];
+        arr.push(hit.timestamp);
+        hitsByDevice.set(hit.deviceId, arr);
+      });
+      if (hitsByDevice.size > 1) {
+        const minRounds = Math.min(...[...hitsByDevice.values()].map((arr) => arr.length));
+        for (let r = 0; r < minRounds; r++) {
+          const maxTs = Math.max(...[...hitsByDevice.values()].map((arr) => arr[r]));
+          roundCompletionTimes.push(maxTs);
+        }
+      }
+      console.log(
+        `%c[SUMMARY] Multi-target: computed ${roundCompletionTimes.length} rounds from hitHistory fallback%c`,
+        'color: #CE3E0A; font-weight: bold; font-size: 12px',
+        'color: inherit; font-size: 12px',
+      );
     }
   }
 
-  const crossTargetStats = {
-    totalSwitches: switchTimes.length,
-    averageSwitchTime: switchTimes.length
-      ? Number((switchTimes.reduce((sum, value) => sum + value, 0) / switchTimes.length).toFixed(2))
-      : 0,
-    switchTimes,
-  };
+  // averageHitInterval: for multi-target, use round cadence; for single-target, use consecutive hit intervals
+  let averageHitInterval: number;
+  if (isMultiTarget && roundCompletionTimes.length > 1) {
+    const roundIntervals = roundCompletionTimes.slice(1).map(
+      (ts, idx) => (ts - roundCompletionTimes[idx]) / 1000,
+    );
+    averageHitInterval = roundIntervals.length
+      ? Number((roundIntervals.reduce((sum, value) => sum + value, 0) / roundIntervals.length).toFixed(2))
+      : 0;
+    console.log(
+      `%c[SUMMARY] averageHitInterval (multi-target round cadence)%c: ${averageHitInterval}s | roundIntervals: [${roundIntervals.map((i) => i.toFixed(3) + 's').join(', ')}]`,
+      'color: #816E94; font-weight: bold',
+      'color: inherit',
+    );
+  } else {
+    const overallIntervals = sortedHits.slice(1).map((hit, idx) => (hit.timestamp - sortedHits[idx].timestamp) / 1000);
+    averageHitInterval = overallIntervals.length
+      ? Number((overallIntervals.reduce((sum, value) => sum + value, 0) / overallIntervals.length).toFixed(2))
+      : 0;
+    console.log(
+      `%c[SUMMARY] averageHitInterval (single-target sequential)%c: ${averageHitInterval}s | ${overallIntervals.length} intervals`,
+      'color: #816E94; font-weight: bold',
+      'color: inherit',
+    );
+  }
+
+  // crossTargetStats: for multi-target, use round-to-round intervals; for single-target, use sequential switches
+  let crossTargetStats: GameHistory['crossTargetStats'];
+  if (isMultiTarget && roundCompletionTimes.length > 1) {
+    const roundIntervals = roundCompletionTimes.slice(1).map(
+      (ts, idx) => Number(((ts - roundCompletionTimes[idx]) / 1000).toFixed(2)),
+    );
+    crossTargetStats = {
+      totalSwitches: roundIntervals.length,
+      averageSwitchTime: roundIntervals.length
+        ? Number((roundIntervals.reduce((a, b) => a + b, 0) / roundIntervals.length).toFixed(2))
+        : 0,
+      switchTimes: roundIntervals,
+    };
+    console.log(
+      `%c[SUMMARY] crossTargetStats (multi-target round-based)%c: totalSwitches: ${crossTargetStats.totalSwitches} | avgSwitchTime: ${crossTargetStats.averageSwitchTime}s | switchTimes: [${roundIntervals.map((i) => i + 's').join(', ')}]`,
+      'color: #816E94; font-weight: bold',
+      'color: inherit',
+    );
+  } else {
+    const switchTimes: number[] = [];
+    for (let i = 1; i < sortedHits.length; i++) {
+      if (sortedHits[i].deviceId !== sortedHits[i - 1].deviceId) {
+        const switchSpan = (sortedHits[i].timestamp - sortedHits[i - 1].timestamp) / 1000;
+        switchTimes.push(Number(switchSpan.toFixed(2)));
+      }
+    }
+    crossTargetStats = {
+      totalSwitches: switchTimes.length,
+      averageSwitchTime: switchTimes.length
+        ? Number((switchTimes.reduce((sum, value) => sum + value, 0) / switchTimes.length).toFixed(2))
+        : 0,
+      switchTimes,
+    };
+    console.log(
+      `%c[SUMMARY] crossTargetStats (single-target sequential)%c: totalSwitches: ${crossTargetStats.totalSwitches} | avgSwitchTime: ${crossTargetStats.averageSwitchTime}s`,
+      'color: #816E94; font-weight: bold',
+      'color: inherit',
+    );
+  }
 
   const splits: SessionSplit[] = splitRecords
     .filter((split) => deviceIdSet.has(split.deviceId))
@@ -416,6 +501,9 @@ export function buildLiveSessionSummary({
   historyEntry.splits = splits;
   historyEntry.transitions = transitions;
   historyEntry.hitHistory = sortedHits;
+  if (inputRoundSplits.length > 0) {
+    historyEntry.roundSplits = inputRoundSplits;
+  }
 
   return {
     gameId: historyEntry.gameId,

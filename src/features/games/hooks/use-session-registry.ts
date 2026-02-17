@@ -1,6 +1,6 @@
 import { useRef, useCallback } from 'react';
 import type { SessionHitRecord } from '@/features/games/lib/device-game-flow';
-import type { SplitRecord, TransitionRecord } from '@/features/games/lib/telemetry-types';
+import type { SplitRecord, TransitionRecord, RoundSplit } from '@/features/games/lib/telemetry-types';
 import type { NormalizedGameDevice } from './use-game-devices';
 import type { FinalizeSessionArgs } from '@/features/games/lib/telemetry-types';
 
@@ -35,6 +35,7 @@ export type SessionCallbacks = {
   getHitHistory: () => SessionHitRecord[];
   getSplitRecords: () => SplitRecord[];
   getTransitionRecords: () => TransitionRecord[];
+  getRoundSplits: () => RoundSplit[];
 };
 
 // --- The registry type (a ref whose `.current` holds partial callbacks) ---

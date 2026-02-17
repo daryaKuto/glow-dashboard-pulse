@@ -496,6 +496,16 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
       stopTimeISO: new Date(stopTimestamp).toISOString(),
       reason: 'manual_or_timeout',
     });
+
+    // CRITICAL: Capture telemetry snapshots BEFORE disabling telemetry.
+    // setDirectTelemetryEnabled(false) triggers resetState() in useDirectTbTelemetry,
+    // which wipes roundSplits/splits/transitions to []. The await below gives React
+    // time to re-render and execute the reset, so snapshots must be taken first.
+    const hitHistorySnapshot = [...(registry.current.getHitHistory?.() ?? [])];
+    const splitRecordsSnapshot = [...(registry.current.getSplitRecords?.() ?? [])];
+    const transitionRecordsSnapshot = [...(registry.current.getTransitionRecords?.() ?? [])];
+    const roundSplitsSnapshot = [...(registry.current.getRoundSplits?.() ?? [])];
+
     setDirectTelemetryEnabled(false);
 
     const stopDeviceIds = directSessionTargets.map(({ deviceId }) => deviceId);
@@ -563,9 +573,6 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
             .map((deviceId) => availableDevicesRef.current.find((device) => device.deviceId === deviceId) ?? null)
             .filter((device): device is NormalizedGameDevice => device !== null);
 
-    const hitHistorySnapshot = [...(registry.current.getHitHistory?.() ?? [])];
-    const splitRecordsSnapshot = [...(registry.current.getSplitRecords?.() ?? [])];
-    const transitionRecordsSnapshot = [...(registry.current.getTransitionRecords?.() ?? [])];
     const startTimestampSnapshot = gameStartTime ?? stopTimestamp;
     const sessionLabel = `Game ${new Date(startTimestampSnapshot).toLocaleTimeString()}`;
 
@@ -591,6 +598,7 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
       goalKeys: Object.keys(filteredGoalShotsPerTarget),
       splitRecordsCount: splitRecordsSnapshot.length,
       transitionRecordsCount: transitionRecordsSnapshot.length,
+      roundSplitsCount: roundSplitsSnapshot.length,
     });
 
     try {
@@ -603,6 +611,7 @@ export function useTbSessionFlow(options: UseTbSessionFlowOptions): UseTbSession
         hitHistorySnapshot,
         splitRecordsSnapshot,
         transitionRecordsSnapshot,
+        roundSplitsSnapshot,
         roomId: sessionRoomId,
         roomName: sessionRoomName,
         desiredDurationSeconds: sessionDurationSeconds,

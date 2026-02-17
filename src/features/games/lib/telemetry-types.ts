@@ -16,6 +16,14 @@ export interface TransitionRecord {
   transitionNumber: number;
 }
 
+export interface RoundSplit {
+  roundNumber: number;
+  completedAt: number;        // epoch ms — max timestamp of all devices for this round
+  roundTime: number;          // seconds — time from previous round completion to this one (0 for first round)
+  pairGap: number;            // seconds — abs difference between first and last device hit in this round
+  deviceTimestamps: Record<string, number>; // per-device timestamp for this round
+}
+
 export interface FinalizeSessionArgs {
   resolvedGameId: string;
   sessionLabel: string;
@@ -25,6 +33,7 @@ export interface FinalizeSessionArgs {
   hitHistorySnapshot: import('@/features/games/lib/device-game-flow').SessionHitRecord[];
   splitRecordsSnapshot: SplitRecord[];
   transitionRecordsSnapshot: TransitionRecord[];
+  roundSplitsSnapshot: RoundSplit[];
   roomId: string | null;
   roomName: string | null;
   desiredDurationSeconds: number | null;

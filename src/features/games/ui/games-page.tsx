@@ -794,26 +794,32 @@ const Games: React.FC = () => {
                   </p>
                 </div>
                 {recentSessionSummary && !isRunningLifecycle && (
-                  <div className="flex gap-1 bg-brand-light rounded-full p-1">
+                  <div className="flex border-b border-brand-dark/10">
                     <button
                       onClick={() => setActiveView('setup')}
-                      className={`rounded-full px-4 py-1.5 text-xs font-medium font-body transition-all duration-200 ${
+                      className={`relative px-4 py-2 text-sm font-medium font-body transition-colors duration-200 ${
                         activeView === 'setup'
-                          ? 'bg-brand-primary text-white'
-                          : 'text-brand-dark/60 hover:text-brand-dark'
+                          ? 'text-brand-primary'
+                          : 'text-brand-dark/40 hover:text-brand-dark/70'
                       }`}
                     >
                       New Session
+                      {activeView === 'setup' && (
+                        <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-primary rounded-full" />
+                      )}
                     </button>
                     <button
                       onClick={() => setActiveView('summary')}
-                      className={`rounded-full px-4 py-1.5 text-xs font-medium font-body transition-all duration-200 ${
+                      className={`relative px-4 py-2 text-sm font-medium font-body transition-colors duration-200 ${
                         activeView === 'summary'
-                          ? 'bg-brand-primary text-white'
-                          : 'text-brand-dark/60 hover:text-brand-dark'
+                          ? 'text-brand-primary'
+                          : 'text-brand-dark/40 hover:text-brand-dark/70'
                       }`}
                     >
                       Last Session
+                      {activeView === 'summary' && (
+                        <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-primary rounded-full" />
+                      )}
                     </button>
                   </div>
                 )}

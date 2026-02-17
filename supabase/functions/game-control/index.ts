@@ -433,7 +433,17 @@ async function handleHistory(
         total_shots: hitCount,
         accuracy_percentage: typeof summary.accuracy === "number" ? summary.accuracy : null,
         avg_reaction_time_ms: (() => {
-          // 1st: compute from individual splits (same-device hit intervals, in seconds)
+          // 1st: for multi-target sessions, prefer roundSplits (round-to-round cadence, in seconds)
+          if (Array.isArray(summary.roundSplits) && summary.roundSplits.length > 0) {
+            const validRoundTimes = summary.roundSplits
+              .map((r: any) => typeof r.roundTime === 'number' && Number.isFinite(r.roundTime) && r.roundTime > 0 ? r.roundTime : null)
+              .filter((v: number | null): v is number => v !== null);
+            if (validRoundTimes.length > 0) {
+              const avgSeconds = validRoundTimes.reduce((sum: number, t: number) => sum + t, 0) / validRoundTimes.length;
+              return Math.round(avgSeconds * 1000);
+            }
+          }
+          // 2nd: compute from individual splits (same-device hit intervals, in seconds)
           if (Array.isArray(summary.splits) && summary.splits.length > 0) {
             const validSplits = summary.splits
               .map((s: any) => typeof s.time === 'number' && Number.isFinite(s.time) && s.time > 0 ? s.time : null)
@@ -443,13 +453,22 @@ async function handleHistory(
               return Math.round(avgSeconds * 1000);
             }
           }
-          // 2nd: use averageHitInterval (overall avg between all hits, in seconds)
+          // 3rd: use averageHitInterval (overall avg between all hits, in seconds)
           if (typeof summary.averageHitInterval === 'number' && Number.isFinite(summary.averageHitInterval) && summary.averageHitInterval > 0) {
             return Math.round(summary.averageHitInterval * 1000);
           }
           return null;
         })(),
         best_reaction_time_ms: (() => {
+          // For multi-target: prefer roundSplits (best round-to-round time)
+          if (Array.isArray(summary.roundSplits) && summary.roundSplits.length > 0) {
+            const validRoundTimes = summary.roundSplits
+              .map((r: any) => typeof r.roundTime === 'number' && Number.isFinite(r.roundTime) && r.roundTime > 0 ? r.roundTime : null)
+              .filter((v: number | null): v is number => v !== null);
+            if (validRoundTimes.length > 0) {
+              return Math.round(Math.min(...validRoundTimes) * 1000);
+            }
+          }
           if (Array.isArray(summary.splits) && summary.splits.length > 0) {
             const validSplits = summary.splits
               .map((s: any) => typeof s.time === 'number' && Number.isFinite(s.time) && s.time > 0 ? s.time : null)
@@ -461,6 +480,15 @@ async function handleHistory(
           return null;
         })(),
         worst_reaction_time_ms: (() => {
+          // For multi-target: prefer roundSplits (worst round-to-round time)
+          if (Array.isArray(summary.roundSplits) && summary.roundSplits.length > 0) {
+            const validRoundTimes = summary.roundSplits
+              .map((r: any) => typeof r.roundTime === 'number' && Number.isFinite(r.roundTime) && r.roundTime > 0 ? r.roundTime : null)
+              .filter((v: number | null): v is number => v !== null);
+            if (validRoundTimes.length > 0) {
+              return Math.round(Math.max(...validRoundTimes) * 1000);
+            }
+          }
           if (Array.isArray(summary.splits) && summary.splits.length > 0) {
             const validSplits = summary.splits
               .map((s: any) => typeof s.time === 'number' && Number.isFinite(s.time) && s.time > 0 ? s.time : null)
